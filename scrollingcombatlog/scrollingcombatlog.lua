@@ -1,16 +1,6 @@
---[[
-    ScrollingCombatLog - Documented Source for GitHub
-
-    This file preserves the addon's runtime behavior while adding section-level
-    documentation comments that explain the major systems, packet parsing,
-    rendering, configuration, persistence, and Ashita v4 integration points.
-
-    Comments are documentation only.
-]]--
-
 addon.name    = 'scrollingcombatlog';
 addon.author  = 'Izumi (ShiroIzumi)';
-addon.version = '1.0.5';
+addon.version = '1.0.10';
 addon.desc    = 'Self-only packet-driven Ashita v4 scrolling combat text inspired by MSBT.';
 addon.link    = '';
 
@@ -21,11 +11,6 @@ local helpers         = require('helpers');
 local ashita_settings = require('settings');
 local fonts           = require('fonts');
 
--- ============================================================================
--- Default configuration
--- ============================================================================
--- Defines display timing, renderer/font behavior, event visibility/colors,
--- lane positions, config-window geometry, and filtering behavior.
 local defaults = T{
     enabled = true,
     paused = false,
@@ -119,7 +104,6 @@ local defaults = T{
     },
 };
 
--- Load persisted settings and merge them with current defaults.
 local settings = ashita_settings.load(defaults);
 
 local function ensure_event_option(key)
@@ -185,6 +169,51 @@ if settings.config_tools_window.w == nil then settings.config_tools_window.w = d
 if settings.config_tools_window.h == nil then settings.config_tools_window.h = defaults.config_tools_window.h; end
 
 
+local function normalize_loaded_settings()
+    for _, key in ipairs({
+        'melee_damage', 'ranged_damage', 'criticals', 'weapon_skills', 'spells',
+        'magic_bursts', 'skillchains', 'outgoing_abilities', 'pet_damage',
+        'additional_effects', 'counters', 'healing_received', 'mp_recovery',
+        'drain_aspir', 'buffs', 'status_positive', 'status_negative',
+        'status_removed', 'incoming_damage', 'incoming_abilities', 'defenses',
+        'ko', 'exp', 'gil', 'level_up', 'skill_ups', 'item_drops'
+    }) do
+        ensure_event_option(key);
+    end
+
+    if settings.melee_scale == nil then settings.melee_scale = defaults.melee_scale; end
+    if settings.ability_scale == nil then settings.ability_scale = defaults.ability_scale; end
+    if settings.heal_scale == nil then settings.heal_scale = defaults.heal_scale; end
+    if settings.reward_scale == nil then settings.reward_scale = defaults.reward_scale; end
+    if settings.show_symbols == nil then settings.show_symbols = defaults.show_symbols; end
+    if settings.locked == nil then settings.locked = defaults.locked; end
+    if settings.renderer_mode == nil then settings.renderer_mode = defaults.renderer_mode; end
+    if settings.font_family == nil then settings.font_family = defaults.font_family; end
+    if settings.font_bold == nil then settings.font_bold = defaults.font_bold; end
+    if settings.font_italic == nil then settings.font_italic = defaults.font_italic; end
+    if settings.font_outline == nil then settings.font_outline = defaults.font_outline; end
+    if settings.show_target_names == nil then settings.show_target_names = defaults.show_target_names; end
+    if settings.show_source_names == nil then settings.show_source_names = defaults.show_source_names; end
+    if settings.show_zero_damage == nil then settings.show_zero_damage = defaults.show_zero_damage; end
+    if settings.show_misses == nil then settings.show_misses = defaults.show_misses; end
+    if settings.combine_repeated_hits == nil then settings.combine_repeated_hits = defaults.combine_repeated_hits; end
+    if settings.combine_window == nil then settings.combine_window = defaults.combine_window; end
+    if settings.max_visible_events == nil then settings.max_visible_events = defaults.max_visible_events; end
+
+    if settings.config_window == nil then settings.config_window = T{}; end
+    if settings.config_window.x == nil then settings.config_window.x = defaults.config_window.x; end
+    if settings.config_window.y == nil then settings.config_window.y = defaults.config_window.y; end
+    if settings.config_window.w == nil then settings.config_window.w = defaults.config_window.w; end
+    if settings.config_window.h == nil then settings.config_window.h = defaults.config_window.h; end
+
+    if settings.config_tools_window == nil then settings.config_tools_window = T{}; end
+    if settings.config_tools_window.x == nil then settings.config_tools_window.x = defaults.config_tools_window.x; end
+    if settings.config_tools_window.y == nil then settings.config_tools_window.y = defaults.config_tools_window.y; end
+    if settings.config_tools_window.w == nil then settings.config_tools_window.w = defaults.config_tools_window.w; end
+    if settings.config_tools_window.h == nil then settings.config_tools_window.h = defaults.config_tools_window.h; end
+end
+
+
 local state = {
     events = {},
     next_id = 1,
@@ -210,6 +239,11 @@ local state = {
     font_pool = {},
     font_pool_size = 0,
     font_generation = 1,
+
+    -- Dedicated FontManager objects used only by the Config Live Preview.
+    -- Keeping these separate prevents preview rendering from stealing or
+    -- reconfiguring active combat-text font objects.
+    preview_font_pool = {},
 
     me_cached = nil,
 
@@ -380,6 +414,12 @@ local function simplify_text(line, me)
     return line;
 end
 
+-- Forward declaration:
+-- cycle_font_family() is defined before the FontManager pool implementation.
+-- Declaring the local here ensures the function closes over the correct local
+-- instead of resolving rebuild_font_pool as a missing global.
+local rebuild_font_pool;
+
 local FONT_FAMILIES = T{
     'Consolas',
     'Segoe UI',
@@ -462,11 +502,6 @@ local function event_color(ev)
     return settings.colors.outgoing;
 end
 
--- ============================================================================
--- Event formatting helpers
--- ============================================================================
--- Maps event categories to compact prefixes such as [WS], [SP], [SC], [XP],
--- [SKILL], [KO], and the critical-hit * marker.
 local function event_symbol(ev)
     if settings.show_symbols ~= true then
         return '';
@@ -505,9 +540,6 @@ local function rendered_event_text(ev)
     return event_symbol(ev) .. tostring(ev.text or '');
 end
 
--- Per-category typography scaling.
--- Critical hits intentionally use the exact normal melee scale to avoid the
--- FontManager hitch that occurred when criticals changed font height.
 local function event_scale(ev, age)
     local global_scale = tonumber(settings.font_scale) or 1.35;
     local mult = tonumber(settings.melee_scale) or 1.00;
@@ -591,11 +623,6 @@ local function should_suppress_event(direction, kind, value)
     return false;
 end
 
--- ============================================================================
--- Event creation and lifetime management
--- ============================================================================
--- Normalizes event data, applies visibility/color settings, and enforces the
--- configurable maximum number of active scrolling events.
 local function add_event(direction, kind, text, event_type)
     if state.paused or not settings.enabled then return end
 
@@ -649,11 +676,6 @@ end
 
 local safe_resource_name;
 
--- ============================================================================
--- Combat text composition / grouping helpers
--- ============================================================================
--- Builds optional source/target suffixes, repeated-hit combinations, resist
--- annotations, SA/TA tags, and special additional/spike-effect text.
 local function target_suffix(name)
     if settings.show_target_names == false then
         return '';
@@ -931,11 +953,6 @@ local function emit_skillchain(action, target_name)
 end
 
 -- ============================================================================
--- ============================================================================
--- Packet-driven live combat capture
--- ============================================================================
--- Parses FFXI action packets and turns only self-relevant actions into SCL
--- events. The addon intentionally avoids becoming an alliance-wide parser.
 -- Packet-driven live combat capture
 -- ============================================================================
 -- 0.6.0 corrects the 0x28 bit layout.  The previous parser treated TargetCount
@@ -973,11 +990,6 @@ local function action_is_heal(action)
 end
 
 
--- ============================================================================
--- Safe Ashita memory/resource helpers
--- ============================================================================
--- All Player/Entity/Party access is guarded so a temporarily unavailable
--- memory manager cannot crash the addon.
 local function safe_player_server_id()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then
@@ -1162,9 +1174,6 @@ local function safe_monster_ability_name(ability_id)
     return nil;
 end
 
--- Parses incoming 0x28 action packets using the packed bit layout used by FFXI.
--- The parser extracts actor, category, targets, actions, added effects, and
--- spike/counter effects while keeping all optional data guarded.
 local function parse_action_packet(e)
     if not e or not e.data_raw then
         return nil;
@@ -1313,12 +1322,6 @@ local function is_spell_or_ability_category(category)
         or category == 14 or category == 15;
 end
 
--- ============================================================================
--- Self-only combat classification
--- ============================================================================
--- Converts parsed actions into outgoing/incoming SCL events. Handles melee,
--- ranged, crits, WS, spells, mob abilities, healing, statuses, skillchains,
--- magic bursts, pet actions, counters, and additional effects.
 local function emit_self_action(act)
     local self_id = safe_player_server_id();
     if not self_id or not act then
@@ -1661,11 +1664,6 @@ local function skill_name_from_id(skill_id)
     return SKILL_NAMES[skill_id] or ('Skill #' .. tostring(skill_id));
 end
 
--- ============================================================================
--- Progression / reward packet handling
--- ============================================================================
--- Handles EXP/LP/CP/EP/gil, skill-up packet messages, KO/defeat messages, and
--- status-effect removal messages from incoming action-message packets.
 local function emit_progression_message(msg)
     if not msg then
         return;
@@ -1870,11 +1868,6 @@ end);
 -- when the normal retail 0x02D packet is absent or modified. Unlike combat
 -- capture, these system gain lines are reliable through text_in, so use them
 -- as a narrow fallback for EXP/point gains only.
--- ============================================================================
--- Text fallback parsing
--- ============================================================================
--- Used only for events that are unavailable/unreliable in packets on some
--- HorizonXI paths, such as certain skill-up, level-up, item, and MP text.
 ashita.events.register('text_in', 'scl_scroll_exp_text_in_cb', function(e)
     if not e or state.paused or not settings.enabled or e.injected then
         return;
@@ -2165,6 +2158,14 @@ local function create_font_object()
             bold = settings.font_bold == true,
             italic = settings.font_italic == true,
             right_justified = false,
+
+            -- Ashita FontManager requires BOTH an outline color and the
+            -- FontDrawFlags.Outlined flag. Setting color_outline by itself
+            -- does not actually render an outline.
+            draw_flags = settings.font_outline == true
+                and FontDrawFlags.Outlined
+                or FontDrawFlags.None,
+
             color = 0xFFFFFFFF,
             color_outline = settings.font_outline == true and 0xFF000000 or 0x00000000,
             position_x = 0,
@@ -2217,8 +2218,38 @@ local function destroy_font_pool()
     state.font_pool_size = 0;
 end
 
-local function rebuild_font_pool()
+local function ensure_preview_font_pool(count)
+    count = math.max(0, tonumber(count) or 0);
+
+    while #state.preview_font_pool < count do
+        local obj = create_font_object();
+        if not obj then
+            break;
+        end
+        state.preview_font_pool[#state.preview_font_pool + 1] = obj;
+    end
+end
+
+local function hide_preview_fonts()
+    for _, obj in ipairs(state.preview_font_pool) do
+        if obj then
+            obj.visible = false;
+        end
+    end
+end
+
+local function destroy_preview_font_pool()
+    for _, obj in ipairs(state.preview_font_pool) do
+        if obj then
+            pcall(function() obj:destroy(); end);
+        end
+    end
+    state.preview_font_pool = {};
+end
+
+rebuild_font_pool = function()
     destroy_font_pool();
+    destroy_preview_font_pool();
     state.font_generation = state.font_generation + 1;
 end
 
@@ -2241,7 +2272,19 @@ local function apply_font_style(obj, ev, text_value, x, y, color, alpha)
 
     if obj.bold ~= bold then obj.bold = bold; end
     if obj.italic ~= italic then obj.italic = italic; end
-    if obj.right_justified ~= justified then obj.right_justified = justified; end
+
+    -- Draw flags are what actually enable FontManager outlines. Build the
+    -- complete flag set each frame so changing Outline is immediately visible
+    -- and left-oriented/right-justified lanes continue to work.
+    local draw_flags = FontDrawFlags.None;
+    if justified then
+        draw_flags = bit.bor(draw_flags, FontDrawFlags.RightJustified);
+    end
+    if settings.font_outline == true then
+        draw_flags = bit.bor(draw_flags, FontDrawFlags.Outlined);
+    end
+
+    if obj.draw_flags ~= draw_flags then obj.draw_flags = draw_flags; end
 
     if obj.text ~= text_value then obj.text = text_value; end
     if obj.position_x ~= x then obj.position_x = x; end
@@ -2255,6 +2298,43 @@ local function apply_font_style(obj, ev, text_value, x, y, color, alpha)
     if obj.color ~= new_color then obj.color = new_color; end
     if obj.color_outline ~= new_outline then obj.color_outline = new_outline; end
     if obj.visible ~= true then obj.visible = true; end
+end
+
+-- Lightweight Performance-renderer outline.
+--
+-- This is intentionally NOT the old drop-shadow implementation. A shadow adds
+-- a separate displaced copy of the text, while this draws four 1px black edge
+-- passes around the same glyph position and then the normal text on top.
+--
+-- Four passes were chosen instead of an 8-direction outline to keep the
+-- Performance renderer inexpensive even with several simultaneous events.
+local function draw_imgui_text_with_outline(color, text_value)
+    if settings.font_outline ~= true then
+        imgui.TextColored(color, text_value);
+        return;
+    end
+
+    local x, y = imgui.GetCursorPos();
+    x = tonumber(x) or 0;
+    y = tonumber(y) or 0;
+
+    local alpha = tonumber(color[4]) or 1.0;
+    local outline_color = { 0.0, 0.0, 0.0, alpha };
+
+    local offsets = {
+        { -1,  0 },
+        {  1,  0 },
+        {  0, -1 },
+        {  0,  1 },
+    };
+
+    for _, offset in ipairs(offsets) do
+        imgui.SetCursorPos({ x + offset[1], y + offset[2] });
+        imgui.TextColored(outline_color, text_value);
+    end
+
+    imgui.SetCursorPos({ x, y });
+    imgui.TextColored(color, text_value);
 end
 
 local function draw_scrolling_event_performance(ev, age, y)
@@ -2301,7 +2381,7 @@ local function draw_scrolling_event_performance(ev, age, y)
     imgui.PushStyleColor(ImGuiCol_Border, { 0.0, 0.0, 0.0, 0.0 });
 
     if imgui.Begin(('##scl_perf_%d'):fmt(ev.id), nil, flags) then
-        imgui.TextColored(
+        draw_imgui_text_with_outline(
             { color[1], color[2], color[3], (color[4] or 1.0) * fade },
             display_text
         );
@@ -2389,11 +2469,6 @@ local function draw_lane(events, anchor, now, pool_index)
     return pool_index;
 end
 
--- ============================================================================
--- Scrolling combat renderer
--- ============================================================================
--- Splits active events into outgoing/incoming lanes, applies growth/orientation,
--- font scaling, fade/scroll timing, and renderer-specific drawing.
 local function draw_events()
     if not settings.enabled then
         hide_unused_fonts(1);
@@ -2459,9 +2534,6 @@ local function draw_events()
     end
 end
 
--- ============================================================================
--- Settings persistence
--- ============================================================================
 local function save_settings()
     ashita_settings.save();
 end
@@ -2597,7 +2669,13 @@ end
 
 local function draw_live_preview()
     imgui.TextColored(UI_ACCENT, 'LIVE PREVIEW');
-    imgui.TextDisabled('Uses your current colors, prefixes and name-display settings.');
+
+    local custom = (settings.renderer_mode or 'performance') == 'custom';
+    if custom then
+        imgui.TextDisabled('Custom Font preview: family, bold, italic, outline, colors and size are live.');
+    else
+        imgui.TextDisabled('Performance preview: colors, prefixes, names and size are live.');
+    end
 
     local samples = {
         { 'outgoing', 'critical', '148' .. target_suffix('Goblin'), 'criticals' },
@@ -2610,16 +2688,111 @@ local function draw_live_preview()
         { 'incoming', 'xp', '+189 EXP', 'exp' },
     };
 
+    if not custom then
+        hide_preview_fonts();
+
+        for i, sample in ipairs(samples) do
+            local ev = {
+                direction = sample[1],
+                kind = sample[2],
+                text = sample[3],
+                event_type = sample[4],
+                created = os.clock(),
+            };
+
+            local c = event_color(ev);
+            local scale = event_scale(ev, 0);
+            imgui.PushFont(nil, imgui.GetFontSize() * scale);
+            draw_imgui_text_with_outline(c, rendered_event_text(ev));
+            imgui.PopFont();
+
+            if i == 4 then
+                imgui.Separator();
+            end
+        end
+
+        return;
+    end
+
+    -- Custom Font renderer:
+    -- ImGui cannot preview arbitrary Windows FontManager families, so use a
+    -- dedicated set of actual FontManager objects positioned over the Preview
+    -- area. This makes the preview match the selected family/style instead of
+    -- always looking like the ImGui UI font.
+    ensure_preview_font_pool(#samples);
+
+    local start_x, start_y = imgui.GetCursorScreenPos();
+    start_x = tonumber(start_x) or 0;
+    start_y = tonumber(start_y) or 0;
+
+    local y = start_y;
+    local used_height = 0;
+
     for i, sample in ipairs(samples) do
         local ev = {
             direction = sample[1],
             kind = sample[2],
             text = sample[3],
             event_type = sample[4],
+            created = os.clock(),
         };
-        local c = event_color(ev);
-        imgui.TextColored(c, rendered_event_text(ev));
-        if i == 4 then imgui.Separator(); end
+
+        local obj = state.preview_font_pool[i];
+        local scale = event_scale(ev, 0);
+        local height = math.max(8, math.floor(16 * scale + 0.5));
+        local line_height = math.max(20, height + 5);
+
+        if i == 5 then
+            y = y + 8;
+            used_height = used_height + 8;
+        end
+
+        if obj then
+            local family = tostring(settings.font_family or 'Consolas');
+            if obj.font_family ~= family then obj.font_family = family; end
+            if obj.font_height ~= height then obj.font_height = height; end
+
+            local bold = settings.font_bold == true;
+            local italic = settings.font_italic == true;
+            if obj.bold ~= bold then obj.bold = bold; end
+            if obj.italic ~= italic then obj.italic = italic; end
+
+            local preview_draw_flags = FontDrawFlags.None;
+            if settings.font_outline == true then
+                preview_draw_flags = bit.bor(preview_draw_flags, FontDrawFlags.Outlined);
+            end
+            if obj.draw_flags ~= preview_draw_flags then
+                obj.draw_flags = preview_draw_flags;
+            end
+
+            local display_text = rendered_event_text(ev);
+            if obj.text ~= display_text then obj.text = display_text; end
+            if obj.position_x ~= start_x then obj.position_x = start_x; end
+            if obj.position_y ~= y then obj.position_y = y; end
+
+            local c = event_color(ev);
+            local new_color = rgba_to_argb(c, 1.0);
+            local new_outline = settings.font_outline == true
+                and rgba_to_argb({ 0.0, 0.0, 0.0, 1.0 }, 1.0)
+                or 0x00000000;
+
+            if obj.color ~= new_color then obj.color = new_color; end
+            if obj.color_outline ~= new_outline then obj.color_outline = new_outline; end
+            if obj.visible ~= true then obj.visible = true; end
+        end
+
+        y = y + line_height;
+        used_height = used_height + line_height;
+    end
+
+    -- Reserve the physical space occupied by FontManager text so the Tools
+    -- section begins below the live preview instead of underneath it.
+    imgui.Dummy({ 1, used_height });
+
+    -- Hide any extra preview objects left from a future/older larger sample set.
+    for i = #samples + 1, #state.preview_font_pool do
+        local obj = state.preview_font_pool[i];
+        if obj then obj.visible = false; end
     end
 end
 
@@ -2750,13 +2923,6 @@ local function add_test_events()
     add_event('incoming', 'xp', 'Beastman Seal', 'item_drops');
 end
 
--- ============================================================================
--- Configuration tabs
--- ============================================================================
--- General: timing/content/position settings.
--- Font Style: renderer, font family/style, and category typography.
--- Outgoing: outgoing event toggles/colors/layout.
--- Incoming: incoming event toggles/colors/layout plus Rewards.
 local function draw_general_config_tab()
     section_header('DISPLAY & BEHAVIOR', UI_ACCENT);
 
@@ -2923,9 +3089,15 @@ local function draw_font_style_config_tab()
     end
 
     if (settings.renderer_mode or 'performance') == 'performance' then
-        imgui.TextColored(UI_MUTED, 'Font Family / Bold / Italic / Outline apply only to Custom Font renderer.');
+        imgui.TextColored(
+            UI_MUTED,
+            'Outline works in Performance mode. Font Family / Bold / Italic apply only to Custom Font.'
+        );
     else
-        imgui.TextColored(UI_MUTED, 'Font family uses installed Windows fonts; Consolas remains the default.');
+        imgui.TextColored(
+            UI_MUTED,
+            'Custom Font uses installed Windows fonts; native FontManager Outline is enabled here.'
+        );
     end
 
     imgui.Spacing();
@@ -3064,10 +3236,6 @@ local function capture_current_window_geometry(which)
     end
 end
 
--- ============================================================================
--- Preview & Tools companion window
--- ============================================================================
--- Displays a live style preview, test/clear/reset tools, and command reference.
 local function draw_config_companion()
     if not state.config_geometry.tools_initialized then
         imgui.SetNextWindowPos({
@@ -3134,13 +3302,9 @@ local function draw_config_companion()
     imgui.End();
 end
 
--- ============================================================================
--- Main configuration window
--- ============================================================================
--- Uses a tabbed UI and a separate Preview & Tools window. Both windows remember
--- their independent size and position.
 local function draw_config()
     if not state.config_open[1] then
+        hide_preview_fonts();
         state.config_geometry.main_initialized = false;
         state.config_geometry.tools_initialized = false;
         state.config_geometry.last_main = nil;
@@ -3174,7 +3338,7 @@ local function draw_config()
         capture_current_window_geometry('main');
         imgui.TextColored(UI_ACCENT, 'SELF-ONLY COMBAT DISPLAY');
         imgui.SameLine();
-        imgui.TextColored(UI_MUTED, 'v1.0.5');
+        imgui.TextColored(UI_MUTED, 'v1.0.10');
         imgui.TextDisabled('Outgoing actions, incoming effects, and personal rewards only.');
 
         imgui.Spacing();
@@ -3213,9 +3377,32 @@ local function draw_config()
     imgui.PopStyleColor(7);
 end
 
--- ============================================================================
--- Commands and Ashita event registrations
--- ============================================================================
+-- Ashita v4 settings are per-character and can be replaced after login or a
+-- character switch. Keep SCL's local settings reference pointed at the active
+-- character table instead of continuing to use startup defaults.
+ashita_settings.register('settings', 'scrollingcombatlog_settings_update', function(s)
+    if s == nil then
+        return;
+    end
+
+    settings = s;
+    normalize_loaded_settings();
+
+    state.move_mode = settings.locked == false;
+    state.move_initialized.incoming = false;
+    state.move_initialized.outgoing = false;
+
+    state.config_geometry.main_initialized = false;
+    state.config_geometry.tools_initialized = false;
+    state.config_geometry.last_main = nil;
+    state.config_geometry.last_tools = nil;
+
+    state.xp_watch.initialized = false;
+    state.combine = {};
+
+    rebuild_font_pool();
+end);
+
 ashita.events.register('command', 'scl_scroll_command_cb', function(e)
     if not e or not e.command then return end
     local args = e.command:args();
