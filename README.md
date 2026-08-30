@@ -27,4 +27,4 @@ Ashita/addons/
 
 Then load it in-game:
 
-/addon load <addonname>
+/addon load "addonname"
