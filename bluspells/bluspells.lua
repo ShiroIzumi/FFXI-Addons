@@ -1,16 +1,6 @@
 --[[
-    bluspells - Documented source for GitHub
-
-    This file keeps the original runtime behavior intact while adding
-    section-level comments that explain the major systems, persistence,
-    rendering, commands, and Ashita v4 integration points.
-
-    Comments are documentation only.
-]]--
-
---[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.6.0
+    Version 1.6.1
 
     Commands:
       /bluspells
@@ -31,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.6.0';
+addon.version   = '1.6.1';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -41,9 +31,6 @@ local imgui = require 'imgui';
 local settings = require 'settings';
 local spells = require 'spells';
 
--- ============================================================================
--- Default configuration
--- ============================================================================
 local defaults = T{
     font_scale = 1.00,
 
@@ -99,9 +86,6 @@ local defaults = T{
 
 local config = settings.load(defaults);
 
--- ============================================================================
--- Backward-compatible config migration
--- ============================================================================
 local function ensure_tables()
     if config.appearance == nil then config.appearance = T{}; end
     if config.appearance.background == nil then config.appearance.background = T{}; end
@@ -169,9 +153,6 @@ ensure_tables();
 
 local remember = config.behavior.remember_filters == true;
 
--- ============================================================================
--- Runtime UI/filter/learning state
--- ============================================================================
 local state = T{
     open = { false },
     config_open = { false },
@@ -267,6 +248,80 @@ local state = T{
     resource_cache_ready = false,
 };
 
+-- Synchronize runtime state when Ashita switches from the startup/default
+-- settings context to the active character's per-character settings file.
+-- Ashita's official v4 addons register this callback for exactly this reason.
+local function apply_loaded_config(s)
+    if s == nil then
+        return
+    end
+
+    config = s
+    ensure_tables()
+
+    state.font_scale[1] = tonumber(config.font_scale) or defaults.font_scale
+
+    for i = 1, 4 do
+        state.background[i] = tonumber(config.appearance.background[i]) or defaults.appearance.background[i]
+        state.known_color[i] = tonumber(config.appearance.known_color[i]) or defaults.appearance.known_color[i]
+        state.unknown_color[i] = tonumber(config.appearance.unknown_color[i]) or defaults.appearance.unknown_color[i]
+        state.header_color[i] = tonumber(config.appearance.header_color[i]) or defaults.appearance.header_color[i]
+        state.paging_color[i] = tonumber(config.appearance.paging_color[i]) or defaults.appearance.paging_color[i]
+    end
+
+    state.border[1] = config.appearance.border ~= false
+    state.title_bar[1] = config.appearance.title_bar ~= false
+    state.locked[1] = config.appearance.locked == true
+
+    state.row_spacing = tostring(config.display.row_spacing or defaults.display.row_spacing)
+    state.rows_mode = tostring(config.display.rows_mode or defaults.display.rows_mode)
+    state.rows_per_page[1] = tonumber(config.display.rows_per_page) or defaults.display.rows_per_page
+
+    state.columns.level[1] = config.display.columns.level ~= false
+    state.columns.type[1] = config.display.columns.type ~= false
+    state.columns.trait[1] = config.display.columns.trait ~= false
+    state.columns.mob_family[1] = config.display.columns.mob_family ~= false
+
+    state.remember_filters[1] = config.behavior.remember_filters == true
+    state.auto_highlight_learned[1] = config.behavior.auto_highlight_learned ~= false
+
+    if state.remember_filters[1] then
+        state.search[1] = tostring(config.ui_state.search or '')
+        state.last_search = state.search[1]
+        state.filter_mode = tostring(config.ui_state.filter_mode or 'all')
+        state.sort_mode = tostring(config.ui_state.sort_mode or 'level')
+        state.sort_desc = config.ui_state.sort_desc == true
+    else
+        state.search[1] = ''
+        state.last_search = ''
+        state.filter_mode = 'all'
+        state.sort_mode = 'level'
+        state.sort_desc = false
+    end
+
+    state.page = 1
+
+    state.last_x = tonumber(config.window.x) or defaults.window.x
+    state.last_y = tonumber(config.window.y) or defaults.window.y
+    state.last_w = tonumber(config.window.width) or defaults.window.width
+    state.last_h = tonumber(config.window.height) or defaults.window.height
+
+    state.config_last_x = tonumber(config.config_window.x) or defaults.config_window.x
+    state.config_last_y = tonumber(config.config_window.y) or defaults.config_window.y
+    state.config_last_w = tonumber(config.config_window.width) or defaults.config_window.width
+    state.config_last_h = tonumber(config.config_window.height) or defaults.config_window.height
+
+    state.apply_saved_geometry = true
+    state.apply_saved_config_geometry = true
+    state.geometry_dirty = false
+    state.config_geometry_dirty = false
+    state.settings_dirty = false
+end
+
+settings.register('settings', 'bluspells_settings_update', function(s)
+    apply_loaded_config(s)
+end)
+
 local MUTED = { 0.56, 0.61, 0.68, 1.00 };
 local TEXT = { 0.92, 0.94, 0.97, 1.00 };
 local TITLE = { 0.030, 0.045, 0.060, 1.00 };
@@ -291,9 +346,6 @@ local resource_aliases = T{
     ['quadraticcontinnuum'] = 'quadraticcontinuum',
 };
 
--- ============================================================================
--- Ashita resource cache and learned-spell lookup
--- ============================================================================
 local function build_resource_cache()
     if state.resource_cache_ready then return; end
 
@@ -368,9 +420,6 @@ local function get_learned_count()
     return count;
 end
 
--- ============================================================================
--- Current BLU level detection for the Ready filter
--- ============================================================================
 local function safe_blu_level()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
@@ -403,10 +452,6 @@ local function safe_blu_level()
     return nil;
 end
 
--- ============================================================================
--- Search/filter pipeline
--- ============================================================================
--- Search checks all spell metadata and supports | as an OR separator.
 local function split_search_terms(value)
     local terms = {};
     value = tostring(value or ''):lower();
@@ -453,9 +498,6 @@ local function filter_accepts(spell, known, blu_level)
     return true;
 end
 
--- ============================================================================
--- Sorting
--- ============================================================================
 local function compare_spells(a, b)
     local key = state.sort_mode;
     local av, bv;
@@ -552,9 +594,6 @@ local function draw_sort_header(label, mode)
     imgui.PopStyleColor(1);
 end
 
--- ============================================================================
--- Newly learned spell detection/highlighting
--- ============================================================================
 local function update_known_snapshot()
     local now = os.clock();
 
@@ -596,9 +635,6 @@ local function maybe_jump_to_selected(filtered)
     state.jump_to_selected = false;
 end
 
--- ============================================================================
--- Table/column rendering
--- ============================================================================
 local function active_column_count()
     local count = 1;
     if state.columns.level[1] then count = count + 1; end
@@ -729,9 +765,6 @@ local function draw_fallback_rows(filtered, first, last)
     end
 end
 
--- ============================================================================
--- Settings persistence
--- ============================================================================
 local function save_config()
     ensure_tables();
 
@@ -786,9 +819,6 @@ local function save_config()
     settings.save();
 end
 
--- ============================================================================
--- Main/config geometry persistence
--- ============================================================================
 local function capture_main_geometry()
     local x, y = imgui.GetWindowPos();
     local w, h = imgui.GetWindowSize();
@@ -831,9 +861,6 @@ local function capture_config_geometry()
     end
 end
 
--- ============================================================================
--- Local ImGui theme
--- ============================================================================
 local function push_theme()
     imgui.PushStyleColor(ImGuiCol_WindowBg, {
         state.background[1], state.background[2], state.background[3], state.background[4]
@@ -855,9 +882,6 @@ local function pop_theme()
     imgui.PopStyleColor(12);
 end
 
--- ============================================================================
--- Reset helpers
--- ============================================================================
 local function reset_appearance()
     state.font_scale[1] = defaults.font_scale;
 
@@ -922,9 +946,6 @@ local function section_title(value)
     imgui.Separator();
 end
 
--- ============================================================================
--- Config tabs
--- ============================================================================
 local function draw_window_tab()
     section_title('WINDOW');
 
@@ -1151,9 +1172,6 @@ local function draw_config_window()
     pop_theme();
 end
 
--- ============================================================================
--- Filter toolbar
--- ============================================================================
 local function draw_filter_button(label, mode, enabled)
     if enabled == false then
         imgui.BeginDisabled();
@@ -1175,9 +1193,6 @@ local function draw_filter_button(label, mode, enabled)
     end
 end
 
--- ============================================================================
--- Auto/fixed paging
--- ============================================================================
 local function calculate_per_page()
     if state.rows_mode == 'fixed' then
         state.per_page = math.floor(clamp(state.rows_per_page[1], 8, 60));
@@ -1195,9 +1210,6 @@ local function calculate_per_page()
     state.per_page = math.floor(clamp(rows, 8, 60));
 end
 
--- ============================================================================
--- Main spell table
--- ============================================================================
 local function draw_main_table(filtered, first, last)
     if imgui.BeginTable ~= nil and imgui.TableSetupColumn ~= nil then
         local flags = 0;
@@ -1220,9 +1232,6 @@ local function draw_main_table(filtered, first, last)
     end
 end
 
--- ============================================================================
--- Main window renderer
--- ============================================================================
 local function draw_window()
     if not state.open[1] then
         state.apply_saved_geometry = true;
@@ -1420,9 +1429,6 @@ local function draw_window()
     end
 end
 
--- ============================================================================
--- Commands and Ashita event registrations
--- ============================================================================
 ashita.events.register('command', 'bluspells_command_cb', function(e)
     if e == nil or e.command == nil then return; end
 
