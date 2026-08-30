@@ -1,16 +1,6 @@
---[[
-    addoncontrolpanel - Documented source for GitHub
-
-    This file keeps the original runtime behavior intact while adding
-    section-level comments that explain the major systems, persistence,
-    rendering, commands, and Ashita v4 integration points.
-
-    Comments are documentation only.
-]]--
-
 addon.name    = 'addoncontrolpanel'
 addon.author  = 'Izumi (ShiroIzumi)'
-addon.version = '2.0.0'
+addon.version = '2.0.1'
 addon.desc    = 'Provides a UI to manage Ashita addons.'
 addon.link    = ''
 
@@ -19,15 +9,8 @@ local imgui = require('imgui')
 local json = require('json')
 local settings = require('settings')
 
--- ============================================================================
--- Paths and tracked-addon persistence
--- ============================================================================
--- acp_config.json stores the user's addon list and optional config commands.
 local list_config_path = string.format('%s/config/acp_config.json', AshitaCore:GetInstallPath())
 
--- ============================================================================
--- Default appearance and window geometry
--- ============================================================================
 local defaults = T{
     font_scale = 1.00,
 
@@ -55,10 +38,6 @@ local defaults = T{
 
 local ui_config = settings.load(defaults)
 
--- ============================================================================
--- Runtime ImGui state
--- ============================================================================
--- One-element tables are used for values edited by Ashita ImGui controls.
 local state = T{
     visible = { false },
     config_open = { false },
@@ -132,9 +111,6 @@ local function sort_addons()
     end)
 end
 
--- ============================================================================
--- Load/save tracked addon list
--- ============================================================================
 local function load_list_config()
     local file = io.open(list_config_path, 'r')
     if not file then
@@ -181,9 +157,6 @@ local function save_list_config()
     file:close()
 end
 
--- ============================================================================
--- UI settings migration and persistence
--- ============================================================================
 local function ensure_ui_tables()
     if ui_config.appearance == nil then ui_config.appearance = T{} end
     if ui_config.appearance.background == nil then ui_config.appearance.background = T{} end
@@ -217,9 +190,51 @@ local function save_ui_config()
     settings.save()
 end
 
--- ============================================================================
--- Main/config window geometry tracking
--- ============================================================================
+-- Keep the local UI state synchronized with Ashita's per-character settings.
+-- The settings library can replace the loaded settings table after login /
+-- character changes. Without this callback, the addon can keep using the
+-- startup defaults and later save those defaults back over the real config.
+local function apply_loaded_ui_config(s)
+    if s == nil then
+        return
+    end
+
+    ui_config = s
+    ensure_ui_tables()
+
+    state.font_scale[1] = tonumber(ui_config.font_scale) or defaults.font_scale
+
+    for i = 1, 4 do
+        state.background[i] =
+            tonumber(ui_config.appearance.background[i])
+            or defaults.appearance.background[i]
+    end
+
+    state.border[1] = ui_config.appearance.border ~= false
+    state.title_bar[1] = ui_config.appearance.title_bar ~= false
+    state.locked[1] = ui_config.appearance.locked == true
+
+    state.last_x = tonumber(ui_config.window.x) or defaults.window.x
+    state.last_y = tonumber(ui_config.window.y) or defaults.window.y
+    state.last_w = tonumber(ui_config.window.width) or defaults.window.width
+    state.last_h = tonumber(ui_config.window.height) or defaults.window.height
+
+    state.config_last_x = tonumber(ui_config.config_window.x) or defaults.config_window.x
+    state.config_last_y = tonumber(ui_config.config_window.y) or defaults.config_window.y
+    state.config_last_w = tonumber(ui_config.config_window.width) or defaults.config_window.width
+    state.config_last_h = tonumber(ui_config.config_window.height) or defaults.config_window.height
+
+    state.apply_saved_geometry = true
+    state.apply_saved_config_geometry = true
+    state.geometry_dirty = false
+    state.config_geometry_dirty = false
+    state.appearance_dirty = false
+end
+
+settings.register('settings', 'addoncontrolpanel_settings_update', function(s)
+    apply_loaded_ui_config(s)
+end)
+
 local function capture_main_geometry()
     local x, y = imgui.GetWindowPos()
     local w, h = imgui.GetWindowSize()
@@ -272,10 +287,6 @@ local function capture_config_geometry()
     end
 end
 
--- ============================================================================
--- Local ImGui theme
--- ============================================================================
--- Styling is scoped to this addon and does not change Ashita globally.
 local function push_theme()
     imgui.PushStyleColor(ImGuiCol_WindowBg, {
         state.background[1],
@@ -300,9 +311,6 @@ local function pop_theme()
     imgui.PopStyleColor(12)
 end
 
--- ============================================================================
--- Ashita command helpers
--- ============================================================================
 local function queue_command(command)
     local chat = AshitaCore:GetChatManager()
     if not chat then
@@ -346,9 +354,6 @@ local function reset_appearance()
     state.appearance_dirty = true
 end
 
--- ============================================================================
--- Settings window renderer
--- ============================================================================
 local function draw_config_window()
     if not state.config_open[1] then
         state.apply_saved_config_geometry = true
@@ -431,9 +436,6 @@ local function draw_config_window()
     pop_theme()
 end
 
--- ============================================================================
--- Add-addon UI
--- ============================================================================
 local function draw_add_section()
     imgui.TextColored(HEAD, 'ADD ADDON')
     imgui.Separator()
@@ -469,9 +471,6 @@ local function draw_add_section()
     end
 end
 
--- ============================================================================
--- Edit/remove tracked addon UI
--- ============================================================================
 local function draw_edit_section()
     if #addon_list == 0 then
         return
@@ -539,10 +538,6 @@ local function draw_edit_section()
     end
 end
 
--- ============================================================================
--- Tracked addon action rows
--- ============================================================================
--- Each row exposes Load, Unload, Reload, and Config actions.
 local function draw_addon_rows()
     imgui.Spacing()
     imgui.TextColored(HEAD, 'TRACKED ADDONS')
@@ -620,9 +615,6 @@ local function draw_addon_rows()
     end
 end
 
--- ============================================================================
--- Main control-panel renderer
--- ============================================================================
 local function draw_main_window()
     if not state.visible[1] then
         state.apply_saved_geometry = true
@@ -706,9 +698,6 @@ local function draw_main_window()
     end
 end
 
--- ============================================================================
--- Ashita command/event registrations
--- ============================================================================
 ashita.events.register('command', 'acp_cmd', function(e)
     if not e or not e.command then
         return
