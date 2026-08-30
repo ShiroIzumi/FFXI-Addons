@@ -1,16 +1,6 @@
 --[[
-    izclock - Documented source for GitHub
-
-    This file keeps the original runtime behavior intact while adding
-    section-level comments that explain the major systems, persistence,
-    rendering, commands, and Ashita v4 integration points.
-
-    Comments are documentation only.
-]]--
-
---[[
     IzClock - Ashita v4 / HorizonXI
-    Version 2.8.0
+    Version 2.9.0
 
     Commands:
       /ic
@@ -30,7 +20,7 @@
 
 addon.name      = 'izclock';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '2.8.0';
+addon.version   = '2.9.0';
 addon.desc      = 'Displays Vana\'diel time, day rotation, moon phase, and local time.';
 addon.link      = '';
 
@@ -39,9 +29,6 @@ require 'common';
 local imgui    = require 'imgui';
 local settings = require 'settings';
 
--- ============================================================================
--- Default configuration
--- ============================================================================
 local defaults = T{
     visible = false,
     config_visible = false,
@@ -69,9 +56,6 @@ local defaults = T{
 
 local config = settings.load(defaults);
 
--- ============================================================================
--- Runtime display/config state
--- ============================================================================
 local state = T{
     open = { true },
     config_open = { config.config_visible == true },
@@ -92,7 +76,7 @@ local state = T{
         tonumber(config.background_color and config.background_color[2]) or 0.070,
         tonumber(config.background_color and config.background_color[3]) or 0.095,
     },
-    alignment = (config.alignment == 'right') and 'right' or 'left',
+    alignment = (config.alignment == 'right' and 'right') or (config.alignment == 'center' and 'center') or 'left',
     apply_saved_geometry = true,
     last_x = tonumber(config.window.x) or 50,
     last_y = tonumber(config.window.y) or 50,
@@ -105,9 +89,6 @@ local state = T{
 -- IzClock should always appear immediately when loaded or reloaded.
 config.visible = true;
 
--- ============================================================================
--- Vana'diel day, element, icon, and moon lookup data
--- ============================================================================
 local days = T{
     [0] = 'Firesday',
     [1] = 'Earthsday',
@@ -161,17 +142,10 @@ local UI_ACCENT = { 0.34, 0.76, 1.00, 1.00 };
 -- FFXI / Vana'diel constants.
 -- One Vana'diel day = 3456 Earth seconds.
 -- One Vana'diel hour = 144 Earth seconds.
--- ============================================================================
--- Vana'diel time constants
--- ============================================================================
 local VANA_EPOCH_OFFSET = 92514960;
 local EARTH_SECONDS_PER_VANA_DAY = 3456;
 local EARTH_SECONDS_PER_VANA_HOUR = 144;
 
--- ============================================================================
--- Vana'diel time calculation
--- ============================================================================
--- Uses local Unix time and the established FFXI epoch relationship.
 local function get_vana_time()
     -- os.time() is Unix epoch time. Adding the established Vana'diel epoch
     -- offset gives the same day/time basis used by the working clock.
@@ -204,9 +178,6 @@ local function format_countdown(total_seconds)
     return ('%02dm %02ds'):fmt(minutes, seconds);
 end
 
--- ============================================================================
--- Moon phase calculation
--- ============================================================================
 local function get_moon_info(total_days)
     -- FFXI uses an 84-Vana-day lunar cycle. The signed value ranges from
     -- -100..100; the game displays its absolute value as illumination percent.
@@ -252,11 +223,8 @@ local function get_upcoming_days(current_day_index)
     return upcoming;
 end
 
--- ============================================================================
--- Text measurement/alignment helpers
--- ============================================================================
 local function align_line(total_width)
-    if state.alignment ~= 'right' then
+    if state.alignment == 'left' then
         return;
     end
 
@@ -265,7 +233,13 @@ local function align_line(total_width)
 
     if avail_w > total_width then
         local x = imgui.GetCursorPosX();
-        imgui.SetCursorPosX(x + (avail_w - total_width));
+        local remaining = avail_w - total_width;
+
+        if state.alignment == 'center' then
+            imgui.SetCursorPosX(x + (remaining / 2));
+        elseif state.alignment == 'right' then
+            imgui.SetCursorPosX(x + remaining);
+        end
     end
 end
 
@@ -284,9 +258,6 @@ local function day_value_width(day_index)
     return width;
 end
 
--- ============================================================================
--- Reusable display primitives
--- ============================================================================
 local function draw_day_value(day_index)
     if state.show_element_icons[1] then
         imgui.TextColored(day_colors[day_index] or UI_TEXT, day_icons[day_index] or '[?]');
@@ -348,9 +319,6 @@ local function draw_compact_separator()
     imgui.SameLine();
 end
 
--- ============================================================================
--- Compact one-line renderer
--- ============================================================================
 local function draw_compact_line(local_time_str, vana_time_str, day_index, next_day_index, countdown_str, moon_name, moon_percent)
     local parts_width = 0;
     local separators = 0;
@@ -407,9 +375,6 @@ local function draw_compact_line(local_time_str, vana_time_str, day_index, next_
     end
 end
 
--- ============================================================================
--- Settings persistence
--- ============================================================================
 local function save_config()
     config.visible = state.open[1];
     config.config_visible = state.config_open[1];
@@ -447,9 +412,6 @@ local function save_config()
     settings.save();
 end
 
--- ============================================================================
--- Window geometry persistence
--- ============================================================================
 local function capture_window_geometry()
     -- Current Ashita v4 ImGui returns two numeric values from each function.
     local x, y = imgui.GetWindowPos();
@@ -476,9 +438,6 @@ local function capture_window_geometry()
     end
 end
 
--- ============================================================================
--- Slash commands
--- ============================================================================
 ashita.events.register('command', 'izclock_command_cb', function(e)
     if e == nil or e.command == nil then
         return;
@@ -508,9 +467,6 @@ ashita.events.register('command', 'izclock_command_cb', function(e)
     end
 end);
 
--- ============================================================================
--- Main clock renderer
--- ============================================================================
 ashita.events.register('d3d_present', 'izclock_present_cb', function()
     if not state.open[1] then
         return;
@@ -622,9 +578,6 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
     end
 end);
 
--- ============================================================================
--- Configuration window renderer
--- ============================================================================
 local function render_config_window()
     if not state.config_open[1] then
         return;
@@ -746,6 +699,18 @@ local function render_config_window()
             if imgui.Button('Left') then
                 state.alignment = 'left';
                 config.alignment = 'left';
+                settings.save();
+            end
+        end
+
+        imgui.SameLine();
+
+        if state.alignment == 'center' then
+            imgui.TextColored(UI_ACCENT, 'Center');
+        else
+            if imgui.Button('Center') then
+                state.alignment = 'center';
+                config.alignment = 'center';
                 settings.save();
             end
         end
