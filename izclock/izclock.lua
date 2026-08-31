@@ -20,7 +20,7 @@
 
 addon.name      = 'izclock';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '2.9.0';
+addon.version   = '2.9.4';
 addon.desc      = 'Displays Vana\'diel time, day rotation, moon phase, and local time.';
 addon.link      = '';
 
@@ -267,6 +267,35 @@ local function draw_day_value(day_index)
     imgui.TextColored(day_colors[day_index] or UI_TEXT, days[day_index] or 'Unknown');
 end
 
+
+local function draw_day_rotation_tooltip(current_day_index)
+    if not imgui.IsItemHovered() then
+        return;
+    end
+
+    -- Real tooltip rendering gives us a vertical, color-coded list and
+    -- automatically uses IzClock's currently pushed font / font scale.
+    imgui.BeginTooltip();
+
+    imgui.TextColored(UI_MUTED, 'DAY ROTATION');
+    imgui.Separator();
+
+    for offset = 0, 7 do
+        local idx = (current_day_index + offset) % 8;
+        local name = days[idx] or 'Unknown';
+
+        if offset == 0 then
+            imgui.TextColored(day_colors[idx] or UI_TEXT, ('> %s'):fmt(name));
+            imgui.SameLine();
+            imgui.TextColored(UI_MUTED, '(Current)');
+        else
+            imgui.TextColored(day_colors[idx] or UI_TEXT, ('  %s'):fmt(name));
+        end
+    end
+
+    imgui.EndTooltip();
+end
+
 local function draw_label_value(label, value, value_color)
     local combined_width = text_width(label) + text_width(' ') + text_width(value);
     align_line(combined_width);
@@ -357,10 +386,45 @@ local function draw_compact_line(local_time_str, vana_time_str, day_index, next_
     draw_compact_separator();
 
     draw_day_value(day_index);
+    local hover_current_day = imgui.IsItemHovered();
+
     imgui.SameLine();
     imgui.TextColored(UI_MUTED, '>');
+    local hover_day_arrow = imgui.IsItemHovered();
+
     imgui.SameLine();
     draw_day_value(next_day_index);
+    local hover_next_day = imgui.IsItemHovered();
+
+    if hover_current_day or hover_day_arrow or hover_next_day then
+        -- draw_day_rotation_tooltip normally checks hover on the last item.
+        -- The next-day item is last here; for current day / arrow hover, open
+        -- the same tooltip directly so the entire "Day > Next Day" segment is
+        -- interactive without changing its visual layout.
+        if hover_next_day then
+            draw_day_rotation_tooltip(day_index);
+        else
+            imgui.BeginTooltip();
+            imgui.TextColored(UI_MUTED, 'DAY ROTATION');
+            imgui.Separator();
+
+            for offset = 0, 7 do
+                local idx = (day_index + offset) % 8;
+                local name = days[idx] or 'Unknown';
+
+                if offset == 0 then
+                    imgui.TextColored(day_colors[idx] or UI_TEXT, ('> %s'):fmt(name));
+                    imgui.SameLine();
+                    imgui.TextColored(UI_MUTED, '(Current)');
+                else
+                    imgui.TextColored(day_colors[idx] or UI_TEXT, ('  %s'):fmt(name));
+                end
+            end
+
+            imgui.EndTooltip();
+        end
+    end
+
     draw_compact_separator();
 
     imgui.TextColored(UI_MUTED, 'NEXT');
@@ -467,6 +531,66 @@ ashita.events.register('command', 'izclock_command_cb', function(e)
     end
 end);
 
+
+-- Ashita v4 loads the addon before the active character profile is always
+-- available. The settings library can therefore replace the startup settings
+-- table after login. Rehydrate every runtime UI value when that happens so
+-- IzClock immediately uses the character's saved profile without requiring
+-- /addon reload izclock.
+settings.register('settings', 'izclock_settings_update', function(s)
+    if s == nil then
+        return;
+    end
+
+    config = s;
+
+    state.config_open[1] = config.config_visible == true;
+    state.font_scale[1] = tonumber(config.font_scale) or 1.00;
+    state.window_alpha[1] = tonumber(config.window_alpha) or 0.92;
+    state.mini_mode[1] = config.mini_mode == true;
+    state.hide_title_bar[1] = config.hide_title_bar == true;
+    state.hide_border[1] = config.hide_border == true;
+    state.show_local_time[1] = config.show_local_time == true;
+    state.local_time_24h[1] = config.local_time_24h == true;
+    state.show_local_seconds[1] = config.show_local_seconds == true;
+    state.show_moon_phase[1] = config.show_moon_phase == true;
+    state.show_element_icons[1] = config.show_element_icons == true;
+    state.compact_mode[1] = config.compact_mode == true;
+    state.lock_window[1] = config.lock_window == true;
+
+    state.background_color[1] = tonumber(config.background_color and config.background_color[1]) or 0.055;
+    state.background_color[2] = tonumber(config.background_color and config.background_color[2]) or 0.070;
+    state.background_color[3] = tonumber(config.background_color and config.background_color[3]) or 0.095;
+
+    state.alignment =
+        (config.alignment == 'right' and 'right')
+        or (config.alignment == 'center' and 'center')
+        or 'left';
+
+    if type(config.window) ~= 'table' then
+        config.window = T{
+            x = 50,
+            y = 50,
+            width = 520,
+            height = 150,
+        };
+    end
+
+    state.last_x = tonumber(config.window.x) or 50;
+    state.last_y = tonumber(config.window.y) or 50;
+    state.last_w = tonumber(config.window.width) or 520;
+    state.last_h = tonumber(config.window.height) or 150;
+
+    -- Reapply the character profile's saved window geometry on the next frame.
+    state.apply_saved_geometry = true;
+    state.geometry_dirty = false;
+    state.last_geometry_save = 0;
+
+    -- The clock itself should remain visible after login/reprofile.
+    config.visible = true;
+    state.open[1] = true;
+end);
+
 ashita.events.register('d3d_present', 'izclock_present_cb', function()
     if not state.open[1] then
         return;
@@ -543,7 +667,19 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
             end
 
             draw_label_value('VANA\'DIEL TIME', time_str, UI_ACCENT);
-            draw_label_day('CURRENT DAY', day_index);
+
+            if state.mini_mode[1] then
+                local combined_width = text_width('CURRENT DAY') + text_width(' ') + day_value_width(day_index);
+                align_line(combined_width);
+
+                imgui.TextColored(UI_MUTED, 'CURRENT DAY');
+                imgui.SameLine();
+                draw_day_value(day_index);
+                draw_day_rotation_tooltip(day_index);
+            else
+                draw_label_day('CURRENT DAY', day_index);
+            end
+
             draw_label_value('NEXT DAY IN', countdown_str, UI_TEXT);
 
             if state.show_moon_phase[1] then
