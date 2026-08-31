@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.6.1
+    Version 1.7.0
 
     Commands:
       /bluspells
@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.6.1';
+addon.version   = '1.7.0';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -51,6 +51,7 @@ local defaults = T{
         rows_per_page = 30,
         columns = T{
             level = true,
+            learn_skill = true,
             type = true,
             trait = true,
             mob_family = true,
@@ -213,6 +214,7 @@ local state = T{
 
     columns = {
         level = { config.display.columns.level ~= false },
+        learn_skill = { config.display.columns.learn_skill ~= false },
         type = { config.display.columns.type ~= false },
         trait = { config.display.columns.trait ~= false },
         mob_family = { config.display.columns.mob_family ~= false },
@@ -278,6 +280,7 @@ local function apply_loaded_config(s)
     state.rows_per_page[1] = tonumber(config.display.rows_per_page) or defaults.display.rows_per_page
 
     state.columns.level[1] = config.display.columns.level ~= false
+    state.columns.learn_skill[1] = config.display.columns.learn_skill ~= false
     state.columns.type[1] = config.display.columns.type ~= false
     state.columns.trait[1] = config.display.columns.trait ~= false
     state.columns.mob_family[1] = config.display.columns.mob_family ~= false
@@ -452,6 +455,34 @@ local function safe_blu_level()
     return nil;
 end
 
+-- HorizonXI BLU has A+ Blue Magic skill.
+-- A spell's learning skill is its A+ cap at the spell's usable level.
+-- HorizonXI documents a maximum learning gap of 31 skill points, so the
+-- minimum skill shown here is: A+ cap at spell level - 31.
+local function blue_magic_cap_for_level(level)
+    level = math.floor(tonumber(level) or 1);
+    if level < 1 then level = 1; end
+    if level > 75 then level = 75; end
+
+    if level <= 50 then
+        return (level * 3) + 3;
+    elseif level <= 60 then
+        return 153 + ((level - 50) * 5);
+    elseif level <= 67 then
+        -- HorizonXI A+ caps: 61=207, 62=212, 63=217, 64=222,
+        -- 65=227, 66=232, 67=236.
+        if level == 67 then return 236; end
+        return 207 + ((level - 61) * 5);
+    end
+
+    return 236 + ((level - 67) * 5);
+end
+
+local function blue_magic_learn_skill(spell)
+    local cap = blue_magic_cap_for_level(spell and spell.level or 1);
+    return math.max(0, cap - 31);
+end
+
 local function split_search_terms(value)
     local terms = {};
     value = tostring(value or ''):lower();
@@ -472,6 +503,7 @@ local function spell_matches_search(spell, terms)
     local haystack = table.concat({
         tostring(spell.name or ''),
         tostring(spell.level or ''),
+        tostring(blue_magic_learn_skill(spell)),
         tostring(spell.type or ''),
         tostring(spell.trait or ''),
         tostring(spell.mob_family or ''),
@@ -504,6 +536,8 @@ local function compare_spells(a, b)
 
     if key == 'name' then
         av, bv = a.name:lower(), b.name:lower();
+    elseif key == 'learn_skill' then
+        av, bv = blue_magic_learn_skill(a), blue_magic_learn_skill(b);
     elseif key == 'type' then
         av, bv = tostring(a.type or ''):lower(), tostring(b.type or ''):lower();
     elseif key == 'trait' then
@@ -638,6 +672,7 @@ end
 local function active_column_count()
     local count = 1;
     if state.columns.level[1] then count = count + 1; end
+    if state.columns.learn_skill[1] then count = count + 1; end
     if state.columns.type[1] then count = count + 1; end
     if state.columns.trait[1] then count = count + 1; end
     if state.columns.mob_family[1] then count = count + 1; end
@@ -647,6 +682,7 @@ end
 local function setup_table_columns()
     imgui.TableSetupColumn('Spell');
     if state.columns.level[1] then imgui.TableSetupColumn('Lvl'); end
+    if state.columns.learn_skill[1] then imgui.TableSetupColumn('Learn Skill'); end
     if state.columns.type[1] then imgui.TableSetupColumn('Type'); end
     if state.columns.trait[1] then imgui.TableSetupColumn('Trait'); end
     if state.columns.mob_family[1] then imgui.TableSetupColumn('Mob Family'); end
@@ -661,6 +697,11 @@ local function draw_table_headers()
     if state.columns.level[1] then
         imgui.TableNextColumn();
         draw_sort_header('Lvl', 'level');
+    end
+
+    if state.columns.learn_skill[1] then
+        imgui.TableNextColumn();
+        draw_sort_header('Learn Skill', 'learn_skill');
     end
 
     if state.columns.type[1] then
@@ -713,6 +754,11 @@ local function draw_spell_table_row(spell)
         imgui.Text(tostring(spell.level));
     end
 
+    if state.columns.learn_skill[1] then
+        imgui.TableNextColumn();
+        imgui.Text(tostring(blue_magic_learn_skill(spell)));
+    end
+
     if state.columns.type[1] then
         imgui.TableNextColumn();
         imgui.Text(tostring(spell.type or '--'));
@@ -739,11 +785,29 @@ end
 
 -- Fallback for an Ashita build without ImGui tables.
 local function draw_fallback_rows(filtered, first, last)
+    local x = 300;
+
     imgui.TextColored(state.header_color, 'Spell');
-    imgui.SameLine(); imgui.SetCursorPosX(300); imgui.TextColored(state.header_color, 'Lvl');
-    imgui.SameLine(); imgui.SetCursorPosX(350); imgui.TextColored(state.header_color, 'Type');
-    imgui.SameLine(); imgui.SetCursorPosX(505); imgui.TextColored(state.header_color, 'Trait');
-    imgui.SameLine(); imgui.SetCursorPosX(720); imgui.TextColored(state.header_color, 'Mob Family');
+
+    if state.columns.level[1] then
+        imgui.SameLine(); imgui.SetCursorPosX(x); imgui.TextColored(state.header_color, 'Lvl');
+        x = x + 55;
+    end
+    if state.columns.learn_skill[1] then
+        imgui.SameLine(); imgui.SetCursorPosX(x); imgui.TextColored(state.header_color, 'Learn Skill');
+        x = x + 95;
+    end
+    if state.columns.type[1] then
+        imgui.SameLine(); imgui.SetCursorPosX(x); imgui.TextColored(state.header_color, 'Type');
+        x = x + 155;
+    end
+    if state.columns.trait[1] then
+        imgui.SameLine(); imgui.SetCursorPosX(x); imgui.TextColored(state.header_color, 'Trait');
+        x = x + 215;
+    end
+    if state.columns.mob_family[1] then
+        imgui.SameLine(); imgui.SetCursorPosX(x); imgui.TextColored(state.header_color, 'Mob Family');
+    end
     imgui.Separator();
 
     for i = first, last do
@@ -758,10 +822,26 @@ local function draw_fallback_rows(filtered, first, last)
         end
         imgui.PopStyleColor(1);
 
-        imgui.SameLine(); imgui.SetCursorPosX(300); imgui.Text(tostring(spell.level));
-        imgui.SameLine(); imgui.SetCursorPosX(350); imgui.Text(tostring(spell.type or '--'));
-        imgui.SameLine(); imgui.SetCursorPosX(505); imgui.Text(tostring(spell.trait or 'None'));
-        imgui.SameLine(); imgui.SetCursorPosX(720); imgui.Text(tostring(spell.mob_family or '--'));
+        x = 300;
+        if state.columns.level[1] then
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(spell.level));
+            x = x + 55;
+        end
+        if state.columns.learn_skill[1] then
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(blue_magic_learn_skill(spell)));
+            x = x + 95;
+        end
+        if state.columns.type[1] then
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(spell.type or '--'));
+            x = x + 155;
+        end
+        if state.columns.trait[1] then
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(spell.trait or 'None'));
+            x = x + 215;
+        end
+        if state.columns.mob_family[1] then
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(spell.mob_family or '--'));
+        end
     end
 end
 
@@ -787,6 +867,7 @@ local function save_config()
     config.display.rows_per_page = math.floor(clamp(state.rows_per_page[1], 8, 60));
 
     config.display.columns.level = state.columns.level[1];
+    config.display.columns.learn_skill = state.columns.learn_skill[1];
     config.display.columns.type = state.columns.type[1];
     config.display.columns.trait = state.columns.trait[1];
     config.display.columns.mob_family = state.columns.mob_family[1];
@@ -917,6 +998,7 @@ local function reset_all()
     state.rows_per_page[1] = defaults.display.rows_per_page;
 
     state.columns.level[1] = defaults.display.columns.level;
+    state.columns.learn_skill[1] = defaults.display.columns.learn_skill;
     state.columns.type[1] = defaults.display.columns.type;
     state.columns.trait[1] = defaults.display.columns.trait;
     state.columns.mob_family[1] = defaults.display.columns.mob_family;
@@ -1079,6 +1161,7 @@ local function draw_display_tab()
 
     for _, entry in ipairs({
         { 'Level', state.columns.level },
+        { 'Learn Skill', state.columns.learn_skill },
         { 'Type', state.columns.type },
         { 'Trait', state.columns.trait },
         { 'Mob Family', state.columns.mob_family },
@@ -1100,7 +1183,7 @@ local function draw_behavior_tab()
         state.settings_dirty = true;
     end
 
-    imgui.TextColored(MUTED, 'Search checks Spell, Level, Type, Trait, and Mob Family.');
+    imgui.TextColored(MUTED, 'Search checks Spell, Level, Learn Skill, Type, Trait, and Mob Family.');
     imgui.TextColored(MUTED, 'Use | for OR searches, e.g. refresh|regen|goblin.');
 
     imgui.Spacing();
