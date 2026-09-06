@@ -265,17 +265,17 @@ For spells with very large source lists, the Hover view flows the list into addi
 
 ### Main BLUSpells Window
 
-![BLUSpells main window](screenshot6.png)
+![BLUSpells main window](screenshots/screenshot6.png)
 
 ### Learning Location Modes
 
 **Hover mode**
 
-![BLUSpells Learned From hover view](screenshot8.png)
+![BLUSpells Learned From hover view](screenshots/screenshot8.png)
 
 **Click mode and Learning Locations configuration**
 
-![BLUSpells Click location window and configuration](screenshot7.png)
+![BLUSpells Click location window and configuration](screenshots/screenshot7.png)
 
 ## Version 1.9.x Changes
 
