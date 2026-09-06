@@ -812,7 +812,7 @@ local function draw_learning_tooltip(spell)
         -- Keep large learning lists readable by flowing them into additional
         -- columns instead of allowing a tooltip to grow beyond the screen.
         -- A zone and its mobs are kept together whenever possible.
-        local max_rows_per_column = 40;
+        local max_rows_per_column = 50;
         local columns = { {} };
         local current_column = columns[1];
         local current_rows = 0;
