@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.1
+    Version 1.9.12
 
     Commands:
       /bluspells
@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.3';
+addon.version   = '1.9.12';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -40,6 +40,8 @@ local defaults = T{
         border = true,
         title_bar = true,
         locked = false,
+        zone_locked = false,
+        location_locked = false,
         known_color = T{ 0.30, 1.00, 0.42, 1.00 },
         unknown_color = T{ 1.00, 0.34, 0.38, 1.00 },
         header_color = T{ 0.38, 0.78, 1.00, 1.00 },
@@ -85,6 +87,13 @@ local defaults = T{
         width = 430,
         height = 560,
     },
+
+    zone_window = T{
+        x = 1020,
+        y = 220,
+        width = 760,
+        height = 520,
+    },
 };
 
 local config = settings.load(defaults);
@@ -104,6 +113,7 @@ local function ensure_tables()
     if config.ui_state == nil then config.ui_state = T{}; end
     if config.window == nil then config.window = T{}; end
     if config.config_window == nil then config.config_window = T{}; end
+    if config.zone_window == nil then config.zone_window = T{}; end
 
     local function fill_color(dst, src)
         for i = 1, 4 do
@@ -155,6 +165,10 @@ local function ensure_tables()
 
     for key, value in pairs(defaults.config_window) do
         if config.config_window[key] == nil then config.config_window[key] = value; end
+    end
+
+    for key, value in pairs(defaults.zone_window) do
+        if config.zone_window[key] == nil then config.zone_window[key] = value; end
     end
 end
 
@@ -215,6 +229,8 @@ local state = T{
     border = { config.appearance.border ~= false },
     title_bar = { config.appearance.title_bar ~= false },
     locked = { config.appearance.locked == true },
+    zone_locked = { config.appearance.zone_locked == true },
+    location_locked = { config.appearance.location_locked == true },
 
     row_spacing = tostring(config.display.row_spacing or 'compact'),
     rows_mode = tostring(config.display.rows_mode or 'auto'),
@@ -237,6 +253,14 @@ local state = T{
     location_apply_default_size = false,
     location_size_initialized = false,
 
+    zone_info_open = { false },
+    zone_hide_known = { false },
+    zone_apply_saved_geometry = true,
+    zone_last_x = tonumber(config.zone_window.x) or defaults.zone_window.x,
+    zone_last_y = tonumber(config.zone_window.y) or defaults.zone_window.y,
+    zone_last_w = tonumber(config.zone_window.width) or defaults.zone_window.width,
+    zone_last_h = tonumber(config.zone_window.height) or defaults.zone_window.height,
+
     selected_spell = nil,
     learned_flash_until = 0,
     jump_to_selected = false,
@@ -257,6 +281,7 @@ local state = T{
 
     geometry_dirty = false,
     config_geometry_dirty = false,
+    zone_geometry_dirty = false,
     settings_dirty = false,
     last_save = 0,
 
@@ -288,6 +313,8 @@ local function apply_loaded_config(s)
     state.border[1] = config.appearance.border ~= false
     state.title_bar[1] = config.appearance.title_bar ~= false
     state.locked[1] = config.appearance.locked == true
+    state.zone_locked[1] = config.appearance.zone_locked == true
+    state.location_locked[1] = config.appearance.location_locked == true
 
     state.row_spacing = tostring(config.display.row_spacing or defaults.display.row_spacing)
     state.rows_mode = tostring(config.display.rows_mode or defaults.display.rows_mode)
@@ -329,10 +356,17 @@ local function apply_loaded_config(s)
     state.config_last_w = tonumber(config.config_window.width) or defaults.config_window.width
     state.config_last_h = tonumber(config.config_window.height) or defaults.config_window.height
 
+    state.zone_last_x = tonumber(config.zone_window.x) or defaults.zone_window.x
+    state.zone_last_y = tonumber(config.zone_window.y) or defaults.zone_window.y
+    state.zone_last_w = tonumber(config.zone_window.width) or defaults.zone_window.width
+    state.zone_last_h = tonumber(config.zone_window.height) or defaults.zone_window.height
+
     state.apply_saved_geometry = true
     state.apply_saved_config_geometry = true
+    state.zone_apply_saved_geometry = true
     state.geometry_dirty = false
     state.config_geometry_dirty = false
+    state.zone_geometry_dirty = false
     state.settings_dirty = false
 end
 
@@ -436,6 +470,99 @@ local function get_learned_count()
         end
     end
     return count;
+end
+
+local function safe_current_zone_id()
+    local mm = AshitaCore:GetMemoryManager();
+    if not mm then return nil; end
+
+    local party = mm:GetParty();
+    if not party then return nil; end
+
+    local zone_id = nil;
+
+    if party.GetMemberZone ~= nil then
+        local ok, value = pcall(function()
+            return party:GetMemberZone(0);
+        end);
+        if ok then
+            zone_id = tonumber(value);
+        end
+    end
+
+    if (zone_id == nil or zone_id <= 0) and party.GetMemberZone2 ~= nil then
+        local ok, value = pcall(function()
+            return party:GetMemberZone2(0);
+        end);
+        if ok then
+            zone_id = tonumber(value);
+        end
+    end
+
+    if zone_id == nil or zone_id <= 0 then
+        return nil;
+    end
+
+    return zone_id;
+end
+
+local function get_zone_spell_rows(zone_id)
+    zone_id = tonumber(zone_id);
+    if not zone_id then
+        return {};
+    end
+
+    local rows = {};
+
+    for _, spell in ipairs(spells) do
+        local entries = locations.get(spell.name) or {};
+        local mob_lookup = {};
+        local mobs = {};
+
+        for _, entry in ipairs(entries) do
+            if tonumber(entry.zone) == zone_id then
+                for _, mob in ipairs(entry.mobs or {}) do
+                    local mob_name = tostring(mob or '');
+                    local key = mob_name:lower();
+                    if mob_name ~= '' and not mob_lookup[key] then
+                        mob_lookup[key] = true;
+                        mobs[#mobs + 1] = mob_name;
+                    end
+                end
+            end
+        end
+
+        if #mobs > 0 then
+            table.sort(mobs, function(a, b)
+                return tostring(a):lower() < tostring(b):lower();
+            end);
+
+            rows[#rows + 1] = {
+                spell = spell,
+                mobs = mobs,
+                known = is_known(spell.name),
+            };
+        end
+    end
+
+    table.sort(rows, function(a, b)
+        return tostring(a.spell.name):lower() < tostring(b.spell.name):lower();
+    end);
+
+    return rows;
+end
+
+local function get_zone_progress(zone_id)
+    local rows = get_zone_spell_rows(zone_id);
+    local known = 0;
+
+    for _, row in ipairs(rows) do
+        if row.known then
+            known = known + 1;
+        end
+    end
+
+    return known, #rows, rows;
 end
 
 local function safe_blu_level()
@@ -1069,6 +1196,8 @@ local function save_config()
     config.appearance.border = state.border[1];
     config.appearance.title_bar = state.title_bar[1];
     config.appearance.locked = state.locked[1];
+    config.appearance.zone_locked = state.zone_locked[1];
+    config.appearance.location_locked = state.location_locked[1];
 
     config.display.row_spacing = state.row_spacing;
     config.display.rows_mode = state.rows_mode;
@@ -1105,6 +1234,11 @@ local function save_config()
     config.config_window.y = state.config_last_y;
     config.config_window.width = state.config_last_w;
     config.config_window.height = state.config_last_h;
+
+    config.zone_window.x = state.zone_last_x;
+    config.zone_window.y = state.zone_last_y;
+    config.zone_window.width = state.zone_last_w;
+    config.zone_window.height = state.zone_last_h;
 
     settings.save();
 end
@@ -1151,6 +1285,27 @@ local function capture_config_geometry()
     end
 end
 
+local function capture_zone_geometry()
+    local x, y = imgui.GetWindowPos();
+    local w, h = imgui.GetWindowSize();
+
+    x = tonumber(x); y = tonumber(y);
+    w = tonumber(w); h = tonumber(h);
+
+    if x == nil or y == nil or w == nil or h == nil then return; end
+
+    if math.abs(x - state.zone_last_x) >= 1
+        or math.abs(y - state.zone_last_y) >= 1
+        or math.abs(w - state.zone_last_w) >= 1
+        or math.abs(h - state.zone_last_h) >= 1 then
+        state.zone_last_x = x;
+        state.zone_last_y = y;
+        state.zone_last_w = w;
+        state.zone_last_h = h;
+        state.zone_geometry_dirty = true;
+    end
+end
+
 local function push_theme()
     imgui.PushStyleColor(ImGuiCol_WindowBg, {
         state.background[1], state.background[2], state.background[3], state.background[4]
@@ -1186,6 +1341,8 @@ local function reset_appearance()
     state.border[1] = defaults.appearance.border;
     state.title_bar[1] = defaults.appearance.title_bar;
     state.locked[1] = defaults.appearance.locked;
+    state.zone_locked[1] = defaults.appearance.zone_locked;
+    state.location_locked[1] = defaults.appearance.location_locked;
     state.settings_dirty = true;
 end
 
@@ -1217,6 +1374,7 @@ local function reset_all()
     state.location_interaction = defaults.behavior.location_interaction;
     state.location_open[1] = false;
     state.location_spell = nil;
+    state.zone_info_open[1] = false;
 
     state.search[1] = '';
     state.last_search = '';
@@ -1232,6 +1390,14 @@ local function reset_all()
     state.config_last_h = defaults.config_window.height;
     state.apply_saved_config_geometry = true;
     state.config_geometry_dirty = true;
+
+    state.zone_last_x = defaults.zone_window.x;
+    state.zone_last_y = defaults.zone_window.y;
+    state.zone_last_w = defaults.zone_window.width;
+    state.zone_last_h = defaults.zone_window.height;
+    state.zone_apply_saved_geometry = true;
+    state.zone_geometry_dirty = true;
+
     state.settings_dirty = true;
 end
 
@@ -1246,6 +1412,18 @@ local function draw_window_tab()
     local locked = { state.locked[1] };
     if imgui.Checkbox('Lock Window Position / Size', locked) then
         state.locked[1] = locked[1];
+        state.settings_dirty = true;
+    end
+
+    local zone_locked = { state.zone_locked[1] };
+    if imgui.Checkbox('Lock Zone Info Position / Size', zone_locked) then
+        state.zone_locked[1] = zone_locked[1];
+        state.settings_dirty = true;
+    end
+
+    local location_locked = { state.location_locked[1] };
+    if imgui.Checkbox('Lock Spell Location Position / Size', location_locked) then
+        state.location_locked[1] = location_locked[1];
         state.settings_dirty = true;
     end
 
@@ -1467,12 +1645,41 @@ local function draw_location_window()
         state.location_size_initialized = true;
     end
 
+    local location_flags = 0;
+    if state.location_locked[1] then
+        location_flags = bit.bor(
+            location_flags,
+            ImGuiWindowFlags_NoMove,
+            ImGuiWindowFlags_NoResize
+        );
+    end
+    if not state.title_bar[1] then
+        location_flags = bit.bor(location_flags, ImGuiWindowFlags_NoTitleBar);
+    end
+
+    -- push_theme applies the same configured window color / transparency
+    -- used by the main BLUSpells window.
     push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
 
     -- Keep one stable ImGui window identity for every spell so position/size are shared.
     -- The text before ### may change; the ID after ### remains constant.
     local title = 'BLU Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
-    if imgui.Begin(title, state.location_open, ImGuiWindowFlags_NoNav) then
+    if imgui.Begin(title, state.location_open, location_flags) then
+        if not state.title_bar[1] then
+            local window_w = select(1, imgui.GetWindowSize());
+            window_w = tonumber(window_w) or 760;
+
+            local saved_x, saved_y = imgui.GetCursorPos();
+            imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+
+            if imgui.Button('X##bluspells_locations_close', { 22, 20 }) then
+                state.location_open[1] = false;
+            end
+
+            imgui.SetCursorPos({ saved_x, saved_y });
+        end
+
         imgui.TextColored(state.header_color, tostring(spell.name));
         imgui.SameLine();
         imgui.TextColored(MUTED, '  Mob Family:');
@@ -1537,6 +1744,127 @@ local function draw_location_window()
     end
 
     imgui.End();
+    imgui.PopStyleVar();
+    pop_theme();
+end
+
+local function draw_zone_info_window()
+    if not state.zone_info_open[1] then
+        state.zone_apply_saved_geometry = true;
+        return;
+    end
+
+    if state.zone_apply_saved_geometry then
+        imgui.SetNextWindowPos({ state.zone_last_x, state.zone_last_y }, { 0, 0 });
+        imgui.SetNextWindowSize({ state.zone_last_w, state.zone_last_h });
+        state.zone_apply_saved_geometry = false;
+    end
+
+    local zone_id = safe_current_zone_id();
+    local zone_name = zone_id and locations.get_zone_name(zone_id) or 'Unknown Zone';
+    local known_count, total_count, rows = get_zone_progress(zone_id);
+
+    local zone_flags = 0;
+    if state.zone_locked[1] then
+        zone_flags = bit.bor(
+            zone_flags,
+            ImGuiWindowFlags_NoMove,
+            ImGuiWindowFlags_NoResize
+        );
+    end
+    if not state.title_bar[1] then
+        zone_flags = bit.bor(zone_flags, ImGuiWindowFlags_NoTitleBar);
+    end
+
+    -- push_theme applies the same configured window color / transparency
+    -- used by the main BLUSpells window.
+    push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
+
+    local title = 'BLU Zone Info - ' .. tostring(zone_name) .. '###bluspells_zone_info';
+    if imgui.Begin(title, state.zone_info_open, zone_flags) then
+        if not state.title_bar[1] then
+            local window_w = select(1, imgui.GetWindowSize());
+            window_w = tonumber(window_w) or state.zone_last_w;
+
+            local saved_x, saved_y = imgui.GetCursorPos();
+            imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+
+            if imgui.Button('X##bluspells_zone_info_close', { 22, 20 }) then
+                state.zone_info_open[1] = false;
+            end
+
+            imgui.SetCursorPos({ saved_x, saved_y });
+        end
+
+        imgui.TextColored(state.header_color, tostring(zone_name));
+
+        if zone_id ~= nil then
+            imgui.SameLine();
+            imgui.TextColored(MUTED, ('  Zone ID: %d'):fmt(zone_id));
+        end
+
+        imgui.SameLine();
+        imgui.Text(('  %d of %d learned'):fmt(known_count, total_count));
+
+        imgui.SameLine();
+        imgui.Checkbox('Hide Known', state.zone_hide_known);
+
+        imgui.Separator();
+
+        if zone_id == nil then
+            imgui.TextColored(MUTED, 'Current zone information is not available yet.');
+        elseif total_count == 0 then
+            imgui.TextColored(MUTED, 'No tracked Blue Magic spells are available from mobs in this zone.');
+        else
+            local avail_w = select(1, imgui.GetContentRegionAvail());
+            avail_w = tonumber(avail_w) or 680;
+
+            local visible_rows = {};
+
+            for _, row in ipairs(rows) do
+                if not (state.zone_hide_known[1] and row.known) then
+                    visible_rows[#visible_rows + 1] = row;
+                end
+            end
+
+            if #visible_rows == 0 then
+                imgui.TextColored(MUTED, 'No missing Blue Magic spells are tracked in this zone.');
+            else
+                for row_index, row in ipairs(visible_rows) do
+                    local spell_color = row.known and state.known_color or state.unknown_color;
+                    local status_text = row.known and 'Known' or 'Missing';
+
+                    -- Spell | Lv | Status
+                    imgui.TextColored(spell_color, tostring(row.spell.name));
+
+                    imgui.SameLine(math.max(300, avail_w * 0.50));
+                    imgui.TextColored(state.header_color, 'Lv');
+                    imgui.SameLine();
+                    imgui.Text(tostring(row.spell.level or '--'));
+
+                    imgui.SameLine(math.max(450, avail_w * 0.76));
+                    imgui.TextColored(spell_color, status_text);
+
+                    -- Mobs that teach this spell in the current zone.
+                    for _, mob_name in ipairs(row.mobs) do
+                        imgui.Text(('  - %s'):fmt(tostring(mob_name)));
+                    end
+
+                    if row_index < #visible_rows then
+                        imgui.Separator();
+                    end
+                end
+            end
+        end
+
+        if not state.zone_locked[1] then
+            capture_zone_geometry();
+        end
+    end
+
+    imgui.End();
+    imgui.PopStyleVar();
     pop_theme();
 end
 
@@ -1554,7 +1882,7 @@ local function draw_config_window()
 
     push_theme();
 
-    if imgui.Begin('BLU Spells - Config##bluspells_config', state.config_open, ImGuiWindowFlags_NoNav) then
+    if imgui.Begin('BLU Spells - Config##bluspells_config', state.config_open, 0) then
         if imgui.BeginTabBar ~= nil and imgui.BeginTabBar('##bluspells_config_tabs') then
             if imgui.BeginTabItem('Window') then
                 draw_window_tab();
@@ -1662,7 +1990,7 @@ local function draw_window()
         state.apply_saved_geometry = false;
     end
 
-    local flags = ImGuiWindowFlags_NoNav;
+    local flags = 0;
 
     if state.locked[1] then
         flags = bit.bor(flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize);
@@ -1753,13 +2081,38 @@ local function draw_window()
         local missing_count = math.max(0, #spells - learned_count);
         local pct = (#spells > 0) and ((learned_count / #spells) * 100.0) or 0.0;
 
+        local current_zone_id = safe_current_zone_id();
+        local zone_known_count, zone_total_count = get_zone_progress(current_zone_id);
+
+        -- Align both text segments to the button's frame baseline.
+        -- This is more reliable than manually adjusting cursor Y positions.
+        if imgui.AlignTextToFramePadding ~= nil then
+            imgui.AlignTextToFramePadding();
+        end
+
         imgui.Text(('Learned %d / %d (%.1f%%)   Missing %d'):fmt(
             learned_count, #spells, pct, missing_count
         ));
 
+        imgui.SameLine();
+
+        if imgui.Button('Zone Info') then
+            state.zone_info_open[1] = not state.zone_info_open[1];
+            state.zone_apply_saved_geometry = true;
+        end
+
+        imgui.SameLine();
+
+        if imgui.AlignTextToFramePadding ~= nil then
+            imgui.AlignTextToFramePadding();
+        end
+
+        imgui.Text(('%d of %d learned from this Zone'):fmt(zone_known_count, zone_total_count));
+
         if imgui.ProgressBar ~= nil then
             local avail_w = select(1, imgui.GetContentRegionAvail());
             avail_w = tonumber(avail_w) or 500;
+
             imgui.ProgressBar(
                 #spells > 0 and (learned_count / #spells) or 0,
                 { math.min(avail_w, 520), 8 },
@@ -1850,12 +2203,14 @@ local function draw_window()
 
     draw_config_window();
     draw_location_window();
+    draw_zone_info_window();
 
-    if (state.geometry_dirty or state.config_geometry_dirty or state.settings_dirty)
+    if (state.geometry_dirty or state.config_geometry_dirty or state.zone_geometry_dirty or state.settings_dirty)
         and (os.clock() - state.last_save) >= 0.50 then
         save_config();
         state.geometry_dirty = false;
         state.config_geometry_dirty = false;
+        state.zone_geometry_dirty = false;
         state.settings_dirty = false;
         state.last_save = os.clock();
     end
@@ -1882,6 +2237,7 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
         state.config_open[1] = false;
         state.location_open[1] = false;
         state.location_spell = nil;
+        state.zone_info_open[1] = false;
     end
 end);
 
