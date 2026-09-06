@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.7.0';
+addon.version   = '1.8.2';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -30,6 +30,7 @@ require 'common';
 local imgui = require 'imgui';
 local settings = require 'settings';
 local spells = require 'spells';
+local locations = require 'locations';
 
 local defaults = T{
     font_scale = 1.00,
@@ -427,6 +428,34 @@ local function safe_blu_level()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
 
+    -- Prefer IPlayer because it is the local player's authoritative job/level
+    -- structure and does not depend on party-member data being populated.
+    local player = mm:GetPlayer();
+    if player then
+        local main_job = nil;
+        local main_level = nil;
+
+        if player.GetMainJob ~= nil then
+            local ok, value = pcall(function()
+                return player:GetMainJob();
+            end);
+            if ok then main_job = tonumber(value); end
+        end
+
+        if player.GetMainJobLevel ~= nil then
+            local ok, value = pcall(function()
+                return player:GetMainJobLevel();
+            end);
+            if ok then main_level = tonumber(value); end
+        end
+
+        -- Blue Mage job id is 16.
+        if main_job == 16 and main_level and main_level > 0 then
+            return main_level;
+        end
+    end
+
+    -- Fallback for clients / moments where IPlayer has not populated yet.
     local party = mm:GetParty();
     if not party then return nil; end
 
@@ -447,12 +476,51 @@ local function safe_blu_level()
         if ok then main_level = tonumber(value); end
     end
 
-    -- Blue Mage job id is 16.
     if main_job == 16 and main_level and main_level > 0 then
         return main_level;
     end
 
     return nil;
+end
+
+local function safe_blue_magic_skill()
+    local mm = AshitaCore:GetMemoryManager();
+    if not mm then return nil; end
+
+    local player = mm:GetPlayer();
+    if not player then return nil; end
+
+    if player.GetCombatSkill == nil then
+        return nil;
+    end
+
+    -- Ashita combat-skill index 43 is Blue Magic.
+    local ok, skill = pcall(function()
+        return player:GetCombatSkill(43);
+    end);
+
+    if not ok or skill == nil then
+        return nil;
+    end
+
+    if skill.GetSkill == nil then
+        return nil;
+    end
+
+    local ok_value, value = pcall(function()
+        return skill:GetSkill();
+    end);
+
+    if not ok_value then
+        return nil;
+    end
+
+    value = tonumber(value);
+    if value == nil or value < 0 then
+        return nil;
+    end
+
+    return value;
 end
 
 -- HorizonXI BLU has A+ Blue Magic skill.
@@ -720,6 +788,109 @@ local function draw_table_headers()
     end
 end
 
+local function draw_learning_tooltip(spell)
+    if not imgui.IsItemHovered() then return; end
+
+    local entries = locations.get(spell.name);
+    if not entries then return; end
+
+    imgui.BeginTooltip();
+    imgui.TextColored(state.header_color, spell.name);
+    imgui.Separator();
+
+    imgui.TextColored(MUTED, 'Mob Family:');
+    imgui.SameLine();
+    imgui.Text(tostring(spell.mob_family or '--'));
+
+    imgui.Spacing();
+    imgui.TextColored(state.header_color, 'Learned From');
+    imgui.Separator();
+
+    if #entries == 0 then
+        imgui.TextColored(MUTED, 'No learning locations available.');
+    else
+        -- Keep large learning lists readable by flowing them into additional
+        -- columns instead of allowing a tooltip to grow beyond the screen.
+        -- A zone and its mobs are kept together whenever possible.
+        local max_rows_per_column = 40;
+        local columns = { {} };
+        local current_column = columns[1];
+        local current_rows = 0;
+
+        for _, entry in ipairs(entries) do
+            local mobs = entry.mobs or {};
+            local block_rows = 1 + #mobs;
+
+            if current_rows > 0 and (current_rows + block_rows) > max_rows_per_column then
+                current_column = {};
+                table.insert(columns, current_column);
+                current_rows = 0;
+            end
+
+            table.insert(current_column, {
+                kind = 'zone',
+                text = locations.get_zone_name(entry.zone),
+            });
+            current_rows = current_rows + 1;
+
+            for _, mob in ipairs(mobs) do
+                table.insert(current_column, {
+                    kind = 'mob',
+                    text = tostring(mob),
+                });
+                current_rows = current_rows + 1;
+            end
+        end
+
+        if #columns == 1 or imgui.BeginTable == nil then
+            for column_index, column in ipairs(columns) do
+                if column_index > 1 then
+                    imgui.Spacing();
+                    imgui.Separator();
+                end
+                for _, line in ipairs(column) do
+                    if line.kind == 'zone' then
+                        imgui.TextColored(state.header_color, line.text);
+                    else
+                        imgui.Text('  - ' .. line.text);
+                    end
+                end
+            end
+        else
+            local flags = 0;
+            if ImGuiTableFlags_SizingFixedFit ~= nil then
+                flags = bit.bor(flags, ImGuiTableFlags_SizingFixedFit);
+            end
+
+            if imgui.BeginTable('##bluspells_learning_locations', #columns, flags) then
+                local tallest = 0;
+                for _, column in ipairs(columns) do
+                    if #column > tallest then tallest = #column; end
+                end
+
+                for row = 1, tallest do
+                    imgui.TableNextRow();
+                    for column_index, column in ipairs(columns) do
+                        imgui.TableNextColumn();
+                        local line = column[row];
+                        if line then
+                            if line.kind == 'zone' then
+                                imgui.TextColored(state.header_color, line.text);
+                            else
+                                imgui.Text('  - ' .. line.text);
+                            end
+                        end
+                    end
+                end
+
+                imgui.EndTable();
+            end
+        end
+    end
+
+    imgui.EndTooltip();
+end
+
 local function draw_spell_table_row(spell)
     local known = is_known(spell.name);
     local selected = state.selected_spell == spell.name;
@@ -743,6 +914,7 @@ local function draw_spell_table_row(spell)
     if imgui.Selectable(spell.name .. '##spell_' .. normalize_name(spell.name), selected, selectable_flags) then
         state.selected_spell = spell.name;
     end
+    draw_learning_tooltip(spell);
     imgui.PopStyleColor(1);
 
     if selected and os.clock() <= state.learned_flash_until then
@@ -820,6 +992,7 @@ local function draw_fallback_rows(filtered, first, last)
         if imgui.Selectable(spell.name .. '##fallback_' .. normalize_name(spell.name), selected) then
             state.selected_spell = spell.name;
         end
+        draw_learning_tooltip(spell);
         imgui.PopStyleColor(1);
 
         x = 300;
@@ -1395,10 +1568,23 @@ local function draw_window()
         imgui.SameLine();
         draw_filter_button('Missing', 'missing', true);
         imgui.SameLine();
-        draw_filter_button(blu_level and ('Ready Lv' .. tostring(blu_level)) or 'Ready', 'ready', blu_level ~= nil);
+        draw_filter_button(
+            blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
+            'ready',
+            blu_level ~= nil
+        );
 
         imgui.SameLine();
         imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
+
+        local blu_skill = safe_blue_magic_skill();
+        imgui.TextColored(state.header_color, 'BLU Skill:');
+        imgui.SameLine();
+        if blu_skill ~= nil then
+            imgui.Text(tostring(math.floor(blu_skill)));
+        else
+            imgui.TextColored(MUTED, '--');
+        end
 
         -- Completion status.
         local learned_count = get_learned_count();
