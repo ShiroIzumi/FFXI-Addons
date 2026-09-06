@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.7.0
+    Version 1.9.1
 
     Commands:
       /bluspells
@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.8.2';
+addon.version   = '1.9.3';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -62,6 +62,7 @@ local defaults = T{
     behavior = T{
         remember_filters = true,
         auto_highlight_learned = true,
+        location_interaction = 'click',
     },
 
     ui_state = T{
@@ -135,6 +136,12 @@ local function ensure_tables()
     end
     if config.behavior.auto_highlight_learned == nil then
         config.behavior.auto_highlight_learned = defaults.behavior.auto_highlight_learned;
+    end
+    if config.behavior.location_interaction == nil then
+        config.behavior.location_interaction = defaults.behavior.location_interaction;
+    end
+    if config.behavior.location_interaction ~= 'hover' then
+        config.behavior.location_interaction = 'click';
     end
 
     if config.ui_state.search == nil then config.ui_state.search = ''; end
@@ -223,6 +230,12 @@ local state = T{
 
     remember_filters = { config.behavior.remember_filters == true },
     auto_highlight_learned = { config.behavior.auto_highlight_learned ~= false },
+    location_interaction = tostring(config.behavior.location_interaction or 'click'),
+
+    location_open = { false },
+    location_spell = nil,
+    location_apply_default_size = false,
+    location_size_initialized = false,
 
     selected_spell = nil,
     learned_flash_until = 0,
@@ -288,6 +301,7 @@ local function apply_loaded_config(s)
 
     state.remember_filters[1] = config.behavior.remember_filters == true
     state.auto_highlight_learned[1] = config.behavior.auto_highlight_learned ~= false
+    state.location_interaction = config.behavior.location_interaction == 'hover' and 'hover' or 'click'
 
     if state.remember_filters[1] then
         state.search[1] = tostring(config.ui_state.search or '')
@@ -789,6 +803,7 @@ local function draw_table_headers()
 end
 
 local function draw_learning_tooltip(spell)
+    if state.location_interaction ~= 'hover' then return; end
     if not imgui.IsItemHovered() then return; end
 
     local entries = locations.get(spell.name);
@@ -913,6 +928,16 @@ local function draw_spell_table_row(spell)
     imgui.PushStyleColor(ImGuiCol_Text, color);
     if imgui.Selectable(spell.name .. '##spell_' .. normalize_name(spell.name), selected, selectable_flags) then
         state.selected_spell = spell.name;
+        if state.location_interaction == 'click' then
+            if state.location_open[1] and state.location_spell and state.location_spell.name == spell.name then
+                state.location_open[1] = false;
+                state.location_spell = nil;
+            else
+                state.location_spell = spell;
+                state.location_open[1] = true;
+                state.location_apply_default_size = not state.location_size_initialized;
+            end
+        end
     end
     draw_learning_tooltip(spell);
     imgui.PopStyleColor(1);
@@ -991,6 +1016,16 @@ local function draw_fallback_rows(filtered, first, last)
         imgui.PushStyleColor(ImGuiCol_Text, color);
         if imgui.Selectable(spell.name .. '##fallback_' .. normalize_name(spell.name), selected) then
             state.selected_spell = spell.name;
+            if state.location_interaction == 'click' then
+                if state.location_open[1] and state.location_spell and state.location_spell.name == spell.name then
+                    state.location_open[1] = false;
+                    state.location_spell = nil;
+                else
+                    state.location_spell = spell;
+                    state.location_open[1] = true;
+                    state.location_apply_default_size = not state.location_size_initialized;
+                end
+            end
         end
         draw_learning_tooltip(spell);
         imgui.PopStyleColor(1);
@@ -1047,6 +1082,7 @@ local function save_config()
 
     config.behavior.remember_filters = state.remember_filters[1];
     config.behavior.auto_highlight_learned = state.auto_highlight_learned[1];
+    config.behavior.location_interaction = state.location_interaction == 'hover' and 'hover' or 'click';
 
     if state.remember_filters[1] then
         config.ui_state.search = tostring(state.search[1] or '');
@@ -1178,6 +1214,9 @@ local function reset_all()
 
     state.remember_filters[1] = defaults.behavior.remember_filters;
     state.auto_highlight_learned[1] = defaults.behavior.auto_highlight_learned;
+    state.location_interaction = defaults.behavior.location_interaction;
+    state.location_open[1] = false;
+    state.location_spell = nil;
 
     state.search[1] = '';
     state.last_search = '';
@@ -1371,11 +1410,134 @@ local function draw_behavior_tab()
     imgui.TextColored(MUTED, 'Newly learned spells are selected and highlighted for 5 seconds.');
 
     imgui.Spacing();
+    section_title('LEARNING LOCATIONS');
+
+    imgui.TextColored(MUTED, 'Choose how the Learned From information opens.');
+
+    if state.location_interaction == 'click' then
+        imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
+        imgui.Button('Click##location_mode_click');
+        imgui.PopStyleColor(3);
+    elseif imgui.Button('Click##location_mode_click') then
+        state.location_interaction = 'click';
+        state.settings_dirty = true;
+    end
+
+    imgui.SameLine();
+
+    if state.location_interaction == 'hover' then
+        imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
+        imgui.Button('Hover##location_mode_hover');
+        imgui.PopStyleColor(3);
+    elseif imgui.Button('Hover##location_mode_hover') then
+        state.location_interaction = 'hover';
+        state.location_open[1] = false;
+        state.settings_dirty = true;
+    end
+
+    if state.location_interaction == 'click' then
+        imgui.TextColored(MUTED, 'Click a spell name to open its location window. Recommended for most screens.');
+    else
+        imgui.TextColored(MUTED, 'Hover a spell name for the large quick-view tooltip. Best for high-resolution screens.');
+    end
+
+    imgui.Spacing();
     section_title('RESET');
 
     if imgui.Button('Reset All Settings') then
         reset_all();
     end
+end
+
+local function draw_location_window()
+    if not state.location_open[1] or state.location_spell == nil then
+        return;
+    end
+
+    local spell = state.location_spell;
+    local entries = locations.get(spell.name) or {};
+
+    if state.location_apply_default_size then
+        imgui.SetNextWindowSize({ 760, 650 });
+        state.location_apply_default_size = false;
+        state.location_size_initialized = true;
+    end
+
+    push_theme();
+
+    -- Keep one stable ImGui window identity for every spell so position/size are shared.
+    -- The text before ### may change; the ID after ### remains constant.
+    local title = 'BLU Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
+    if imgui.Begin(title, state.location_open, ImGuiWindowFlags_NoNav) then
+        imgui.TextColored(state.header_color, tostring(spell.name));
+        imgui.SameLine();
+        imgui.TextColored(MUTED, '  Mob Family:');
+        imgui.SameLine();
+        imgui.Text(tostring(spell.mob_family or '--'));
+        imgui.Separator();
+
+        if #entries == 0 then
+            imgui.TextColored(MUTED, 'No learning locations available.');
+        else
+            for zone_index, entry in ipairs(entries) do
+                if zone_index > 1 then
+                    imgui.Spacing();
+                end
+
+                imgui.TextColored(state.header_color, locations.get_zone_name(entry.zone));
+                imgui.Separator();
+
+                local mobs = entry.mobs or {};
+                if #mobs == 0 then
+                    imgui.TextColored(MUTED, 'No mobs listed.');
+                else
+                    local left_count = math.ceil(#mobs / 2);
+                    local table_flags = 0;
+                    if ImGuiTableFlags_SizingStretchSame ~= nil then
+                        table_flags = bit.bor(table_flags, ImGuiTableFlags_SizingStretchSame);
+                    end
+
+                    if imgui.BeginTable ~= nil and imgui.BeginTable(
+                        '##location_zone_' .. tostring(zone_index), 2, table_flags
+                    ) then
+                        for row = 1, left_count do
+                            imgui.TableNextRow();
+
+                            imgui.TableNextColumn();
+                            local left_mob = mobs[row];
+                            if left_mob ~= nil then
+                                imgui.Text('  - ' .. tostring(left_mob));
+                            end
+
+                            imgui.TableNextColumn();
+                            local right_index = row + left_count;
+                            local right_mob = mobs[right_index];
+                            if right_mob ~= nil then
+                                imgui.Text('  - ' .. tostring(right_mob));
+                            end
+                        end
+                        imgui.EndTable();
+                    else
+                        -- Fallback for older ImGui builds: still split the zone evenly,
+                        -- but render the two halves one after the other.
+                        for i = 1, left_count do
+                            imgui.Text('  - ' .. tostring(mobs[i]));
+                        end
+                        for i = left_count + 1, #mobs do
+                            imgui.Text('  - ' .. tostring(mobs[i]));
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    imgui.End();
+    pop_theme();
 end
 
 local function draw_config_window()
@@ -1687,6 +1849,7 @@ local function draw_window()
     pop_theme();
 
     draw_config_window();
+    draw_location_window();
 
     if (state.geometry_dirty or state.config_geometry_dirty or state.settings_dirty)
         and (os.clock() - state.last_save) >= 0.50 then
@@ -1717,6 +1880,8 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
 
     if not state.open[1] then
         state.config_open[1] = false;
+        state.location_open[1] = false;
+        state.location_spell = nil;
     end
 end);
 
