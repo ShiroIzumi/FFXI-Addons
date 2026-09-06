@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.12
+    Version 1.9.16
 
     Commands:
       /bluspells
@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.12';
+addon.version   = '1.9.16';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -252,10 +252,13 @@ local state = T{
     location_spell = nil,
     location_apply_default_size = false,
     location_size_initialized = false,
+    location_reset_scroll = false,
 
     zone_info_open = { false },
     zone_hide_known = { false },
     zone_apply_saved_geometry = true,
+    zone_reset_scroll = false,
+    zone_last_id = nil,
     zone_last_x = tonumber(config.zone_window.x) or defaults.zone_window.x,
     zone_last_y = tonumber(config.zone_window.y) or defaults.zone_window.y,
     zone_last_w = tonumber(config.zone_window.width) or defaults.zone_window.width,
@@ -1061,6 +1064,7 @@ local function draw_spell_table_row(spell)
                 state.location_spell = nil;
             else
                 state.location_spell = spell;
+        state.location_reset_scroll = true;
                 state.location_open[1] = true;
                 state.location_apply_default_size = not state.location_size_initialized;
             end
@@ -1666,12 +1670,17 @@ local function draw_location_window()
     -- The text before ### may change; the ID after ### remains constant.
     local title = 'BLU Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
     if imgui.Begin(title, state.location_open, location_flags) then
+        if state.location_reset_scroll and imgui.SetScrollY ~= nil then
+            imgui.SetScrollY(0);
+            state.location_reset_scroll = false;
+        end
+
         if not state.title_bar[1] then
             local window_w = select(1, imgui.GetWindowSize());
             window_w = tonumber(window_w) or 760;
 
             local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
 
             if imgui.Button('X##bluspells_locations_close', { 22, 20 }) then
                 state.location_open[1] = false;
@@ -1761,6 +1770,12 @@ local function draw_zone_info_window()
     end
 
     local zone_id = safe_current_zone_id();
+
+    if zone_id ~= state.zone_last_id then
+        state.zone_last_id = zone_id;
+        state.zone_reset_scroll = true;
+    end
+
     local zone_name = zone_id and locations.get_zone_name(zone_id) or 'Unknown Zone';
     local known_count, total_count, rows = get_zone_progress(zone_id);
 
@@ -1783,12 +1798,17 @@ local function draw_zone_info_window()
 
     local title = 'BLU Zone Info - ' .. tostring(zone_name) .. '###bluspells_zone_info';
     if imgui.Begin(title, state.zone_info_open, zone_flags) then
+        if state.zone_reset_scroll and imgui.SetScrollY ~= nil then
+            imgui.SetScrollY(0);
+            state.zone_reset_scroll = false;
+        end
+
         if not state.title_bar[1] then
             local window_w = select(1, imgui.GetWindowSize());
             window_w = tonumber(window_w) or state.zone_last_w;
 
             local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
 
             if imgui.Button('X##bluspells_zone_info_close', { 22, 20 }) then
                 state.zone_info_open[1] = false;
@@ -1981,6 +2001,22 @@ end
 local function draw_window()
     if not state.open[1] then
         state.apply_saved_geometry = true;
+
+        -- Secondary windows must still render independently of the main window.
+        -- This is what allows /bsz and /bluspellszone to open Zone Info by itself.
+        draw_config_window();
+        draw_location_window();
+        draw_zone_info_window();
+
+        if (state.config_geometry_dirty or state.zone_geometry_dirty or state.settings_dirty)
+            and (os.clock() - state.last_save) >= 0.50 then
+            save_config();
+            state.config_geometry_dirty = false;
+            state.zone_geometry_dirty = false;
+            state.settings_dirty = false;
+            state.last_save = os.clock();
+        end
+
         return;
     end
 
@@ -2013,7 +2049,7 @@ local function draw_window()
             window_w = tonumber(window_w) or state.last_w;
 
             local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
 
             if imgui.Button('X##bluspells_custom_close', { 22, 20 }) then
                 state.open[1] = false;
@@ -2099,6 +2135,9 @@ local function draw_window()
         if imgui.Button('Zone Info') then
             state.zone_info_open[1] = not state.zone_info_open[1];
             state.zone_apply_saved_geometry = true;
+            if state.zone_info_open[1] then
+                state.zone_reset_scroll = true;
+            end
         end
 
         imgui.SameLine();
@@ -2222,7 +2261,23 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
     local args = e.command:args();
     if #args == 0 then return; end
 
-    if not args[1]:any('/bluspells', '/bsp') then return; end
+    local command = tostring(args[1] or ''):lower();
+
+    -- Direct Zone Info aliases. These do not toggle the main BLUSpells window.
+    if command == '/bsz' or command == '/bluspellszone' then
+        e.blocked = true;
+
+        state.zone_info_open[1] = not state.zone_info_open[1];
+        state.zone_apply_saved_geometry = true;
+
+        if state.zone_info_open[1] then
+            state.zone_reset_scroll = true;
+        end
+
+        return;
+    end
+
+    if command ~= '/bluspells' and command ~= '/bsp' then return; end
 
     e.blocked = true;
 
