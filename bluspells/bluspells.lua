@@ -1,10 +1,11 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.17
+    Version 1.9.20
 
     Commands:
       /bluspells
       /bsp
+      /bsl
       /bluspells config
       /bsp config
 
@@ -21,7 +22,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.17';
+addon.version   = '1.9.20';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -361,7 +362,7 @@ local function apply_loaded_config(s)
 
     state.zone_last_x = tonumber(config.zone_window.x) or defaults.zone_window.x
     state.zone_last_y = tonumber(config.zone_window.y) or defaults.zone_window.y
-    state.zone_last_w = tonumber(config.zone_window.width) or defaults.zone_window.width
+    state.zone_last_w = clamp(tonumber(config.zone_window.width) or defaults.zone_window.width, ZONE_MIN_WIDTH, ZONE_MAX_WIDTH)
     state.zone_last_h = tonumber(config.zone_window.height) or defaults.zone_window.height
 
     state.apply_saved_geometry = true
@@ -384,6 +385,16 @@ local BORDER = { 0.16, 0.23, 0.31, 1.00 };
 local CONTROL = { 0.055, 0.075, 0.100, 1.00 };
 local CONTROL_HOVER = { 0.090, 0.145, 0.200, 1.00 };
 local CONTROL_ACTIVE = { 0.110, 0.200, 0.285, 1.00 };
+
+local ZONE_MIN_WIDTH = 430;
+local ZONE_MAX_WIDTH = 900;
+
+-- Spell Mob / Learned From window:
+-- 500px is narrow enough to be useful on smaller screens while still
+-- leaving long mob names readable in the single-column layout.
+local LOCATION_MIN_WIDTH = 500;
+local LOCATION_MAX_WIDTH = 900;
+local LOCATION_TWO_COLUMN_WIDTH = 620;
 
 local function clamp(value, low, high)
     value = tonumber(value) or low;
@@ -1245,7 +1256,7 @@ local function save_config()
 
     config.zone_window.x = state.zone_last_x;
     config.zone_window.y = state.zone_last_y;
-    config.zone_window.width = state.zone_last_w;
+    config.zone_window.width = clamp(state.zone_last_w, ZONE_MIN_WIDTH, ZONE_MAX_WIDTH);
     config.zone_window.height = state.zone_last_h;
 
     settings.save();
@@ -1308,7 +1319,7 @@ local function capture_zone_geometry()
         or math.abs(h - state.zone_last_h) >= 1 then
         state.zone_last_x = x;
         state.zone_last_y = y;
-        state.zone_last_w = w;
+        state.zone_last_w = clamp(w, ZONE_MIN_WIDTH, ZONE_MAX_WIDTH);
         state.zone_last_h = h;
         state.zone_geometry_dirty = true;
     end
@@ -1401,7 +1412,7 @@ local function reset_all()
 
     state.zone_last_x = defaults.zone_window.x;
     state.zone_last_y = defaults.zone_window.y;
-    state.zone_last_w = defaults.zone_window.width;
+    state.zone_last_w = clamp(defaults.zone_window.width, ZONE_MIN_WIDTH, ZONE_MAX_WIDTH);
     state.zone_last_h = defaults.zone_window.height;
     state.zone_apply_saved_geometry = true;
     state.zone_geometry_dirty = true;
@@ -1653,6 +1664,13 @@ local function draw_location_window()
         state.location_size_initialized = true;
     end
 
+    if imgui.SetNextWindowSizeConstraints ~= nil then
+        imgui.SetNextWindowSizeConstraints(
+            { LOCATION_MIN_WIDTH, 180 },
+            { LOCATION_MAX_WIDTH, 1200 }
+        );
+    end
+
     local location_flags = 0;
     if state.location_locked[1] then
         location_flags = bit.bor(
@@ -1693,11 +1711,40 @@ local function draw_location_window()
             imgui.SetCursorPos({ saved_x, saved_y });
         end
 
-        imgui.TextColored(state.header_color, tostring(spell.name));
-        imgui.SameLine();
-        imgui.TextColored(MUTED, '  Mob Family:');
-        imgui.SameLine();
-        imgui.Text(tostring(spell.mob_family or '--'));
+        local location_avail_w = select(1, imgui.GetContentRegionAvail());
+        location_avail_w = tonumber(location_avail_w) or 760;
+
+        if imgui.BeginTable ~= nil and location_avail_w >= LOCATION_TWO_COLUMN_WIDTH then
+            local header_flags = 0;
+            if ImGuiTableFlags_SizingStretchProp ~= nil then
+                header_flags = bit.bor(header_flags, ImGuiTableFlags_SizingStretchProp);
+            end
+
+            if imgui.BeginTable('##bluspells_location_header', 2, header_flags) then
+                imgui.TableSetupColumn('##location_spell', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                imgui.TableSetupColumn('##location_family', ImGuiTableColumnFlags_WidthFixed or 0, 230);
+
+                imgui.TableNextRow();
+
+                imgui.TableNextColumn();
+                imgui.TextColored(state.header_color, tostring(spell.name));
+
+                imgui.TableNextColumn();
+                imgui.TextColored(MUTED, 'Mob Family:');
+                imgui.SameLine();
+                imgui.Text(tostring(spell.mob_family or '--'));
+
+                imgui.EndTable();
+            end
+        else
+            -- On narrow windows stack the family under the spell name instead
+            -- of clipping it off the right edge.
+            imgui.TextColored(state.header_color, tostring(spell.name));
+            imgui.TextColored(MUTED, 'Mob Family:');
+            imgui.SameLine();
+            imgui.Text(tostring(spell.mob_family or '--'));
+        end
+
         imgui.Separator();
 
         if #entries == 0 then
@@ -1715,40 +1762,46 @@ local function draw_location_window()
                 if #mobs == 0 then
                     imgui.TextColored(MUTED, 'No mobs listed.');
                 else
-                    local left_count = math.ceil(#mobs / 2);
-                    local table_flags = 0;
-                    if ImGuiTableFlags_SizingStretchSame ~= nil then
-                        table_flags = bit.bor(table_flags, ImGuiTableFlags_SizingStretchSame);
-                    end
+                    local current_w = select(1, imgui.GetContentRegionAvail());
+                    current_w = tonumber(current_w) or location_avail_w;
 
-                    if imgui.BeginTable ~= nil and imgui.BeginTable(
-                        '##location_zone_' .. tostring(zone_index), 2, table_flags
-                    ) then
-                        for row = 1, left_count do
-                            imgui.TableNextRow();
-
-                            imgui.TableNextColumn();
-                            local left_mob = mobs[row];
-                            if left_mob ~= nil then
-                                imgui.Text('  - ' .. tostring(left_mob));
-                            end
-
-                            imgui.TableNextColumn();
-                            local right_index = row + left_count;
-                            local right_mob = mobs[right_index];
-                            if right_mob ~= nil then
-                                imgui.Text('  - ' .. tostring(right_mob));
-                            end
+                    -- Narrow layout: one column for readability.
+                    if current_w < LOCATION_TWO_COLUMN_WIDTH or imgui.BeginTable == nil then
+                        for _, mob_name in ipairs(mobs) do
+                            imgui.Text('  - ' .. tostring(mob_name));
                         end
-                        imgui.EndTable();
                     else
-                        -- Fallback for older ImGui builds: still split the zone evenly,
-                        -- but render the two halves one after the other.
-                        for i = 1, left_count do
-                            imgui.Text('  - ' .. tostring(mobs[i]));
+                        -- Wide layout: split the list evenly into two columns.
+                        local left_count = math.ceil(#mobs / 2);
+                        local table_flags = 0;
+                        if ImGuiTableFlags_SizingStretchSame ~= nil then
+                            table_flags = bit.bor(table_flags, ImGuiTableFlags_SizingStretchSame);
                         end
-                        for i = left_count + 1, #mobs do
-                            imgui.Text('  - ' .. tostring(mobs[i]));
+
+                        if imgui.BeginTable(
+                            '##location_zone_' .. tostring(zone_index), 2, table_flags
+                        ) then
+                            imgui.TableSetupColumn('##left', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                            imgui.TableSetupColumn('##right', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+
+                            for row = 1, left_count do
+                                imgui.TableNextRow();
+
+                                imgui.TableNextColumn();
+                                local left_mob = mobs[row];
+                                if left_mob ~= nil then
+                                    imgui.Text('  - ' .. tostring(left_mob));
+                                end
+
+                                imgui.TableNextColumn();
+                                local right_index = row + left_count;
+                                local right_mob = mobs[right_index];
+                                if right_mob ~= nil then
+                                    imgui.Text('  - ' .. tostring(right_mob));
+                                end
+                            end
+
+                            imgui.EndTable();
                         end
                     end
                 end
@@ -1795,6 +1848,15 @@ local function draw_zone_info_window()
         zone_flags = bit.bor(zone_flags, ImGuiWindowFlags_NoTitleBar);
     end
 
+    -- Keep Zone Info usable on narrow layouts while preventing the window from
+    -- collapsing so far that the header/status fields become unreadable.
+    if imgui.SetNextWindowSizeConstraints ~= nil then
+        imgui.SetNextWindowSizeConstraints(
+            { ZONE_MIN_WIDTH, 180 },
+            { ZONE_MAX_WIDTH, 1200 }
+        );
+    end
+
     -- push_theme applies the same configured window color / transparency
     -- used by the main BLUSpells window.
     push_theme();
@@ -1821,18 +1883,55 @@ local function draw_zone_info_window()
             imgui.SetCursorPos({ saved_x, saved_y });
         end
 
-        imgui.TextColored(state.header_color, tostring(zone_name));
+        local header_avail_w = select(1, imgui.GetContentRegionAvail());
+        header_avail_w = tonumber(header_avail_w) or state.zone_last_w;
 
-        if zone_id ~= nil then
+        if imgui.BeginTable ~= nil and header_avail_w >= 560 then
+            local header_flags = 0;
+            if ImGuiTableFlags_SizingStretchProp ~= nil then
+                header_flags = bit.bor(header_flags, ImGuiTableFlags_SizingStretchProp);
+            end
+
+            if imgui.BeginTable('##bluspells_zone_header', 4, header_flags) then
+                imgui.TableSetupColumn('##zone_name', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                imgui.TableSetupColumn('##zone_id', ImGuiTableColumnFlags_WidthFixed or 0, 90);
+                imgui.TableSetupColumn('##zone_progress', ImGuiTableColumnFlags_WidthFixed or 0, 130);
+                imgui.TableSetupColumn('##zone_hide', ImGuiTableColumnFlags_WidthFixed or 0, 110);
+
+                imgui.TableNextRow();
+                imgui.TableNextColumn();
+                imgui.TextColored(state.header_color, tostring(zone_name));
+
+                imgui.TableNextColumn();
+                if zone_id ~= nil then
+                    imgui.TextColored(MUTED, ('Zone ID: %d'):fmt(zone_id));
+                else
+                    imgui.TextColored(MUTED, 'Zone ID: --');
+                end
+
+                imgui.TableNextColumn();
+                imgui.Text(('%d of %d learned'):fmt(known_count, total_count));
+
+                imgui.TableNextColumn();
+                imgui.Checkbox('Hide Known', state.zone_hide_known);
+
+                imgui.EndTable();
+            end
+        else
+            -- Narrow layout: flow the header to two compact rows rather than
+            -- clipping the progress / Hide Known controls off the right edge.
+            imgui.TextColored(state.header_color, tostring(zone_name));
             imgui.SameLine();
-            imgui.TextColored(MUTED, ('  Zone ID: %d'):fmt(zone_id));
+            if zone_id ~= nil then
+                imgui.TextColored(MUTED, ('Zone ID: %d'):fmt(zone_id));
+            else
+                imgui.TextColored(MUTED, 'Zone ID: --');
+            end
+
+            imgui.Text(('%d of %d learned'):fmt(known_count, total_count));
+            imgui.SameLine();
+            imgui.Checkbox('Hide Known', state.zone_hide_known);
         end
-
-        imgui.SameLine();
-        imgui.Text(('  %d of %d learned'):fmt(known_count, total_count));
-
-        imgui.SameLine();
-        imgui.Checkbox('Hide Known', state.zone_hide_known);
 
         imgui.Separator();
 
@@ -1859,16 +1958,46 @@ local function draw_zone_info_window()
                     local spell_color = row.known and state.known_color or state.unknown_color;
                     local status_text = row.known and 'Known' or 'Missing';
 
-                    -- Spell | Lv | Status
-                    imgui.TextColored(spell_color, tostring(row.spell.name));
+                    -- Responsive Spell | Lv | Status row. The spell name
+                    -- stretches, while level and status use compact fixed widths
+                    -- that shrink with the Zone Info window.
+                    if imgui.BeginTable ~= nil then
+                        local row_flags = 0;
+                        if ImGuiTableFlags_SizingStretchProp ~= nil then
+                            row_flags = bit.bor(row_flags, ImGuiTableFlags_SizingStretchProp);
+                        end
 
-                    imgui.SameLine(math.max(300, avail_w * 0.50));
-                    imgui.TextColored(state.header_color, 'Lv');
-                    imgui.SameLine();
-                    imgui.Text(tostring(row.spell.level or '--'));
+                        if imgui.BeginTable('##zone_spell_row_' .. tostring(row_index), 3, row_flags) then
+                            local level_w = avail_w < 560 and 58 or 72;
+                            local status_w = avail_w < 560 and 76 or 100;
 
-                    imgui.SameLine(math.max(450, avail_w * 0.76));
-                    imgui.TextColored(spell_color, status_text);
+                            imgui.TableSetupColumn('##spell_name', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                            imgui.TableSetupColumn('##spell_level', ImGuiTableColumnFlags_WidthFixed or 0, level_w);
+                            imgui.TableSetupColumn('##spell_status', ImGuiTableColumnFlags_WidthFixed or 0, status_w);
+
+                            imgui.TableNextRow();
+                            imgui.TableNextColumn();
+                            imgui.TextColored(spell_color, tostring(row.spell.name));
+
+                            imgui.TableNextColumn();
+                            imgui.TextColored(state.header_color, 'Lv');
+                            imgui.SameLine();
+                            imgui.Text(tostring(row.spell.level or '--'));
+
+                            imgui.TableNextColumn();
+                            imgui.TextColored(spell_color, status_text);
+
+                            imgui.EndTable();
+                        end
+                    else
+                        imgui.TextColored(spell_color, tostring(row.spell.name));
+                        imgui.SameLine(math.max(210, avail_w - 150));
+                        imgui.TextColored(state.header_color, 'Lv');
+                        imgui.SameLine();
+                        imgui.Text(tostring(row.spell.level or '--'));
+                        imgui.SameLine(math.max(285, avail_w - 80));
+                        imgui.TextColored(spell_color, status_text);
+                    end
 
                     -- Mobs that teach this spell in the current zone.
                     for _, mob_name in ipairs(row.mobs) do
@@ -2281,7 +2410,7 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
         return;
     end
 
-    if command ~= '/bluspells' and command ~= '/bsp' then return; end
+    if command ~= '/bluspells' and command ~= '/bsp' and command ~= '/bsl' then return; end
 
     e.blocked = true;
 
