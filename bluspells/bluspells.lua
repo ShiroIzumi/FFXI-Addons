@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.16
+    Version 1.9.17
 
     Commands:
       /bluspells
@@ -21,7 +21,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.16';
+addon.version   = '1.9.17';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -398,7 +398,11 @@ local function normalize_name(value)
 end
 
 local resource_aliases = T{
-    ['quadraticcontinnuum'] = 'quadraticcontinuum',
+    -- spells.lua intentionally keeps the full display names. Horizon/Ashita's
+    -- spell resources abbreviate these names, so learned-status checks use
+    -- the normalized resource aliases below.
+    ['windsofpromyvion'] = 'windsofpromy',
+    ['quadraticcontinnuum'] = 'quadcontinuum',
 };
 
 local function build_resource_cache()
