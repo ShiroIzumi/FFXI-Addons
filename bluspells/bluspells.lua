@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.20
+    Version 1.9.22
 
     Commands:
       /bluspells
@@ -22,7 +22,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.20';
+addon.version   = '1.9.22';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -296,6 +296,23 @@ local state = T{
 -- Synchronize runtime state when Ashita switches from the startup/default
 -- settings context to the active character's per-character settings file.
 -- Ashita's official v4 addons register this callback for exactly this reason.
+local ZONE_MIN_WIDTH = 430;
+local ZONE_MAX_WIDTH = 900;
+
+-- Spell Mob / Learned From window:
+-- 500px is narrow enough to be useful on smaller screens while still
+-- leaving long mob names readable in the single-column layout.
+local LOCATION_MIN_WIDTH = 500;
+local LOCATION_MAX_WIDTH = 900;
+local LOCATION_TWO_COLUMN_WIDTH = 620;
+
+local function clamp(value, low, high)
+    value = tonumber(value) or low;
+    if value < low then return low; end
+    if value > high then return high; end
+    return value;
+end
+
 local function apply_loaded_config(s)
     if s == nil then
         return
@@ -385,23 +402,6 @@ local BORDER = { 0.16, 0.23, 0.31, 1.00 };
 local CONTROL = { 0.055, 0.075, 0.100, 1.00 };
 local CONTROL_HOVER = { 0.090, 0.145, 0.200, 1.00 };
 local CONTROL_ACTIVE = { 0.110, 0.200, 0.285, 1.00 };
-
-local ZONE_MIN_WIDTH = 430;
-local ZONE_MAX_WIDTH = 900;
-
--- Spell Mob / Learned From window:
--- 500px is narrow enough to be useful on smaller screens while still
--- leaving long mob names readable in the single-column layout.
-local LOCATION_MIN_WIDTH = 500;
-local LOCATION_MAX_WIDTH = 900;
-local LOCATION_TWO_COLUMN_WIDTH = 620;
-
-local function clamp(value, low, high)
-    value = tonumber(value) or low;
-    if value < low then return low; end
-    if value > high then return high; end
-    return value;
-end
 
 local function normalize_name(value)
     if value == nil then return ''; end
@@ -2237,12 +2237,25 @@ local function draw_window()
         imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
 
         local blu_skill = safe_blue_magic_skill();
+        local blu_skill_level = safe_blu_level();
+        local blu_skill_cap = nil;
+
+        if blu_skill_level ~= nil then
+            blu_skill_cap = blue_magic_cap_for_level(blu_skill_level);
+        end
+
         imgui.TextColored(state.header_color, 'BLU Skill:');
         imgui.SameLine();
-        if blu_skill ~= nil then
-            imgui.Text(tostring(math.floor(blu_skill)));
+
+        if blu_skill ~= nil and blu_skill_cap ~= nil then
+            imgui.Text(('%d/%d'):fmt(
+                math.floor(blu_skill),
+                math.floor(blu_skill_cap)
+            ));
+        elseif blu_skill ~= nil then
+            imgui.Text(('%d/--'):fmt(math.floor(blu_skill)));
         else
-            imgui.TextColored(MUTED, '--');
+            imgui.TextColored(MUTED, '--/--');
         end
 
         -- Completion status.
