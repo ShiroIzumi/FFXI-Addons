@@ -1,6 +1,6 @@
 # BLUSpells
 
-**Version:** 1.9.12  
+**Version:** 1.9.22  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -28,11 +28,6 @@ locations.lua
 - Missing count.
 - Completion percentage.
 - Completion progress bar.
-- Current Blue Magic skill display.
-- Optional **Learn Skill** column showing the minimum skill reference for each spell.
-- Current-zone progress showing **`# of # learned from this Zone`**.
-- Dedicated **Zone Info** window for spells learnable in the current zone.
-- Zone Info **Hide Known** filter for focusing only on missing spells.
 - Search across:
   - Spell name
   - Level
@@ -62,14 +57,12 @@ locations.lua
 - Configurable visible columns.
 - Resizable table columns where supported by the Ashita ImGui build.
 - Optional persistence of search/filter/sort.
-- Persistent main, config, Zone Info, and Spell Location window geometry.
+- Persistent main and config window geometry.
 - Configurable font scale.
 - Configurable background color and opacity.
 - Configurable Known, Unknown, Header, and paging colors.
-- Independent position/size locks for the main, Zone Info, and Spell Location windows.
-- Shared optional title bar and border settings across the main, Zone Info, and Spell Location windows.
-- Shared background color and opacity/transparency across those windows.
-- When title bars are hidden, Zone Info and Spell Location retain an upper-right **X** close button.
+- Lockable window.
+- Optional title bar and border.
 - Horizon-era **Learned From** reference for all 106 tracked spells.
 - **Click mode** (default): click a spell name to open a dedicated **BLU Spell Locations** window.
 - Click the currently open spell again to close the location window.
@@ -86,6 +79,9 @@ locations.lua
 |---|---|
 | `/bluspells` | Toggle the main BLUSpells window. |
 | `/bsp` | Short alias for `/bluspells`. |
+| `/bsl` | Additional short alias for the main BLUSpells window. |
+| `/bsz` | Toggle Zone Info directly. |
+| `/bluspellszone` | Toggle Zone Info directly. |
 | `/bluspells config` | Toggle the config window. |
 | `/bsp config` | Short alias for the config window. |
 
@@ -160,18 +156,12 @@ When a previously unknown spell becomes learned and **Auto-highlight Newly Learn
 
 ### Window tab
 
-- **Lock Window Position / Size** — main BLUSpells window
-- **Lock Zone Info Position / Size**
-- **Lock Spell Location Position / Size**
+- Lock Window Position / Size
 - Show Title Bar
 - Show Border
 - Window Color
 - Background Opacity
 - Reset Window Position / Size
-
-**Show Title Bar**, **Show Border**, **Window Color**, and **Background Opacity** apply consistently to the main BLUSpells window, Zone Info, and Spell Location List.
-
-When **Show Title Bar** is disabled, Zone Info and Spell Location List retain an **X** close button in the upper-right corner.
 
 ### Font & Colors tab
 
@@ -188,7 +178,6 @@ When **Show Title Bar** is disabled, Zone Info and Spell Location List retain an
 - Auto / Fixed rows per page
 - Fixed row count
 - Show/hide Level
-- Show/hide Learn Skill
 - Show/hide Type
 - Show/hide Trait
 - Show/hide Mob Family
@@ -203,12 +192,6 @@ The Spell column is always visible.
   - **Click** is the default and opens the dedicated location window.
   - **Hover** shows the large quick-view tooltip and is intended primarily for higher-resolution displays.
 - Reset All Settings
-
-## Blue Magic skill
-
-When Blue Mage is the current main job and Ashita exposes the player combat-skill data, BLUSpells shows the character's current **BLU Skill** near the top of the main window.
-
-The optional **Learn Skill** column provides the addon’s HorizonXI-oriented minimum learning-skill reference for each tracked spell.
 
 ## Learned-spell detection
 
@@ -268,8 +251,6 @@ Each zone's monster list is divided evenly between **two columns**. For example:
 Clicking the same spell again closes the location window. Clicking another spell while the window is open switches the existing window to that spell.
 
 The location window uses a shared ImGui window identity, so its position and resized dimensions remain consistent while switching between spells.
-
-The Spell Location List has its own independent position/size lock. It also follows the shared **Show Title Bar**, **Show Border**, **Window Color**, and **Background Opacity** settings. If the title bar is hidden, an **X** remains in the upper-right corner.
 
 ### Hover mode
 
@@ -333,28 +314,16 @@ For spells with very large source lists, the Hover view flows the list into addi
 
 ### Zone Info
 
-The main BLUSpells window shows **Zone Info** directly after the **Missing #** count, above the learned-spell progress bar. It is followed by a live:
+The main BLU Spells window now shows a **Zone Info** button beside the learned-spell progress bar, followed by a live **`# of # from this Zone`** count.
 
-```text
-# of # learned from this Zone
-```
+Click **Zone Info** to open a window for your current zone showing:
 
-Click **Zone Info** to open a dedicated window for the current zone.
+- every tracked Blue Magic spell available in that zone
+- the mob or mobs that teach each spell
+- spell level
+- whether the spell is **Known** or **Missing**
 
-Zone Info:
-
-- automatically follows the character's current zone,
-- shows every tracked Blue Magic spell available from mobs in that zone,
-- sorts spells alphabetically by spell name,
-- displays **Spell | Lv | Status** on the spell header line,
-- lists each mob that teaches the spell on its own line underneath,
-- colors the spell/status according to **Known** or **Missing**,
-- shows the current **# of # learned** total,
-- includes **Hide Known** beside that total to show only missing spells,
-- remembers its position and resized dimensions,
-- has its own independent position/size lock.
-
-Zone Info also follows the shared **Show Title Bar**, **Show Border**, **Window Color**, and **Background Opacity** settings. If the title bar is hidden, an **X** remains in the upper-right corner so the window can still be closed.
+The Zone Info window updates with your current zone and remembers its position and size.
 
 ### Zone Info layout update (1.9.5)
 
@@ -407,3 +376,121 @@ The shared appearance settings now apply consistently to the main BLUSpells wind
 - **Background Opacity / Transparency**
 
 When **Show Title Bar** is disabled, Zone Info and Spell Location List each show an **X** close button in the upper-right corner.
+
+### 1.9.13
+
+Fixed scroll-position carryover in the secondary windows.
+
+- **Spell Location List:** switching to a different spell now resets the window to the top instead of preserving the previous spell's scroll position.
+- **Zone Info:** changing zones now resets the window to the top instead of preserving the previous zone's scroll position.
+- Reopening Zone Info also starts at the top.
+
+Window position and size persistence are unchanged; only the internal vertical scroll position is reset.
+
+### 1.9.14
+
+Added direct Zone Info commands:
+
+```text
+/bsz
+/bluspellszone
+```
+
+Either command toggles the **Zone Info** window directly without opening or closing the main BLUSpells window.
+
+### 1.9.15
+
+- Fixed `/bsz` and `/bluspellszone` so Zone Info can render by itself while the main BLUSpells window is closed.
+- Normalized direct command matching for the Zone Info aliases.
+- Moved the custom upper-right **X** inward on Zone Info and Spell Location List so a vertical scrollbar can no longer overlap the close button.
+
+### 1.9.16
+
+Moved the main BLUSpells custom **X** inward when the title bar is hidden, matching the scrollbar-safe placement used by Zone Info and Spell Location List.
+
+### 1.9.17
+
+- Added Horizon/Ashita resource-name aliases for Promyvion-era spell names whose resource names differ from the BLUSpells display names.
+- **Winds of Promyvion** now correctly matches the abbreviated Horizon resource name **Winds of Promy.** while retaining the full spell name in the UI.
+- **Quadratic Continnuum** now correctly matches the abbreviated Horizon resource name **Quad. Continuum** while retaining the BLUSpells display name.
+- These aliases are used for learned-spell detection so the affected spells can correctly change from Missing to Known.
+
+### 1.9.18
+
+- Made the **Zone Info** window responsive for smaller displays and narrower window sizes.
+- Added a practical minimum width so the window cannot be resized until its contents become unusable.
+- At wider widths, the Zone Info header remains a compact single-row layout.
+- At narrower widths, header information automatically reflows instead of clipping or overlapping.
+- Spell rows dynamically allocate space between spell name, level, and Known/Missing status.
+- Existing Zone Info position and size persistence remain intact.
+
+### 1.9.19
+
+- Added `/bsl` as another short command for toggling the main BLUSpells window.
+- Existing `/bluspells`, `/bsp`, `/bsz`, and `/bluspellszone` commands remain available.
+
+Updated main-window commands:
+
+```text
+/bluspells
+/bsp
+/bsl
+```
+
+Direct Zone Info commands:
+
+```text
+/bsz
+/bluspellszone
+```
+
+### 1.9.20
+
+- Made the dedicated **BLU Spell Locations / Learned From** window responsive in the same manner as Zone Info.
+- Added a minimum usable width and responsive maximum width.
+- At normal/wide sizes, the spell header displays the spell and mob family side-by-side and monster lists use balanced two-column layouts.
+- At narrow sizes, the spell/family information stacks cleanly and monster lists automatically switch to a single column.
+- The responsive layout preserves the shared location-window position and size behavior introduced in earlier 1.9.x builds.
+
+### 1.9.21
+
+- Expanded the main-window **BLU Skill** display from the current skill alone to **current / maximum for the current BLU level**.
+- Example: `BLU Skill: 160/168`.
+- The maximum is calculated from the Horizon-era Blue Magic skill progression for the current Blue Mage level.
+- If the current skill can be read but the current BLU level cannot be safely determined, the maximum displays as `--` rather than inventing a value.
+
+### 1.9.22
+
+- Fixed a startup/autoload regression that could prevent BLUSpells from loading when enabled through the **HorizonXI launcher** or loaded from Ashita's `default.txt` startup script.
+- The per-character settings callback used shared window constants and the `clamp()` helper before those Lua locals were declared.
+- During early startup/settings initialization, those later locals could therefore resolve as nil globals and abort addon initialization.
+- Shared Zone Info / Spell Location constants and `clamp()` are now declared before the settings callback is defined and registered.
+- Manual loading behavior is unchanged; this fix specifically makes the same addon initialization path safe during early automatic loading.
+- No `ImGuiCond_*` values are used for the window-position/size behavior.
+
+## Current Command Reference
+
+| Command | Description |
+|---|---|
+| `/bluspells` | Toggle the main BLUSpells window. |
+| `/bsp` | Short alias for `/bluspells`. |
+| `/bsl` | Additional short alias for the main BLUSpells window. |
+| `/bluspells config` | Toggle the configuration window. |
+| `/bsp config` | Short alias for the configuration window. |
+| `/bsz` | Toggle Zone Info directly. |
+| `/bluspellszone` | Toggle Zone Info directly. |
+
+## Current 1.9.22 Highlights
+
+- Tracks all 106 HorizonXI-era Blue Magic spells in the BLUSpells dataset.
+- Shows learned, missing, and completion information with searchable/sortable spell data.
+- Shows **BLU Skill current/max for the current BLU level**.
+- Provides current-zone learning information through the responsive **Zone Info** window.
+- Provides complete **Learned From / BLU Spell Locations** information in either Click or Hover mode.
+- Click mode uses a persistent, resizable secondary window and dynamically changes between one- and two-column mob layouts according to available width.
+- Zone Info and Spell Locations are responsive for both large/high-resolution displays and smaller window sizes.
+- Handles Horizon-specific abbreviated resource names such as **Winds of Promy.** and **Quad. Continuum** while keeping the full BLUSpells names in the interface.
+- Supports independent window locks and shared appearance controls across the main, Zone Info, and Spell Location windows.
+- Supports direct Zone Info commands and three aliases for opening the main spell list.
+- Per-character settings and window geometry persist across sessions.
+- Launcher/default-script autoload is supported by the 1.9.22 startup-scope fix.
