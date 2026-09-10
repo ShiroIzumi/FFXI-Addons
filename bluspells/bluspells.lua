@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.22
+    Version 1.9.24
 
     Commands:
       /bluspells
@@ -22,7 +22,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.22';
+addon.version   = '1.9.24';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -44,6 +44,9 @@ local defaults = T{
         zone_locked = false,
         location_locked = false,
         known_color = T{ 0.30, 1.00, 0.42, 1.00 },
+        learnable_color = T{ 1.00, 0.82, 0.20, 1.00 },
+        -- Kept as unknown_color internally for backward-compatible settings.
+        -- This now represents Unknown / Unlearnable.
         unknown_color = T{ 1.00, 0.34, 0.38, 1.00 },
         header_color = T{ 0.38, 0.78, 1.00, 1.00 },
         paging_color = T{ 0.62, 0.12, 0.14, 1.00 },
@@ -103,6 +106,7 @@ local function ensure_tables()
     if config.appearance == nil then config.appearance = T{}; end
     if config.appearance.background == nil then config.appearance.background = T{}; end
     if config.appearance.known_color == nil then config.appearance.known_color = T{}; end
+    if config.appearance.learnable_color == nil then config.appearance.learnable_color = T{}; end
     if config.appearance.unknown_color == nil then config.appearance.unknown_color = T{}; end
     if config.appearance.header_color == nil then config.appearance.header_color = T{}; end
     if config.appearance.paging_color == nil then config.appearance.paging_color = T{}; end
@@ -124,6 +128,7 @@ local function ensure_tables()
 
     fill_color(config.appearance.background, defaults.appearance.background);
     fill_color(config.appearance.known_color, defaults.appearance.known_color);
+    fill_color(config.appearance.learnable_color, defaults.appearance.learnable_color);
     fill_color(config.appearance.unknown_color, defaults.appearance.unknown_color);
     fill_color(config.appearance.header_color, defaults.appearance.header_color);
     fill_color(config.appearance.paging_color, defaults.appearance.paging_color);
@@ -204,6 +209,13 @@ local state = T{
         tonumber(config.appearance.known_color[2]) or defaults.appearance.known_color[2],
         tonumber(config.appearance.known_color[3]) or defaults.appearance.known_color[3],
         tonumber(config.appearance.known_color[4]) or defaults.appearance.known_color[4],
+    },
+
+    learnable_color = {
+        tonumber(config.appearance.learnable_color[1]) or defaults.appearance.learnable_color[1],
+        tonumber(config.appearance.learnable_color[2]) or defaults.appearance.learnable_color[2],
+        tonumber(config.appearance.learnable_color[3]) or defaults.appearance.learnable_color[3],
+        tonumber(config.appearance.learnable_color[4]) or defaults.appearance.learnable_color[4],
     },
 
     unknown_color = {
@@ -326,6 +338,7 @@ local function apply_loaded_config(s)
     for i = 1, 4 do
         state.background[i] = tonumber(config.appearance.background[i]) or defaults.appearance.background[i]
         state.known_color[i] = tonumber(config.appearance.known_color[i]) or defaults.appearance.known_color[i]
+        state.learnable_color[i] = tonumber(config.appearance.learnable_color[i]) or defaults.appearance.learnable_color[i]
         state.unknown_color[i] = tonumber(config.appearance.unknown_color[i]) or defaults.appearance.unknown_color[i]
         state.header_color[i] = tonumber(config.appearance.header_color[i]) or defaults.appearance.header_color[i]
         state.paging_color[i] = tonumber(config.appearance.paging_color[i]) or defaults.appearance.paging_color[i]
@@ -710,6 +723,40 @@ local function blue_magic_learn_skill(spell)
     return math.max(0, cap - 31);
 end
 
+-- Returns the display state for a spell:
+--   Known       = already learned
+--   Learnable   = not learned, current BLU level is high enough, and current
+--                 Blue Magic skill meets the minimum learning threshold
+--   Unlearnable = not currently learnable by the local player
+local function get_spell_display_state(spell)
+    if spell == nil then
+        return 'unlearnable', state.unknown_color;
+    end
+
+    if is_known(spell.name) then
+        return 'known', state.known_color;
+    end
+
+    local blu_skill = safe_blue_magic_skill();
+    local learn_skill = blue_magic_learn_skill(spell);
+
+    -- Learning availability is based on the player's current Blue Magic skill,
+    -- not the spell's listed job level. A BLU can learn a spell above its
+    -- current job level when its Blue Magic skill meets the learning threshold.
+    if blu_skill ~= nil and blu_skill >= learn_skill then
+        return 'learnable', state.learnable_color;
+    end
+
+    return 'unlearnable', state.unknown_color;
+end
+
+local function spell_state_text(spell)
+    local display_state = get_spell_display_state(spell);
+    if display_state == 'known' then return 'Known'; end
+    if display_state == 'learnable' then return 'Learnable'; end
+    return 'Unlearnable';
+end
+
 local function split_search_terms(value)
     local terms = {};
     value = tostring(value or ''):lower();
@@ -1054,7 +1101,7 @@ end
 local function draw_spell_table_row(spell)
     local known = is_known(spell.name);
     local selected = state.selected_spell == spell.name;
-    local color = known and state.known_color or state.unknown_color;
+    local _, color = get_spell_display_state(spell);
 
     local line_h = imgui.GetTextLineHeightWithSpacing();
     local row_h = state.row_spacing == 'normal' and (line_h + 5) or (line_h + 1);
@@ -1157,7 +1204,7 @@ local function draw_fallback_rows(filtered, first, last)
         local spell = filtered[i];
         local known = is_known(spell.name);
         local selected = state.selected_spell == spell.name;
-        local color = known and state.known_color or state.unknown_color;
+        local _, color = get_spell_display_state(spell);
 
         imgui.PushStyleColor(ImGuiCol_Text, color);
         if imgui.Selectable(spell.name .. '##fallback_' .. normalize_name(spell.name), selected) then
@@ -1207,6 +1254,7 @@ local function save_config()
     for i = 1, 4 do
         config.appearance.background[i] = state.background[i];
         config.appearance.known_color[i] = state.known_color[i];
+        config.appearance.learnable_color[i] = state.learnable_color[i];
         config.appearance.unknown_color[i] = state.unknown_color[i];
         config.appearance.header_color[i] = state.header_color[i];
         config.appearance.paging_color[i] = state.paging_color[i];
@@ -1352,6 +1400,7 @@ local function reset_appearance()
     for i = 1, 4 do
         state.background[i] = defaults.appearance.background[i];
         state.known_color[i] = defaults.appearance.known_color[i];
+        state.learnable_color[i] = defaults.appearance.learnable_color[i];
         state.unknown_color[i] = defaults.appearance.unknown_color[i];
         state.header_color[i] = defaults.appearance.header_color[i];
         state.paging_color[i] = defaults.appearance.paging_color[i];
@@ -1495,7 +1544,10 @@ local function draw_font_colors_tab()
     if imgui.ColorEdit4('Known Spells##blu_known', state.known_color) then
         state.settings_dirty = true;
     end
-    if imgui.ColorEdit4('Unknown Spells##blu_unknown', state.unknown_color) then
+    if imgui.ColorEdit4('Unknown - Learnable##blu_learnable', state.learnable_color) then
+        state.settings_dirty = true;
+    end
+    if imgui.ColorEdit4('Unknown - Unlearnable##blu_unknown', state.unknown_color) then
         state.settings_dirty = true;
     end
     if imgui.ColorEdit4('Header / Accent##blu_header', state.header_color) then
@@ -1692,6 +1744,9 @@ local function draw_location_window()
     -- The text before ### may change; the ID after ### remains constant.
     local title = 'BLU Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
     if imgui.Begin(title, state.location_open, location_flags) then
+        local base_font_size = imgui.GetFontSize();
+        local requested_size = base_font_size * state.font_scale[1];
+        imgui.PushFont(nil, requested_size);
         if state.location_reset_scroll and imgui.SetScrollY ~= nil then
             imgui.SetScrollY(0);
             state.location_reset_scroll = false;
@@ -1807,6 +1862,8 @@ local function draw_location_window()
                 end
             end
         end
+
+        imgui.PopFont();
     end
 
     imgui.End();
@@ -1864,6 +1921,9 @@ local function draw_zone_info_window()
 
     local title = 'BLU Zone Info - ' .. tostring(zone_name) .. '###bluspells_zone_info';
     if imgui.Begin(title, state.zone_info_open, zone_flags) then
+        local base_font_size = imgui.GetFontSize();
+        local requested_size = base_font_size * state.font_scale[1];
+        imgui.PushFont(nil, requested_size);
         if state.zone_reset_scroll and imgui.SetScrollY ~= nil then
             imgui.SetScrollY(0);
             state.zone_reset_scroll = false;
@@ -1955,12 +2015,17 @@ local function draw_zone_info_window()
                 imgui.TextColored(MUTED, 'No missing Blue Magic spells are tracked in this zone.');
             else
                 for row_index, row in ipairs(visible_rows) do
-                    local spell_color = row.known and state.known_color or state.unknown_color;
-                    local status_text = row.known and 'Known' or 'Missing';
+                    local display_state, spell_color = get_spell_display_state(row.spell);
+                    local status_text = display_state == 'known' and 'Known'
+                        or (display_state == 'learnable' and 'Learnable' or 'Unlearnable');
+                    local learn_skill = blue_magic_learn_skill(row.spell);
+                    local spell_label = ('%s (BLU:%d)'):fmt(
+                        tostring(row.spell.name), learn_skill
+                    );
 
-                    -- Responsive Spell | Lv | Status row. The spell name
-                    -- stretches, while level and status use compact fixed widths
-                    -- that shrink with the Zone Info window.
+                    -- Responsive Spell (BLU:#) | Lv | Status row.
+                    -- The BLU learning threshold stays directly with the spell
+                    -- name with exactly one separating space.
                     if imgui.BeginTable ~= nil then
                         local row_flags = 0;
                         if ImGuiTableFlags_SizingStretchProp ~= nil then
@@ -1968,8 +2033,8 @@ local function draw_zone_info_window()
                         end
 
                         if imgui.BeginTable('##zone_spell_row_' .. tostring(row_index), 3, row_flags) then
-                            local level_w = avail_w < 560 and 58 or 72;
-                            local status_w = avail_w < 560 and 76 or 100;
+                            local level_w = avail_w < 620 and 52 or 62;
+                            local status_w = avail_w < 620 and 92 or 112;
 
                             imgui.TableSetupColumn('##spell_name', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
                             imgui.TableSetupColumn('##spell_level', ImGuiTableColumnFlags_WidthFixed or 0, level_w);
@@ -1977,7 +2042,7 @@ local function draw_zone_info_window()
 
                             imgui.TableNextRow();
                             imgui.TableNextColumn();
-                            imgui.TextColored(spell_color, tostring(row.spell.name));
+                            imgui.TextColored(spell_color, spell_label);
 
                             imgui.TableNextColumn();
                             imgui.TextColored(state.header_color, 'Lv');
@@ -1990,12 +2055,12 @@ local function draw_zone_info_window()
                             imgui.EndTable();
                         end
                     else
-                        imgui.TextColored(spell_color, tostring(row.spell.name));
-                        imgui.SameLine(math.max(210, avail_w - 150));
-                        imgui.TextColored(state.header_color, 'Lv');
+                        imgui.TextColored(spell_color, spell_label);
                         imgui.SameLine();
-                        imgui.Text(tostring(row.spell.level or '--'));
-                        imgui.SameLine(math.max(285, avail_w - 80));
+                        imgui.TextColored(state.header_color, ('Lv %s'):fmt(
+                            tostring(row.spell.level or '--')
+                        ));
+                        imgui.SameLine();
                         imgui.TextColored(spell_color, status_text);
                     end
 
@@ -2014,6 +2079,8 @@ local function draw_zone_info_window()
         if not state.zone_locked[1] then
             capture_zone_geometry();
         end
+
+        imgui.PopFont();
     end
 
     imgui.End();
@@ -2371,9 +2438,11 @@ local function draw_window()
         imgui.PopStyleColor(3);
 
         imgui.SameLine();
-        imgui.TextColored(state.known_color, 'Green = Known');
+        imgui.TextColored(state.known_color, 'Known');
         imgui.SameLine();
-        imgui.TextColored(state.unknown_color, 'Red = Unknown');
+        imgui.TextColored(state.learnable_color, 'Learnable');
+        imgui.SameLine();
+        imgui.TextColored(state.unknown_color, 'Unlearnable');
 
         imgui.PopFont();
 
