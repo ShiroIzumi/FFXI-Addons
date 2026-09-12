@@ -1,6 +1,6 @@
 --[[
     BLUSpells - Ashita v4 / HorizonXI
-    Version 1.9.24
+    Version 1.9.27
 
     Commands:
       /bluspells
@@ -22,7 +22,7 @@
 
 addon.name      = 'bluspells';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.9.24';
+addon.version   = '1.9.27';
 addon.desc      = 'HorizonXI Blue Magic spell list with learned-status tracking.';
 addon.link      = '';
 
@@ -2088,6 +2088,34 @@ local function draw_zone_info_window()
     pop_theme();
 end
 
+local function draw_about_tab()
+    section_title('ABOUT BLUSPELLS');
+
+    imgui.TextWrapped(
+        'BLUSpells is a Blue Mage spell-learning tracker built specifically for HorizonXI '
+        .. 'and its current era/content progression. It tracks your learned and missing '
+        .. 'Blue Magic, shows which spells you are currently able to learn based on your '
+        .. 'Blue Magic skill, and provides HorizonXI-specific monster and zone information '
+        .. 'to help locate learnable spells. Its spell, mob, and location data is intentionally '
+        .. 'tailored to HorizonXI rather than modern retail FFXI.'
+    );
+
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.Spacing();
+
+    imgui.TextColored(state.header_color, 'Version:');
+    imgui.SameLine();
+    imgui.Text(addon.version);
+
+    imgui.TextColored(state.header_color, 'Author:');
+    imgui.SameLine();
+    imgui.Text('Izumi (ShiroIzumi)');
+
+    imgui.Spacing();
+    imgui.TextColored(state.known_color, 'Special thanks to Demiora for all the testing.');
+end
+
 local function draw_config_window()
     if not state.config_open[1] then
         state.apply_saved_config_geometry = true;
@@ -2120,6 +2148,10 @@ local function draw_config_window()
                 draw_behavior_tab();
                 imgui.EndTabItem();
             end
+            if imgui.BeginTabItem('About') then
+                draw_about_tab();
+                imgui.EndTabItem();
+            end
             imgui.EndTabBar();
         else
             draw_window_tab();
@@ -2129,6 +2161,8 @@ local function draw_config_window()
             draw_display_tab();
             imgui.Spacing();
             draw_behavior_tab();
+            imgui.Spacing();
+            draw_about_tab();
         end
 
         capture_config_geometry();
