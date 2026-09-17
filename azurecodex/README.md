@@ -50,7 +50,7 @@ be learned.
     appropriate.
 -   Location data is curated for HorizonXI's available content.
 
-![Learned From window](Screenshot%202026-09-16%20202544.png)
+![Learned From window](Screenshots/Screenshot%202026-09-16%20202544.png)
 
 ### Zone Info
 
@@ -64,7 +64,7 @@ tracked Blue Magic spells can be learned from mobs in your current zone.
 -   Can be opened independently of the main Azure Codex window.
 -   Position and size can be locked from configuration.
 
-![Zone Info window](Screenshot%202026-09-16%20202556.png)
+![Zone Info window](Screenshots/Screenshot%202026-09-16%20202556.png)
 
 ## BLUPrints
 
@@ -92,7 +92,7 @@ shows progress toward each trait tier, allowing a build's trait
 contributions to be reviewed before equipping it.
 
 ![BLUPrints build planner and trait
-calculator](Screenshot%202026-09-16%20202526.png)
+calculator](Screenshots/Screenshot%202026-09-16%20202526.png)
 
 ## Azure Loadout
 
@@ -114,7 +114,7 @@ supporting windows.
 Customize font scale, spell-state colors, header/accent color, paging
 color, and window appearance.
 
-![Font and color configuration](Screenshot%202026-09-16%20202615.png)
+![Font and color configuration](Screenshots/Screenshot%202026-09-16%20202615.png)
 
 ### Display
 
@@ -122,14 +122,14 @@ Configure compact/normal row spacing, automatic/fixed rows per page, and
 visible spell-table columns including Level, Points, Learn Skill, Type,
 Trait, and Mob Family.
 
-![Display configuration](Screenshot%202026-09-16%20202628.png)
+![Display configuration](Screenshots/Screenshot%202026-09-16%20202628.png)
 
 ### Behavior
 
 Configure remembered Search / Filter / Sort state, newly learned spell
 highlighting, Click/Hover Learned From interaction, and settings reset.
 
-![Behavior configuration](Screenshot%202026-09-16%20202620.png)
+![Behavior configuration](Screenshots/Screenshot%202026-09-16%20202620.png)
 
 ## Commands
 
