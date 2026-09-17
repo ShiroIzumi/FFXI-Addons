@@ -34,7 +34,7 @@ content progression rather than modern retail FFXI.
 -   Optional persistence of search, filter, and sort settings.
 -   Automatically highlights newly learned spells.
 
-![Azure Codex main spell list](Screenshot%202026-09-16%20202509.png)
+![Azure Codex main spell list](Screenshots/Screenshot%202026-09-16%20202509.png)
 
 ## Spell Learning & Location Data
 
