@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.10.5
+    Version 1.10.7
 
     Commands:
       /azurecodex
@@ -23,8 +23,8 @@
 ]]--
 
 addon.name      = 'azurecodex';
-addon.author    = 'Izumi (ShiroIzumi) / Kyrias';
-addon.version   = '1.10.6';
+addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
+addon.version   = '1.10.7';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -509,6 +509,7 @@ local state = T{
     build_load_files = {},
     spellsets_page = { false },
     spellsets_files = {},
+    spellset_selected = { '' },
 };
 
 -- Synchronize runtime state when Ashita switches from the startup/default
@@ -2447,6 +2448,61 @@ local function draw_saved_build_loader()
 end
 
 local function draw_spell_build_tab()
+    -- Keep saved loadouts at the top of BLUPrints for quick access.
+    section_title('AZURE LOADOUT');
+
+    -- Keep the selector on its own row so the BLUPrint controls stay uncluttered.
+    imgui.Spacing();
+
+    state.spellsets_files = get_saved_build_files();
+    if #state.spellsets_files == 0 then
+        imgui.TextColored(MUTED, 'No saved sets found in BLUPrints.');
+    else
+        local selected_name = tostring(state.spellset_selected[1] or '')
+        local current_index = 0
+        local combo_items = { 'Select a BLUPrint...' }
+
+        for index, filename in ipairs(state.spellsets_files) do
+            combo_items[#combo_items + 1] = filename
+            if filename == selected_name then
+                current_index = index
+            end
+        end
+
+        local item_string = table.concat(combo_items, '\0') .. '\0\0'
+        local combo_value = { current_index }
+
+        imgui.PushItemWidth(360)
+        if imgui.Combo('##azure_bluprints_loadout_combo', combo_value, item_string, math.min(12, #combo_items)) then
+            local chosen_index = tonumber(combo_value[1]) or 0
+            local filename = chosen_index > 0 and state.spellsets_files[chosen_index] or nil
+            if filename ~= nil then
+                state.spellset_selected[1] = filename
+                -- Equip directly from BLUPrints; do not populate Calculator state.
+                load_saved_build_file(filename, true)
+            end
+        end
+        imgui.PopItemWidth()
+
+        imgui.SameLine();
+        if imgui.Button('Refresh##azure_bluprints_refresh') then
+            state.spellsets_files = get_saved_build_files();
+            local current = tostring(state.spellset_selected[1] or '');
+            local found = false;
+            for _, filename in ipairs(state.spellsets_files) do
+                if filename == current then
+                    found = true;
+                    break;
+                end
+            end
+            if not found then
+                state.spellset_selected[1] = '';
+            end
+        end
+    end
+
+    imgui.Spacing();
+    imgui.Spacing();
     section_title('BLUPRINTS');
 
     local _, live_max = get_blu_points();
@@ -2508,6 +2564,7 @@ local function draw_spell_build_tab()
     imgui.SameLine();
     imgui.TextColored(MUTED, 'Equipset Name');
 
+    imgui.Spacing();
     imgui.Spacing();
     imgui.Text('Search:');
     imgui.SameLine();
@@ -3137,32 +3194,17 @@ local function draw_spellsets_page()
     section_title('AZURE LOADOUT');
 
     imgui.TextColored(MUTED, 'Saved BLU sets from the BLUPrints folder.');
-    imgui.TextColored(MUTED, 'Select a set to equip it in game.');
+    imgui.TextColored(MUTED, 'Select a set below to equip it in game.');
     imgui.Spacing();
-
-    if imgui.Button('Refresh Loadout##blu_spellsets_refresh') then
-        state.spellsets_files = get_saved_build_files();
-    end
-
-    imgui.SameLine();
-    if imgui.Button('Clear BLUPrints##blu_spellsets_clear') then
-        state.build_selected = {};
-    end
-
-    imgui.Spacing();
-    imgui.Separator();
 
     state.spellsets_files = get_saved_build_files();
     if #state.spellsets_files == 0 then
         imgui.TextColored(MUTED, 'No saved sets found in BLUPrints.');
-        return;
-    end
-
-    for _, filename in ipairs(state.spellsets_files) do
-        if imgui.Button(filename .. '##main_spellset_' .. normalize_name(filename)) then
-            -- Spellsets are loaded and equipped directly. This path does not
-            -- populate the calculator selection state first.
-            load_saved_build_file(filename, true);
+    else
+        for _, filename in ipairs(state.spellsets_files) do
+            if imgui.Button('Equip ' .. filename .. '##main_spellset_' .. normalize_name(filename)) then
+                load_saved_build_file(filename, true);
+            end
         end
     end
 end
@@ -3401,20 +3443,6 @@ local function draw_window()
         end
 
         imgui.SameLine();
-        if state.spellsets_page[1] then
-            imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        end
-        if imgui.Button('Azure Loadout##blu_main_spellsets') then
-            state.spellsets_page[1] = true;
-            state.build_page[1] = false;
-        end
-        if state.spellsets_page[1] then
-            imgui.PopStyleColor(3);
-        end
-
-        imgui.SameLine();
         imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
 
         local blu_skill = safe_blue_magic_skill();
@@ -3500,9 +3528,7 @@ local function draw_window()
         local requested_size = base_font_size * state.font_scale[1];
         imgui.PushFont(nil, requested_size);
 
-        if state.spellsets_page[1] then
-            draw_spellsets_page();
-        elseif state.build_page[1] then
+        if state.build_page[1] then
             draw_spell_build_tab();
         else
             calculate_per_page();
