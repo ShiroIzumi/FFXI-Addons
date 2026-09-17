@@ -24,8 +24,8 @@ content progression rather than modern retail FFXI.
     progression and learning readiness.
 -   Shows learned count, missing count, completion percentage, BLU
     skill, and BLU point information.
--   Filters the spell list by **All**, **Known**, **Missing**, or **Up
-    to your current BLU level**.
+-   Filters by **All**, **Known**, **Missing**, or **Up to your current
+    BLU level**.
 -   Searches across spell information with support for `|` OR searches.
 -   Sortable spell table with Level, Points, Learn Skill, Type, Trait,
     and Mob Family data.
@@ -34,7 +34,7 @@ content progression rather than modern retail FFXI.
 -   Optional persistence of search, filter, and sort settings.
 -   Automatically highlights newly learned spells.
 
-![Azure Codex main spell list](screenshots/main-spell-list.png)
+![Azure Codex main spell list](Screenshot%202026-09-16%20202509.png)
 
 ## Spell Learning & Location Data
 
@@ -50,13 +50,12 @@ be learned.
     appropriate.
 -   Location data is curated for HorizonXI's available content.
 
-![Learned From window](screenshots/learned-from.png)
+![Learned From window](Screenshot%202026-09-16%20202544.png)
 
 ### Zone Info
 
-The **Zone Info** window provides the reverse view: instead of asking
-where a specific spell can be learned, it shows which tracked Blue Magic
-spells can be learned from mobs in your current zone.
+The **Zone Info** window provides the reverse view: it shows which
+tracked Blue Magic spells can be learned from mobs in your current zone.
 
 -   Automatically identifies the current zone.
 -   Shows zone-specific learning progress.
@@ -65,7 +64,7 @@ spells can be learned from mobs in your current zone.
 -   Can be opened independently of the main Azure Codex window.
 -   Position and size can be locked from configuration.
 
-![Zone Info window](screenshots/zone-info.png)
+![Zone Info window](Screenshot%202026-09-16%20202556.png)
 
 ## BLUPrints
 
@@ -75,10 +74,8 @@ spell sets before equipping them.
 -   Select up to **20 learned spells**.
 -   Enforces the character's current **BLU point cap**.
 -   Shows the point cost of every spell.
--   Unknown spells remain visible for planning/reference but cannot be
-    selected.
--   Uses the same Known / Learnable / Unlearnable colors configured for
-    the main spell list.
+-   Unknown spells remain visible for reference but cannot be selected.
+-   Uses the configured Known / Learnable / Unlearnable colors.
 -   Search within the available spell list.
 -   Select the character's currently equipped Blue Magic.
 -   Clear the current build or all checked spells.
@@ -90,12 +87,12 @@ Calculator** while BLUPrints is open.
 
 ### Trait Calculator
 
-Azure Codex totals the trait values contributed by the selected spells
-and shows progress toward each trait tier. This makes it possible to see
-how a proposed build contributes to traits before equipping it.
+Azure Codex totals the trait values contributed by selected spells and
+shows progress toward each trait tier, allowing a build's trait
+contributions to be reviewed before equipping it.
 
 ![BLUPrints build planner and trait
-calculator](screenshots/bluprints.png)
+calculator](Screenshot%202026-09-16%20202526.png)
 
 ## Azure Loadout
 
@@ -109,49 +106,30 @@ calculator](screenshots/bluprints.png)
 
 ## Configuration
 
-Azure Codex includes an in-game configuration window with controls for
-the main UI and supporting windows.
+Azure Codex includes an in-game configuration window for the main UI and
+supporting windows.
 
 ### Font & Colors
 
-Customize:
+Customize font scale, spell-state colors, header/accent color, paging
+color, and window appearance.
 
--   Font scale
--   Known spell color
--   Unknown / Learnable spell color
--   Unknown / Unlearnable spell color
--   Header / accent color
--   Paging button color
--   Window background and appearance options
-
-![Font and color configuration](screenshots/config-colors.png)
+![Font and color configuration](Screenshot%202026-09-16%20202615.png)
 
 ### Display
 
-Configure:
+Configure compact/normal row spacing, automatic/fixed rows per page, and
+visible spell-table columns including Level, Points, Learn Skill, Type,
+Trait, and Mob Family.
 
--   Compact or normal row spacing
--   Automatic or fixed rows per page
--   Visible spell-table columns:
-    -   Level
-    -   Points
-    -   Learn Skill
-    -   Type
-    -   Trait
-    -   Mob Family
-
-![Display configuration](screenshots/config-display.png)
+![Display configuration](Screenshot%202026-09-16%20202628.png)
 
 ### Behavior
 
-Configure:
+Configure remembered Search / Filter / Sort state, newly learned spell
+highlighting, Click/Hover Learned From interaction, and settings reset.
 
--   Remember Search / Filter / Sort
--   Auto-highlight newly learned spells
--   Click or Hover interaction for Learned From information
--   Reset addon settings
-
-![Behavior configuration](screenshots/config-behavior.png)
+![Behavior configuration](Screenshot%202026-09-16%20202620.png)
 
 ## Commands
 
@@ -182,31 +160,23 @@ Configure:
 
 1.  Copy the `azurecodex` folder into your Ashita v4 `addons` directory.
 2.  Start FFXI through Ashita.
-3.  Load the addon with:
+3.  Load the addon:
 
 ``` text
 /addon load azurecodex
 ```
 
-4.  Open Azure Codex with:
+4.  Open Azure Codex:
 
 ``` text
 /ac
 ```
 
-To load Azure Codex automatically, add the addon load command to your
-normal Ashita startup configuration.
-
 ## Compatibility
 
-Azure Codex is designed for:
-
--   **Ashita v4**
--   **HorizonXI**
--   HorizonXI's current Blue Mage era/content progression
-
-Spell, trait, mob, and location information is HorizonXI-focused and
-should not be treated as a modern retail FFXI database.
+Azure Codex is designed for **Ashita v4** and **HorizonXI**. Spell,
+trait, mob, and location information is HorizonXI-focused and should not
+be treated as a modern retail FFXI database.
 
 ------------------------------------------------------------------------
 
