@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.10.7
+    Version 1.10.17
 
     Commands:
       /azurecodex
@@ -630,104 +630,11 @@ local function normalize_name(value)
 end
 
 
-local spreadsheet_trait_values = {
-    ['pollen'] = 'Resist Sleep (4)',
-    ['foot kick'] = 'Lizard Killer (4)',
-    ['sprout smack'] = 'Beast Killer (4)',
-    ['wild oats'] = 'Beast Killer (4)',
-    ['power attack'] = 'Plantoid Killer (4)',
-    ['metallic body'] = 'Conserve MP (4)',
-    ['battle dance'] = 'Attack Bonus (4)',
-    ['feather storm'] = 'Rapid Shot (4)',
-    ['healing breeze'] = 'Auto Regen (4)',
-    ['sheep song'] = 'Auto Regen (4)',
-    ['cursed sphere'] = 'Magic Atk. Bonus (4)',
-    ['blastbomb'] = 'Magic Atk. Bonus (4)',
-    ['bludgeon'] = 'Undead Killer (4)',
-    ['blood drain'] = 'Conserve MP (4)',
-    ['claw cyclone'] = 'Lizard Killer (4)',
-    ['poison breath'] = 'Clear Mind (4)',
-    ['soporific'] = 'Clear Mind (4)',
-    ['screwdriver'] = 'Evasion Bonus (4)',
-    ['bomb toss'] = 'Magic Acc. Bonus (4)',
-    ['vanity dive'] = 'Accuracy Bonus (4)',
-    ['grand slam'] = 'Defense Bonus (4)',
-    ['wild carrot'] = 'Resist Sleep (4)',
-    ['chaotic eye'] = 'Conserve MP (4)',
-    ['sound blast'] = 'Magic Atk. Bonus (4)',
-    ['smite of rage'] = 'Undead Killer (4)',
-    ['empty thrash'] = 'Max HP Boost (4)',
-    ['digest'] = 'Conserve MP (4)',
-    ['blank gaze'] = 'Magic Atk. Bonus (4)',
-    ['occultation'] = 'Evasion Bonus (4)',
-    ['jet stream'] = 'Rapid Shot (4)',
-    ['uppercut'] = 'Attack Bonus (4)',
-    ['mysterious light'] = 'Max MP Boost (4)',
-    ['terror touch'] = 'Defense Bonus (4)',
-    ['auroral drape'] = 'Fast Cast (4)',
-    ['venom shell'] = 'Clear Mind (4)',
-    ['stinking gas'] = 'Auto Refresh (1)',
-    ['blitzstrahl'] = 'Magic Acc. Bonus (4)',
-    ['mandibular bite'] = 'Plantoid Killer (4)',
-    ['awful eye'] = 'Clear Mind (4)',
-    ['geist wall'] = 'Auto Refresh (1)',
-    ['magnetite cloud'] = 'Magic Def. Bonus (4)',
-    ['blood saber'] = 'Auto Refresh (2)',
-    ['sickle slash'] = 'Store TP (4)',
-    ['ice break'] = 'Magic Def. Bonus (4)',
-    ['self-destruct'] = 'Auto Refresh (2)',
-    ['frightful roar'] = 'Auto Refresh (2)',
-    ['cold wave'] = 'Auto Refresh (1)',
-    ['filamented hold'] = 'Clear Mind (4)',
-    ['hecatomb wave'] = 'Max MP Boost (4)',
-    ['quad. continuum'] = 'Defense Bonus (4)',
-    ['feather barrier'] = 'Resist Gravity (4)',
-    ['winds of promy.'] = 'Auto Refresh (2)',
-    ['light of penance'] = 'Auto Refresh (3)',
-    ['flying hip press'] = 'Max HP Boost (4)',
-    ['magic fruit'] = 'Resist Sleep (4)',
-    ['dimensional death'] = 'Accuracy Bonus (4)',
-    ['death scissors'] = 'Attack Bonus (4)',
-    ['eyes on me'] = 'Magic Atk. Bonus (4)',
-    ['bad breath'] = 'Fast Cast (4)',
-    ['maelstrom'] = 'Clear Mind (4)',
-    ['1000 needles'] = 'Beast Killer (4)',
-    ['memento mori'] = 'Magic Atk. Bonus (4)',
-    ['body slam'] = 'Max HP Boost (4)',
-    ['hydro shot'] = 'Rapid Shot (4)',
-    ['frypan'] = 'Max HP Boost (4)',
-    ['frenetic rip'] = 'Accuracy Bonus (4)',
-    ['spinal cleave'] = 'Attack Bonus (4)',
-    ['voracious trunk'] = 'Auto Refresh (3)',
-    ['feather tickle'] = 'Clear Mind (4)',
-    ['yawn'] = 'Resist Sleep (4)',
-    ['infrasonics'] = 'Magic Acc. Bonus (4)',
-    ['zephyr mantle'] = 'Conserve MP (4)',
-    ['sandspray'] = 'Clear Mind (4)',
-    ['frost breath'] = 'Conserve MP (8)',
-    ['enervation'] = 'Counter (4)',
-    ['firespit'] = 'Conserve MP (4)',
-    ['warm-up'] = 'Clear Mind (4)',
-    ['tail slap'] = 'Store TP (4)',
-    ['hysteric barrage'] = 'Evasion Bonus (4)',
-    ['heat breath'] = 'Magic Atk. Bonus (4)',
-    ['lowing'] = 'Clear Mind (4)',
-    ['saline coat'] = 'Defense Bonus (4)',
-    ['disseverment'] = 'Accuracy Bonus (4)',
-    ['temporal shift'] = 'Attack Bonus (4)',
-    ['ram charge'] = 'Lizard Killer (4)',
-    ['mind blast'] = 'Clear Mind (4)',
-    ['actinic burst'] = 'Auto Refresh (4)',
-    ['reactor cool'] = 'Magic Def. Bonus (4)',
-    ['exuviation'] = 'Resist Sleep (4)',
-    ['plasma charge'] = 'Auto Refresh (4)',
-    ['vertical cleave'] = 'Defense Bonus (4)',
-};
-
 local function get_spell_trait_display(spell)
-    local key = tostring(spell and spell.name or ''):lower()
-    return spreadsheet_trait_values[key] or tostring(spell and spell.trait or 'None')
+    return tostring(spell and spell.trait or 'None')
 end
+
+
 
 local function get_trait_parts(spell)
     local trait_text = tostring(get_spell_trait_display(spell) or 'None')
