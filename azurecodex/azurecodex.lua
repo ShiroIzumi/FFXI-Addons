@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.10.17
+    Version 1.11.1
 
     Commands:
       /azurecodex
@@ -24,7 +24,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.10.7';
+addon.version   = '1.10.22';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -508,6 +508,11 @@ local state = T{
     build_load_open = { false },
     build_load_files = {},
     spellsets_page = { false },
+    bluprint_view_page = { false },
+    bluprint_view_files = {},
+    bluprint_view_selected = { '' },
+    bluprint_view_spells = {},
+    bluprint_view_delete_confirm = { false },
     spellsets_files = {},
     spellset_selected = { '' },
 };
@@ -3097,6 +3102,196 @@ local function draw_about_tab()
     imgui.TextColored(state.known_color, 'Special thanks to Demiora for all the testing.');
 end
 
+local function get_saved_build_spells_for_view(filename)
+    local folder = ensure_build_folder();
+    local path = folder .. '\\' .. tostring(filename or '');
+    local file = io.open(path, 'r');
+    if file == nil then
+        return {}, 0, 0;
+    end
+
+    local loaded = {};
+    for line in file:lines() do
+        local name = line:match('^%s*%d+%.%s*(.-)%s+%- %s*Lv%s+%d+%s+%-%s+%d+%s+pt%s*$');
+        if name ~= nil then
+            loaded[normalize_name(name)] = true;
+        end
+    end
+    file:close();
+
+    local selected = {};
+    local used = 0;
+    local count = 0;
+    for _, spell in ipairs(spells) do
+        if loaded[normalize_name(spell.name)] then
+            selected[#selected + 1] = spell;
+            used = used + (tonumber(spell.points) or 0);
+            count = count + 1;
+        end
+    end
+
+    return selected, used, count;
+end
+
+local function draw_bluprint_view_page()
+    section_title('BLUPRINT-VIEW');
+    imgui.TextColored(MUTED, 'Select a saved BLUPrint to view its spell loadout.');
+    imgui.Spacing();
+
+    state.bluprint_view_files = get_saved_build_files();
+    if #state.bluprint_view_files == 0 then
+        imgui.TextColored(MUTED, 'No saved BLUPrints found.');
+        return;
+    end
+
+    local selected_name = tostring(state.bluprint_view_selected[1] or '');
+    local current_index = 0;
+    local combo_items = { 'Select a BLUPrint...' };
+    for index, filename in ipairs(state.bluprint_view_files) do
+        combo_items[#combo_items + 1] = filename;
+        if filename == selected_name then
+            current_index = index;
+        end
+    end
+
+    local item_string = table.concat(combo_items, '\0') .. '\0\0';
+    local combo_value = { current_index };
+    imgui.PushItemWidth(420);
+    if imgui.Combo('##azure_bluprint_view_combo', combo_value, item_string, math.min(12, #combo_items)) then
+        local chosen_index = tonumber(combo_value[1]) or 0;
+        local filename = chosen_index > 0 and state.bluprint_view_files[chosen_index] or nil;
+        if filename ~= nil then
+            state.bluprint_view_selected[1] = filename;
+        else
+            state.bluprint_view_selected[1] = '';
+        end
+    end
+    imgui.PopItemWidth();
+
+    selected_name = tostring(state.bluprint_view_selected[1] or '');
+    if selected_name == '' then
+        imgui.Spacing();
+        imgui.TextColored(MUTED, 'Choose a BLUPrint from the dropdown to view it.');
+        return;
+    end
+
+    local selected_spells, used, count = get_saved_build_spells_for_view(selected_name);
+    state.bluprint_view_spells = selected_spells;
+
+    imgui.Spacing();
+    imgui.TextColored(state.header_color, selected_name);
+    imgui.SameLine();
+    imgui.TextColored(MUTED, ('%d / 20 spells   %d points'):fmt(count, used));
+
+    if count > 0 then
+        if imgui.Button('Equip##azure_bluprint_view_equip') then
+            equip_spell_list(selected_spells, used, count, selected_name);
+        end
+        imgui.SameLine();
+        if imgui.Button('Import to BLUPrints##azure_bluprint_view_import') then
+            state.build_selected = {};
+            for _, spell in ipairs(selected_spells) do
+                state.build_selected[normalize_name(spell.name)] = true;
+            end
+            state.build_page[1] = true;
+            state.bluprint_view_page[1] = false;
+            state.spellsets_page[1] = false;
+            log_message(('Imported BLUPrint into BLUPrints: %s (%d spells, %d points).'):fmt(
+                tostring(selected_name), count, used));
+        end
+
+        imgui.SameLine();
+        if imgui.Button('Delete##azure_bluprint_view_delete') then
+            state.bluprint_view_delete_confirm[1] = true;
+        end
+    end
+
+    if state.bluprint_view_delete_confirm[1] and selected_name ~= '' then
+        imgui.Spacing();
+        imgui.TextColored(state.unknown_color, ('Delete %s?'):fmt(tostring(selected_name)));
+        imgui.SameLine();
+        if imgui.Button('Confirm##azure_bluprint_view_delete_confirm') then
+            local folder = ensure_build_folder();
+            local path = folder .. '\\' .. tostring(selected_name);
+            local ok, err = os.remove(path);
+            if ok then
+                log_message('Deleted BLUPrint: ' .. tostring(selected_name));
+                state.bluprint_view_selected[1] = '';
+                state.bluprint_view_spells = {};
+            else
+                log_message('Unable to delete BLUPrint: ' .. tostring(err or path));
+            end
+            state.bluprint_view_delete_confirm[1] = false;
+        end
+        imgui.SameLine();
+        if imgui.Button('Cancel##azure_bluprint_view_delete_cancel') then
+            state.bluprint_view_delete_confirm[1] = false;
+        end
+    end
+
+    imgui.Separator();
+
+    local trait_totals = {};
+    for _, spell in ipairs(selected_spells) do
+        local trait_name, value = get_trait_parts(spell);
+        if trait_name ~= nil then
+            local key = normalize_name(trait_name);
+            if trait_totals[key] == nil then
+                trait_totals[key] = { name = trait_name, points = 0 };
+            end
+            trait_totals[key].points = trait_totals[key].points + value;
+        end
+    end
+
+    imgui.TextColored(state.header_color, 'SPELLS');
+    imgui.Spacing();
+    if #selected_spells == 0 then
+        imgui.TextColored(MUTED, 'No valid spells found in this BLUPrint.');
+    else
+        for index, spell in ipairs(selected_spells) do
+            local trait_text = get_spell_trait_display(spell);
+            imgui.TextColored(state.header_color, ('%02d'):fmt(index));
+            imgui.SameLine();
+            imgui.Text(tostring(spell.name));
+            imgui.SameLine();
+            imgui.TextColored(MUTED, ('Lv %s   %d pt'):fmt(tostring(spell.level or '--'), tonumber(spell.points) or 0));
+            if trait_text ~= nil and tostring(trait_text):lower() ~= 'none' then
+                imgui.SameLine();
+                imgui.TextColored(state.header_color, tostring(trait_text));
+            end
+        end
+    end
+
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.TextColored(state.header_color, 'TRAITS');
+    imgui.Spacing();
+
+    local sorted_traits = {};
+    for _, trait in pairs(trait_totals) do
+        sorted_traits[#sorted_traits + 1] = trait;
+    end
+    table.sort(sorted_traits, function(a, b)
+        if a.points == b.points then
+            return a.name:lower() < b.name:lower();
+        end
+        return a.points > b.points;
+    end);
+
+    if #sorted_traits == 0 then
+        imgui.TextColored(MUTED, 'No trait contributions in this BLUPrint.');
+    else
+        for _, trait in ipairs(sorted_traits) do
+            local points = tonumber(trait.points) or 0;
+            local next_threshold = math.max(8, math.ceil(points / 8) * 8);
+            if points > 0 and points % 8 == 0 then
+                next_threshold = points;
+            end
+            imgui.TextColored(points >= 8 and state.known_color or state.unknown_color, ('%s   %d / %d'):fmt(tostring(trait.name), points, next_threshold));
+        end
+    end
+end
+
 local function draw_spellsets_page()
     section_title('AZURE LOADOUT');
 
@@ -3344,8 +3539,24 @@ local function draw_window()
         if imgui.Button('BLUPrints##blu_main_spell_build') then
             state.build_page[1] = true;
             state.spellsets_page[1] = false;
+            state.bluprint_view_page[1] = false;
         end
         if state.build_page[1] then
+            imgui.PopStyleColor(3);
+        end
+
+        imgui.SameLine();
+        if state.bluprint_view_page[1] then
+            imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
+        end
+        if imgui.Button('BLUPrint-View##blu_main_spell_build_view') then
+            state.bluprint_view_page[1] = true;
+            state.build_page[1] = false;
+            state.spellsets_page[1] = false;
+        end
+        if state.bluprint_view_page[1] then
             imgui.PopStyleColor(3);
         end
 
@@ -3437,6 +3648,8 @@ local function draw_window()
 
         if state.build_page[1] then
             draw_spell_build_tab();
+        elseif state.bluprint_view_page[1] then
+            draw_bluprint_view_page();
         else
             calculate_per_page();
 
@@ -3583,6 +3796,7 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
         state.zone_info_open[1] = false;
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
+        state.bluprint_view_page[1] = false;
     end
 end);
 
