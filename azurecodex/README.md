@@ -87,9 +87,25 @@ Calculator** while BLUPrints is open.
 
 ### Trait Calculator
 
-Azure Codex totals the trait values contributed by selected spells and
-shows progress toward each trait tier, allowing a build's trait
-contributions to be reviewed before equipping it.
+Azure Codex totals the traits given by the selected spells using the
+HorizonXI / LandSandBoat 75-era rules and shows each trait's tier and
+progress toward the next one.
+
+-   Each spell gives 4 points to its trait (8 points = a tier for most
+    traits). Some spells count more: Self-Destruct, Frightful Roar,
+    Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma
+    Charge, Winds of Promyvion x4 (shown as "x2" etc. next to the trait).
+-   Auto Refresh needs 32 points; Resist Gravity tiers are 8 / 12 / 16;
+    each trait has its own maximum tier.
+-   **Trait Planner** lists the cheapest known spells that reach each
+    trait's next tier, with an **Add** button when they fit your limits.
+    Tick **All traits** to plan traits not in the build yet.
+-   **VS Equipped** shows which spells a build would add or remove
+    compared with your currently set spells.
+
+Point and slot limits follow your BLU level (HorizonXI table: 10 points /
+6 spells at Lv1-10 up to 45 / 20 at Lv71-75). If the client exposes live
+Blue Magic Points, those are used instead.
 
 ![BLUPrints build planner and trait
 calculator](Screenshots/Screenshot%202026-09-16%20202526.png)
@@ -100,7 +116,8 @@ calculator](Screenshots/Screenshot%202026-09-16%20202526.png)
 
 -   Reads saved Blue Magic builds from the addon's BLUPrints folder.
 -   Refreshes the available loadout list on demand.
--   Loads and equips a saved spell set directly in game.
+-   Loads and equips a saved spell set directly in game (asks to confirm
+    first).
 -   Keeps reusable spell configurations separate from the active
     build-planning workflow.
 
@@ -111,8 +128,9 @@ supporting windows.
 
 ### Font & Colors
 
-Customize font scale, spell-state colors, header/accent color, paging
-color, and window appearance.
+Pick a **Theme** (Midnight - default, Abyss, Twilight, Golden, Garnet, Silver), then customize
+font scale, spell-state colors, header/accent color, paging color, and
+window appearance.
 
 ![Font and color configuration](Screenshots/Screenshot%202026-09-16%20202615.png)
 
@@ -127,7 +145,20 @@ Trait, and Mob Family.
 ### Behavior
 
 Configure remembered Search / Filter / Sort state, newly learned spell
-highlighting, Click/Hover Learned From interaction, and settings reset.
+highlighting, Click/Hover Learned From interaction, the **Target Tag**,
+and settings reset.
+
+## Farm Zones, Target Tag and Learned Log (1.12.0)
+
+-   **Farm Zones** (`/ac farm` or the toolbar button): era zones ranked
+    by how many spells you are missing there, learnable ones first.
+    Click a zone to see the spells and the mobs that teach them.
+-   **Target Tag**: while BLU is your main job, a small "Teaches:" tag
+    appears when your target teaches a spell you are missing in the
+    current zone (Learnable color = you can learn it now, Unlearnable color = skill too low).
+    Drag it where you like; lock it in Behavior.
+-   **Learned Log** (`/ac log`): every spell you learn from now on, with
+    the date, zone and the mob you defeated, saved per character.
 
 ![Behavior configuration](Screenshots/Screenshot%202026-09-16%20202620.png)
 
@@ -144,6 +175,10 @@ highlighting, Click/Hover Learned From interaction, and settings reset.
 
   `/ac config`                        Short alias for the configuration
                                       window.
+
+  `/ac farm`                          Toggle the Farm Zones window.
+
+  `/ac log`                           Toggle the Learned Log window.
 
   `/azurecodexzone`                   Toggle Zone Info directly.
 
@@ -189,3 +224,26 @@ and data development\
 
 Azure Codex continues the original BLUSpells project under its new
 collaborative name.
+
+------------------------------------------------------------------------
+
+## Changes in 1.12.1
+
+-   Three more themes: Golden (XIUI-style), Garnet (SCL's subtle red), Silver.
+-   Farm Zones and Learned Log keep their header (and close button) in place while the list scrolls.
+
+## Changes in 1.12.0
+
+-   Trait Calculator fixed (it never counted anything) and rebuilt on
+    HorizonXI / LandSandBoat 75-era trait rules, in BLUPrints and
+    BLUPrint-View. New Trait Planner and VS Equipped.
+-   Point / slot limits now follow your BLU level (they were fixed at 50 /
+    20); BLU Points shows equipped total / level limit when the client
+    does not expose live points.
+-   Clicking a filter while on BLUPrint-View returns to the spell list.
+-   Azure Loadout asks before equipping.
+-   Faster: the BLUPrints folder is no longer read from disk every frame,
+    known spells / zone progress / the filtered list are cached, and the
+    equipped-set memory pattern is scanned once.
+-   New: Theme dropdown, Farm Zones, Target Tag, Learned Log.
+-   Version number fixed (header and addon both 1.12.0).

@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.11.1
+    Version 1.12.1
 
     Commands:
       /azurecodex
@@ -10,6 +10,9 @@
       /bsl         (legacy alias)
       /azurecodex config
       /ac config
+      /acz          (Zone Info)
+      /ac farm      (Farm Zones)
+      /ac log       (Learned Log)
 
     Main goals:
       * Clean IzClock-style dark presentation.
@@ -24,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.10.22';
+addon.version   = '1.12.1';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -224,7 +227,8 @@ local defaults = T{
     font_scale = 1.00,
 
     appearance = T{
-        background = T{ 0.018, 0.024, 0.032, 0.94 },
+        -- Midnight blue (#010022) window base.
+        background = T{ 0.004, 0.000, 0.133, 1.00 },
         border = true,
         title_bar = true,
         locked = false,
@@ -237,6 +241,8 @@ local defaults = T{
         unknown_color = T{ 1.00, 0.34, 0.38, 1.00 },
         header_color = T{ 0.38, 0.78, 1.00, 1.00 },
         paging_color = T{ 0.62, 0.12, 0.14, 1.00 },
+        -- Window surface theme: 'midnight' (default), 'abyss', 'twilight'.
+        theme = 'midnight',
     },
 
     display = T{
@@ -257,7 +263,19 @@ local defaults = T{
         remember_filters = true,
         auto_highlight_learned = true,
         location_interaction = 'click',
+        -- "Teaches:" tag for a targeted mob that teaches a spell you are
+        -- missing (current zone, BLU main only).
+        target_tag = true,
+        target_tag_locked = false,
+        assimilation = 0,
     },
+
+    target_tag_window = T{ x = 900, y = 260 },
+    farm_window = T{ x = 1040, y = 160, width = 520, height = 560 },
+    log_window = T{ x = 1060, y = 180, width = 560, height = 460 },
+
+    -- Per-character history of newly learned spells.
+    learned_log = T{},
 
     ui_state = T{
         search = '',
@@ -290,6 +308,13 @@ local defaults = T{
 
 local config = settings.load(defaults);
 
+-- Previous default window colors. Saved settings that still use one exactly
+-- are moved to the current midnight blue default; custom colors are left untouched.
+local LEGACY_BACKGROUNDS = {
+    { 0.018, 0.024, 0.032 },
+    { 0.008, 0.000, 0.208 },
+};
+
 local function ensure_tables()
     if config.appearance == nil then config.appearance = T{}; end
     if config.appearance.background == nil then config.appearance.background = T{}; end
@@ -307,6 +332,23 @@ local function ensure_tables()
     if config.window == nil then config.window = T{}; end
     if config.config_window == nil then config.config_window = T{}; end
     if config.zone_window == nil then config.zone_window = T{}; end
+    if config.target_tag_window == nil then config.target_tag_window = T{}; end
+    if config.farm_window == nil then config.farm_window = T{}; end
+    if config.log_window == nil then config.log_window = T{}; end
+    if config.learned_log == nil then config.learned_log = T{}; end
+    if config.appearance.theme == nil then config.appearance.theme = 'midnight'; end
+    if config.behavior.target_tag == nil then config.behavior.target_tag = true; end
+    if config.behavior.target_tag_locked == nil then config.behavior.target_tag_locked = false; end
+    if config.behavior.assimilation == nil then config.behavior.assimilation = 0; end
+    for key, value in pairs(defaults.target_tag_window) do
+        if config.target_tag_window[key] == nil then config.target_tag_window[key] = value; end
+    end
+    for key, value in pairs(defaults.farm_window) do
+        if config.farm_window[key] == nil then config.farm_window[key] = value; end
+    end
+    for key, value in pairs(defaults.log_window) do
+        if config.log_window[key] == nil then config.log_window[key] = value; end
+    end
 
     local function fill_color(dst, src)
         for i = 1, 4 do
@@ -320,6 +362,25 @@ local function ensure_tables()
     fill_color(config.appearance.unknown_color, defaults.appearance.unknown_color);
     fill_color(config.appearance.header_color, defaults.appearance.header_color);
     fill_color(config.appearance.paging_color, defaults.appearance.paging_color);
+
+    local uses_legacy_background = false;
+    for _, legacy in ipairs(LEGACY_BACKGROUNDS) do
+        local matches = true;
+        for i = 1, 3 do
+            local value = tonumber(config.appearance.background[i]);
+            if value == nil or math.abs(value - legacy[i]) > 0.001 then
+                matches = false;
+            end
+        end
+        if matches then
+            uses_legacy_background = true;
+        end
+    end
+    if uses_legacy_background then
+        for i = 1, 3 do
+            config.appearance.background[i] = defaults.appearance.background[i];
+        end
+    end
 
     if config.appearance.border == nil then config.appearance.border = defaults.appearance.border; end
     if config.appearance.title_bar == nil then config.appearance.title_bar = defaults.appearance.title_bar; end
@@ -515,6 +576,25 @@ local state = T{
     bluprint_view_delete_confirm = { false },
     spellsets_files = {},
     spellset_selected = { '' },
+
+    -- 1.12.0
+    theme = tostring(config.appearance.theme or 'midnight'),
+    target_tag = { config.behavior.target_tag ~= false },
+    target_tag_locked = { config.behavior.target_tag_locked == true },
+    assimilation = { math.floor(tonumber(config.behavior.assimilation) or 0) },
+    target_tag_apply_pos = true,
+    target_tag_x = tonumber(config.target_tag_window.x) or 900,
+    target_tag_y = tonumber(config.target_tag_window.y) or 260,
+    farm_open = { false },
+    farm_apply_geometry = true,
+    farm_expanded = {},
+    farm_learnable_only = { false },
+    log_open = { false },
+    log_apply_geometry = true,
+    log_clear_confirm = false,
+    loadout_pending = nil,
+    planner_all = { false },
+    last_defeat = nil,
 };
 
 -- Synchronize runtime state when Ashita switches from the startup/default
@@ -576,6 +656,16 @@ local function apply_loaded_config(s)
     state.remember_filters[1] = config.behavior.remember_filters == true
     state.auto_highlight_learned[1] = config.behavior.auto_highlight_learned ~= false
     state.location_interaction = config.behavior.location_interaction == 'hover' and 'hover' or 'click'
+    state.theme = tostring(config.appearance.theme or 'midnight')
+    state.target_tag[1] = config.behavior.target_tag ~= false
+    state.target_tag_locked[1] = config.behavior.target_tag_locked == true
+    state.assimilation[1] = math.floor(tonumber(config.behavior.assimilation) or 0)
+    state.target_tag_x = tonumber(config.target_tag_window.x) or 900
+    state.target_tag_y = tonumber(config.target_tag_window.y) or 260
+    state.target_tag_apply_pos = true
+    state.farm_apply_geometry = true
+    state.log_apply_geometry = true
+    if state.apply_theme_surfaces ~= nil then state.apply_theme_surfaces(state.theme) end
 
     if state.remember_filters[1] then
         state.search[1] = tostring(config.ui_state.search or '')
@@ -621,17 +711,253 @@ settings.register('settings', 'bluspells_settings_update', function(s)
     apply_loaded_config(s)
 end)
 
-local MUTED = { 0.56, 0.61, 0.68, 1.00 };
-local TEXT = { 0.92, 0.94, 0.97, 1.00 };
-local TITLE = { 0.030, 0.045, 0.060, 1.00 };
-local BORDER = { 0.16, 0.23, 0.31, 1.00 };
-local CONTROL = { 0.055, 0.075, 0.100, 1.00 };
-local CONTROL_HOVER = { 0.090, 0.145, 0.200, 1.00 };
-local CONTROL_ACTIVE = { 0.110, 0.200, 0.285, 1.00 };
+-- Azure Codex theme palette: midnight blue (#020035) base with the
+-- configurable Header / Accent color used for highlights.
+local MUTED = { 0.60, 0.62, 0.78, 1.00 };
+local TEXT = { 0.92, 0.93, 0.98, 1.00 };
+local TITLE = { 0.004, 0.000, 0.125, 1.00 };
+local TITLE_ACTIVE = { 0.022, 0.012, 0.270, 1.00 };
+local BORDER = { 0.20, 0.19, 0.50, 0.85 };
+local CONTROL = { 0.045, 0.035, 0.310, 1.00 };
+local CONTROL_HOVER = { 0.085, 0.075, 0.420, 1.00 };
+local CONTROL_ACTIVE = { 0.120, 0.110, 0.520, 1.00 };
+local POPUP = { 0.012, 0.006, 0.165, 0.98 };
+local TABLE_HEADER = { 0.030, 0.022, 0.290, 1.00 };
+local TRANSPARENT = { 0.00, 0.00, 0.00, 0.00 };
+local WHITE = { 1.00, 1.00, 1.00, 1.00 };
 
+-- Window surface themes (1.12.0). Midnight is the original look. Picking a
+-- theme also sets the Window Color and Header / Accent color, which stay
+-- editable afterwards in Config.
+local AC_THEMES = {
+    midnight = {
+        label = 'Midnight',
+        background = { 0.004, 0.000, 0.133 },
+        header = { 0.38, 0.78, 1.00 },
+        muted = { 0.60, 0.62, 0.78 },
+        title = { 0.004, 0.000, 0.125 },
+        title_active = { 0.022, 0.012, 0.270 },
+        border = { 0.20, 0.19, 0.50 },
+        control = { 0.045, 0.035, 0.310 },
+        control_hover = { 0.085, 0.075, 0.420 },
+        control_active = { 0.120, 0.110, 0.520 },
+        popup = { 0.012, 0.006, 0.165 },
+        table_header = { 0.030, 0.022, 0.290 },
+    },
+    abyss = {
+        label = 'Abyss',
+        background = { 0.000, 0.040, 0.060 },
+        header = { 0.36, 0.86, 0.86 },
+        muted = { 0.58, 0.72, 0.76 },
+        title = { 0.000, 0.035, 0.055 },
+        title_active = { 0.000, 0.090, 0.130 },
+        border = { 0.12, 0.36, 0.42 },
+        control = { 0.020, 0.140, 0.190 },
+        control_hover = { 0.040, 0.210, 0.270 },
+        control_active = { 0.060, 0.280, 0.350 },
+        popup = { 0.000, 0.050, 0.075 },
+        table_header = { 0.010, 0.110, 0.150 },
+    },
+    twilight = {
+        label = 'Twilight',
+        background = { 0.055, 0.012, 0.085 },
+        header = { 0.80, 0.62, 1.00 },
+        muted = { 0.74, 0.64, 0.80 },
+        title = { 0.050, 0.010, 0.080 },
+        title_active = { 0.130, 0.040, 0.200 },
+        border = { 0.40, 0.22, 0.52 },
+        control = { 0.170, 0.060, 0.250 },
+        control_hover = { 0.240, 0.100, 0.340 },
+        control_active = { 0.300, 0.140, 0.420 },
+        popup = { 0.070, 0.020, 0.100 },
+        table_header = { 0.140, 0.050, 0.210 },
+    },
+};
+AC_THEMES.golden = {
+    -- XIUI-style black with warm gold.
+    label = 'Golden',
+    background = { 0.051, 0.051, 0.051 },
+    header = { 0.957, 0.855, 0.592 },
+    muted = { 0.60, 0.58, 0.54 },
+    title = { 0.035, 0.033, 0.030 },
+    title_active = { 0.137, 0.125, 0.106 },
+    border = { 0.300, 0.275, 0.235 },
+    control = { 0.098, 0.090, 0.075 },
+    control_hover = { 0.137, 0.125, 0.106 },
+    control_active = { 0.176, 0.161, 0.137 },
+    popup = { 0.070, 0.065, 0.055 },
+    table_header = { 0.120, 0.110, 0.090 },
+};
+AC_THEMES.garnet = {
+    -- ScrollingCombatLog's subtle Garnet red on graphite.
+    label = 'Garnet',
+    background = { 0.035, 0.035, 0.040 },
+    header = { 0.800, 0.380, 0.430 },
+    muted = { 0.62, 0.62, 0.66 },
+    title = { 0.020, 0.020, 0.022 },
+    title_active = { 0.094, 0.035, 0.043 },
+    border = { 0.275, 0.118, 0.133 },
+    control = { 0.100, 0.100, 0.110 },
+    control_hover = { 0.160, 0.160, 0.180 },
+    control_active = { 0.220, 0.220, 0.250 },
+    popup = { 0.050, 0.050, 0.056 },
+    table_header = { 0.130, 0.060, 0.070 },
+};
+AC_THEMES.silver = {
+    -- Cool graphite with silver.
+    label = 'Silver',
+    background = { 0.045, 0.048, 0.055 },
+    header = { 0.800, 0.830, 0.880 },
+    muted = { 0.60, 0.62, 0.66 },
+    title = { 0.030, 0.032, 0.036 },
+    title_active = { 0.130, 0.140, 0.160 },
+    border = { 0.360, 0.380, 0.420 },
+    control = { 0.110, 0.115, 0.130 },
+    control_hover = { 0.170, 0.180, 0.200 },
+    control_active = { 0.230, 0.240, 0.270 },
+    popup = { 0.060, 0.065, 0.075 },
+    table_header = { 0.140, 0.150, 0.170 },
+};
+
+local AC_THEME_ORDER = { 'midnight', 'abyss', 'twilight', 'golden', 'garnet', 'silver' };
+
+local function set_rgb(dst, rgb)
+    dst[1] = rgb[1]; dst[2] = rgb[2]; dst[3] = rgb[3];
+end
+
+-- Updates the surface color tables in place (they are shared by push_theme).
+local function apply_theme_surfaces(key)
+    local theme = AC_THEMES[tostring(key or 'midnight')] or AC_THEMES.midnight;
+    set_rgb(MUTED, theme.muted);
+    set_rgb(TITLE, theme.title);
+    set_rgb(TITLE_ACTIVE, theme.title_active);
+    set_rgb(BORDER, theme.border);
+    set_rgb(CONTROL, theme.control);
+    set_rgb(CONTROL_HOVER, theme.control_hover);
+    set_rgb(CONTROL_ACTIVE, theme.control_active);
+    set_rgb(POPUP, theme.popup);
+    set_rgb(TABLE_HEADER, theme.table_header);
+end
+state.apply_theme_surfaces = apply_theme_surfaces;
+apply_theme_surfaces(state.theme);
+
+-- Switching theme: surfaces plus the theme's window / accent colors.
+local function select_theme(key)
+    local theme = AC_THEMES[tostring(key or '')];
+    if theme == nil then return; end
+    state.theme = key;
+    apply_theme_surfaces(key);
+    set_rgb(state.background, theme.background);
+    set_rgb(state.header_color, theme.header);
+    state.settings_dirty = true;
+end
+
+-- Returns the configured accent color with an optional alpha multiplier.
+local function accent(alpha_mul)
+    local c = state.header_color;
+    return { c[1], c[2], c[3], (c[4] or 1.0) * (alpha_mul or 1.0) };
+end
+
+-- Draws a short accent bar along the bottom edge of the last drawn item.
+local function draw_item_underline()
+    if imgui.GetItemRectMin == nil or imgui.GetItemRectMax == nil then return; end
+
+    local min_x = imgui.GetItemRectMin();
+    local max_x, max_y = imgui.GetItemRectMax();
+    min_x = tonumber(min_x); max_x = tonumber(max_x); max_y = tonumber(max_y);
+    if min_x == nil or max_x == nil or max_y == nil then return; end
+
+    local draw_list = imgui.GetWindowDrawList();
+    if draw_list == nil then return; end
+
+    draw_list:AddRectFilled(
+        { min_x + 4, max_y - 2 },
+        { max_x - 4, max_y },
+        imgui.GetColorU32(accent()),
+        1.0
+    );
+end
+
+-- Button that shows an on/off state: accent-tinted fill and underline when
+-- selected, standard midnight control when not. Returns true when clicked.
+local function draw_toggle_button(label, id, selected, disabled)
+    if selected then
+        imgui.PushStyleColor(ImGuiCol_Button, accent(0.26));
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.32));
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.40));
+        imgui.PushStyleColor(ImGuiCol_Text, WHITE);
+    else
+        imgui.PushStyleColor(ImGuiCol_Button, CONTROL);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, CONTROL_HOVER);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, CONTROL_ACTIVE);
+        imgui.PushStyleColor(ImGuiCol_Text, TEXT);
+    end
+
+    local clicked = false;
+    if disabled then
+        imgui.BeginDisabled();
+        imgui.Button(label .. '##' .. id);
+        imgui.EndDisabled();
+    else
+        clicked = imgui.Button(label .. '##' .. id);
+    end
+
+    if selected and not disabled then
+        draw_item_underline();
+    end
+
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+-- Flat tab button for the Config window: transparent with accent text and
+-- underline when selected, subdued when not. Returns true when clicked.
+local function draw_styled_tab(label, id, selected)
+    if selected then
+        imgui.PushStyleColor(ImGuiCol_Button, accent(0.12));
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.16));
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.20));
+        imgui.PushStyleColor(ImGuiCol_Text, accent());
+    else
+        imgui.PushStyleColor(ImGuiCol_Button, { CONTROL[1], CONTROL[2], CONTROL[3], 0.55 });
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, CONTROL_HOVER);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, CONTROL_ACTIVE);
+        imgui.PushStyleColor(ImGuiCol_Text, MUTED);
+    end
+
+    local clicked = imgui.Button(label .. '##' .. id);
+
+    if selected then
+        draw_item_underline();
+    end
+
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+-- Aligns a plain text label with the frame padding of the controls beside it.
+local function align_label()
+    if imgui.AlignTextToFramePadding ~= nil then
+        imgui.AlignTextToFramePadding();
+    end
+end
+
+-- Memoized: names are normalized thousands of times per frame otherwise.
+local normalize_cache = {};
 local function normalize_name(value)
     if value == nil then return ''; end
-    return tostring(value):lower():gsub('[^%w]', '');
+    local raw = tostring(value);
+    local cached = normalize_cache[raw];
+    if cached == nil then
+        cached = raw:lower():gsub('[^%w]', '');
+        normalize_cache[raw] = cached;
+    end
+    return cached;
+end
+
+-- Static per-spell values computed once.
+for _, spell in ipairs(spells) do
+    spell._key = normalize_name(spell.name);
 end
 
 
@@ -641,51 +967,141 @@ end
 
 
 
-local function get_trait_parts(spell)
-    local trait_text = tostring(get_spell_trait_display(spell) or 'None')
-    local trait_name, value = trait_text:match('^(.-)%s*%((%d+)%)$')
-    if trait_name == nil then
-        return nil, 0
-    end
-    trait_name = tostring(trait_name or ''):gsub('%s+$', '')
-    value = tonumber(value) or 0
-    if trait_name == '' or trait_name:lower() == 'none' or value <= 0 then
-        return nil, 0
-    end
-    return trait_name, value
+-- ----------------------------------------------------------------------------
+-- Blue Magic traits, HorizonXI / LandSandBoat 75-era rules.
+--
+-- Each set spell adds its weight (1 for almost every spell) to the trait
+-- named in spells.lua. A trait tier unlocks at the thresholds below, in
+-- weight units. Shown x4 so a normal tier reads as 8 trait points.
+--   * most traits: a tier every 2 spells (8 pts)
+--   * Auto Refresh: one tier at 8 weight (32 pts)
+--   * Resist Gravity: 2 / 3 / 4 weight
+-- Heavier spells (LandSandBoat weights): Self-Destruct, Frightful Roar,
+-- Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge,
+-- Winds of Promyvion x4. HorizonXI may differ for a few spells.
+-- ----------------------------------------------------------------------------
+local TRAIT_POINT_SCALE = 4;
+
+local TRAIT_TIERS = {
+    beastkiller = { 2, 4, 6 },
+    autoregen = { 2, 4, 6 },
+    lizardkiller = { 2, 4, 6 },
+    clearmind = { 2, 4, 6, 8, 10, 12 },
+    resistsleep = { 2, 4, 6, 8 },
+    magicattackbonus = { 2, 4, 6, 8, 10, 12 },
+    undeadkiller = { 2, 4, 6 },
+    attackbonus = { 2, 4, 6, 8, 10, 12 },
+    rapidshot = { 2, 4, 6 },
+    maxmpboost = { 2, 4 },
+    defensebonus = { 2, 4, 6, 8, 10, 12 },
+    plantoidkiller = { 2, 4, 6 },
+    magicdefensebonus = { 2, 4, 6, 8, 10 },
+    autorefresh = { 8 },
+    maxhpboost = { 2, 4, 6, 8, 10, 12 },
+    accuracybonus = { 2, 4, 6, 8, 10, 12 },
+    conservemp = { 2, 4, 6, 8, 10 },
+    evasionbonus = { 2, 4, 6, 8, 10 },
+    resistgravity = { 2, 3, 4 },
+    storetp = { 2, 4, 6, 8, 10 },
+    counter = { 2, 4, 6, 8 },
+    fastcast = { 2, 4, 6, 8, 10 },
+    -- HorizonXI-only trait (Bomb Toss and others in spells.lua); tiers
+    -- assumed to follow the common 2 / 4 / 6 pattern.
+    magicaccuracy = { 2, 4, 6 },
+};
+
+local TRAIT_WEIGHTS = {
+    selfdestruct = 2,
+    frightfulroar = 2,
+    lightofpenance = 2,
+    voracioustrunk = 3,
+    actinicburst = 4,
+    plasmacharge = 4,
+    windsofpromy = 4,
+    windsofpromyvion = 4,
+};
+
+local ROMAN = { 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII' };
+
+local function get_spell_trait_name(spell)
+    local text = tostring(spell and spell.trait or '');
+    if text == '' or text:lower() == 'none' then return nil; end
+    return text;
 end
 
-local function get_trait_totals()
-    local totals = {}
-    local selected_spells = {}
+local function get_trait_weight(spell)
+    return TRAIT_WEIGHTS[spell._key or normalize_name(spell.name)] or 1;
+end
 
-    for _, spell in ipairs(spells) do
-        if state.build_selected[normalize_name(spell.name)] == true then
-            selected_spells[#selected_spells + 1] = spell
-            local trait_name, value = get_trait_parts(spell)
-            if trait_name ~= nil then
-                local key = normalize_name(trait_name)
-                if totals[key] == nil then
-                    totals[key] = { name = trait_name, points = 0 }
-                end
-                totals[key].points = totals[key].points + value
+local function trait_tiers_for(trait_name)
+    return TRAIT_TIERS[normalize_name(trait_name)] or { 2, 4, 6 };
+end
+
+-- Totals for a list of spells. Each entry:
+--   name, key, weight, points, tier, max_tier, next_points, prev_points, maxed
+local function compute_traits(spell_list)
+    local totals = {};
+    for _, spell in ipairs(spell_list or {}) do
+        local trait_name = get_spell_trait_name(spell);
+        if trait_name ~= nil then
+            local key = normalize_name(trait_name);
+            if totals[key] == nil then
+                totals[key] = { name = trait_name, key = key, weight = 0 };
             end
+            totals[key].weight = totals[key].weight + get_trait_weight(spell);
         end
     end
 
-    local result = {}
+    local result = {};
     for _, entry in pairs(totals) do
-        result[#result + 1] = entry
+        local tiers = trait_tiers_for(entry.name);
+        local tier = 0;
+        for index, need in ipairs(tiers) do
+            if entry.weight >= need then tier = index; end
+        end
+        entry.tier = tier;
+        entry.max_tier = #tiers;
+        entry.maxed = tier >= #tiers;
+        entry.points = entry.weight * TRAIT_POINT_SCALE;
+        entry.next_need = tiers[tier + 1];
+        entry.next_points = entry.next_need and (entry.next_need * TRAIT_POINT_SCALE) or nil;
+        entry.prev_points = (tier > 0) and (tiers[tier] * TRAIT_POINT_SCALE) or 0;
+        result[#result + 1] = entry;
     end
 
     table.sort(result, function(a, b)
-        if a.points == b.points then
-            return a.name:lower() < b.name:lower()
-        end
-        return a.points > b.points
-    end)
+        if a.tier ~= b.tier then return a.tier > b.tier; end
+        if a.points ~= b.points then return a.points > b.points; end
+        return a.name:lower() < b.name:lower();
+    end);
 
-    return result, selected_spells
+    return result;
+end
+
+local function trait_label(entry)
+    if entry.tier > 0 then
+        return ('%s %s'):fmt(entry.name, ROMAN[entry.tier] or tostring(entry.tier));
+    end
+    return entry.name;
+end
+
+local function get_trait_totals()
+    local selected_spells = {};
+    for _, spell in ipairs(spells) do
+        if state.build_selected[spell._key] == true then
+            selected_spells[#selected_spells + 1] = spell;
+        end
+    end
+    return compute_traits(selected_spells), selected_spells;
+end
+
+-- Weighted spells show their weight next to the trait, e.g. "Auto Refresh x2".
+local function get_spell_trait_badge(spell)
+    local name = tostring(spell and spell.trait or 'None');
+    if name:lower() == 'none' then return name; end
+    local weight = TRAIT_WEIGHTS[spell._key or ''] or 1;
+    if weight > 1 then return ('%s x%d'):fmt(name, weight); end
+    return name;
 end
 
 local resource_aliases = T{
@@ -738,36 +1154,56 @@ local function safe_player()
     return player;
 end
 
-local function is_known(spell_name)
+-- Known-spell cache. Refreshed at most twice a second; every view reads
+-- from it. version changes whenever any spell's known state changes, which
+-- invalidates the list / zone / farm caches below.
+local known_cache = { by_key = {}, count = 0, version = 0, checked = -1 };
+
+local function refresh_known_cache(force)
+    local now = os.clock();
+    if not force and known_cache.checked >= 0 and (now - known_cache.checked) < 0.5 then
+        return;
+    end
+    known_cache.checked = now;
+
     local player = safe_player();
-    if not player then return false; end
+    if not player then return; end
 
     if not state.resource_cache_ready then
         build_resource_cache();
     end
 
-    local id = state.resource_ids[normalize_name(spell_name)];
-    if id == nil then return false; end
+    local changed = false;
+    local count = 0;
+    for _, spell in ipairs(spells) do
+        local key = spell._key;
+        local id = state.resource_ids[key];
+        local known = false;
+        if id ~= nil then
+            local ok, value = pcall(function() return player:HasSpell(id); end);
+            known = ok and value == true;
+        end
+        if known then count = count + 1; end
+        if known_cache.by_key[key] ~= known then
+            known_cache.by_key[key] = known;
+            changed = true;
+        end
+    end
 
-    return player:HasSpell(id);
+    known_cache.count = count;
+    if changed then
+        known_cache.version = known_cache.version + 1;
+    end
+end
+
+local function is_known(spell_name)
+    refresh_known_cache(false);
+    return known_cache.by_key[normalize_name(spell_name)] == true;
 end
 
 local function get_learned_count()
-    local player = safe_player();
-    if not player then return 0; end
-
-    if not state.resource_cache_ready then
-        build_resource_cache();
-    end
-
-    local count = 0;
-    for _, spell in ipairs(spells) do
-        local id = state.resource_ids[normalize_name(spell.name)];
-        if id ~= nil and player:HasSpell(id) then
-            count = count + 1;
-        end
-    end
-    return count;
+    refresh_known_cache(false);
+    return known_cache.count;
 end
 
 local function safe_current_zone_id()
@@ -850,8 +1286,16 @@ local function get_zone_spell_rows(zone_id)
     return rows;
 end
 
+local zone_rows_cache = { key = nil, rows = {} };
+
 local function get_zone_progress(zone_id)
-    local rows = get_zone_spell_rows(zone_id);
+    refresh_known_cache(false);
+    local cache_key = tostring(zone_id) .. '|' .. tostring(known_cache.version);
+    if zone_rows_cache.key ~= cache_key then
+        zone_rows_cache.rows = get_zone_spell_rows(zone_id);
+        zone_rows_cache.key = cache_key;
+    end
+    local rows = zone_rows_cache.rows;
     local known = 0;
 
     for _, row in ipairs(rows) do
@@ -922,7 +1366,21 @@ local function safe_blu_level()
     return nil;
 end
 
+local read_blue_magic_skill;
+local skill_cache = { value = nil, at = -1 };
+
+-- Cached for a quarter second (it was read once per table row per frame).
 local function safe_blue_magic_skill()
+    local now = os.clock();
+    if skill_cache.at >= 0 and (now - skill_cache.at) < 0.25 then
+        return skill_cache.value;
+    end
+    skill_cache.value = read_blue_magic_skill();
+    skill_cache.at = now;
+    return skill_cache.value;
+end
+
+read_blue_magic_skill = function()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
 
@@ -973,7 +1431,12 @@ local function get_blu_points()
         blu_points_ptr = ptr;
     end
 
+    -- Guard every link of the pointer chain (NULL compares equal to nil in
+    -- LuaJIT); reading through a NULL pointer would crash the client.
     local ok, spent, max = pcall(function()
+        if blu_points_ptr == nil or blu_points_ptr[0] == nil or blu_points_ptr[0][0] == nil then
+            return nil, nil;
+        end
         return tonumber(blu_points_ptr[0][0][0x14]), tonumber(blu_points_ptr[0][0][0x18]);
     end);
     if not ok or spent == nil or max == nil or max <= 0 then return nil, nil; end
@@ -1006,6 +1469,46 @@ end
 local function blue_magic_learn_skill(spell)
     local cap = blue_magic_cap_for_level(spell and spell.level or 1);
     return math.max(0, cap - 31);
+end
+
+-- HorizonXI BLU set limits by level (Blue Magic Points, spells you can set).
+local HORIZON_BLU_CAPS = {
+    { 10, 10, 6 },
+    { 20, 15, 8 },
+    { 30, 20, 10 },
+    { 40, 25, 12 },
+    { 50, 30, 14 },
+    { 60, 35, 16 },
+    { 70, 40, 18 },
+    { 75, 45, 20 },
+};
+
+local function horizon_blu_caps(level)
+    level = math.floor(tonumber(level) or 75);
+    -- Assimilation merits (+1 Blue Magic Point each, Lv75) from Config.
+    local merits = math.max(0, math.min(5, math.floor(tonumber(state.assimilation and state.assimilation[1]) or 0)));
+    for _, row in ipairs(HORIZON_BLU_CAPS) do
+        if level <= row[1] then
+            if row[1] == 75 then return row[2] + merits, row[3]; end
+            return row[2], row[3];
+        end
+    end
+    return 45 + merits, 20;
+end
+
+-- Point cap, slot cap, whether the point cap is an estimate, live spent.
+-- Live points are used when the client exposes them; otherwise the HorizonXI
+-- level table. Not on BLU: Lv75 limits (planning mode).
+local function get_build_caps()
+    local spent, live_max = get_blu_points();
+    local level = safe_blu_level();
+    local points, slots = horizon_blu_caps(level or 75);
+    local estimated = true;
+    if live_max ~= nil and live_max > 0 then
+        points = live_max;
+        estimated = false;
+    end
+    return points, slots, estimated, spent;
 end
 
 -- Returns the display state for a spell:
@@ -1056,18 +1559,26 @@ local function split_search_terms(value)
     return terms;
 end
 
+-- Built once per spell (all of these fields are static).
+local function spell_haystack(spell)
+    if spell._haystack == nil then
+        spell._haystack = table.concat({
+            tostring(spell.name or ''),
+            tostring(spell.level or ''),
+            tostring(spell.points or ''),
+            tostring(blue_magic_learn_skill(spell)),
+            tostring(spell.type or ''),
+            tostring(spell.trait or ''),
+            tostring(spell.mob_family or ''),
+        }, ' '):lower();
+    end
+    return spell._haystack;
+end
+
 local function spell_matches_search(spell, terms)
     if #terms == 0 then return true; end
 
-    local haystack = table.concat({
-        tostring(spell.name or ''),
-        tostring(spell.level or ''),
-        tostring(spell.points or ''),
-        tostring(blue_magic_learn_skill(spell)),
-        tostring(spell.type or ''),
-        tostring(spell.trait or ''),
-        tostring(spell.mob_family or ''),
-    }, ' '):lower();
+    local haystack = spell_haystack(spell);
 
     -- "|" searches are OR matches, matching FancyChat behavior.
     for _, term in ipairs(terms) do
@@ -1125,9 +1636,21 @@ local function compare_spells(a, b)
     return av < bv;
 end
 
+local filtered_cache = { key = nil, result = {}, blu_level = nil };
+
+-- Rebuilt only when search / filter / sort / known spells / level change.
 local function get_filtered_spells()
-    local terms = split_search_terms(state.search[1]);
+    refresh_known_cache(false);
     local blu_level = safe_blu_level();
+    local cache_key = table.concat({
+        tostring(state.search[1] or ''), state.filter_mode, state.sort_mode,
+        tostring(state.sort_desc), tostring(known_cache.version), tostring(blu_level),
+    }, '\1');
+    if filtered_cache.key == cache_key then
+        return filtered_cache.result, filtered_cache.blu_level;
+    end
+
+    local terms = split_search_terms(state.search[1]);
     local result = {};
 
     for _, spell in ipairs(spells) do
@@ -1138,6 +1661,9 @@ local function get_filtered_spells()
     end
 
     table.sort(result, compare_spells);
+    filtered_cache.key = cache_key;
+    filtered_cache.result = result;
+    filtered_cache.blu_level = blu_level;
     return result, blu_level;
 end
 
@@ -1163,12 +1689,14 @@ local function set_filter(mode)
         state.filter_mode = mode;
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
+        state.bluprint_view_page[1] = false;
         mark_ui_state_changed(true);
-    elseif state.build_page[1] or state.spellsets_page[1] then
+    elseif state.build_page[1] or state.spellsets_page[1] or state.bluprint_view_page[1] then
         -- Clicking any main filter returns to the spell list, even when
-        -- that filter was already active.
+        -- that filter was already active (BLUPrint-View included).
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
+        state.bluprint_view_page[1] = false;
         mark_ui_state_changed(true);
     end
 end
@@ -1191,36 +1719,87 @@ local function sort_label(label, mode)
 end
 
 local function draw_sort_header(label, mode)
-    imgui.PushStyleColor(ImGuiCol_Text, state.header_color);
+    local active = state.sort_mode == mode;
+
+    imgui.PushStyleColor(ImGuiCol_Button, TRANSPARENT);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.14));
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.24));
+    imgui.PushStyleColor(ImGuiCol_Text, active and accent() or accent(0.78));
     if imgui.Button(sort_label(label, mode) .. '##sort_' .. mode) then
         set_sort(mode);
     end
-    imgui.PopStyleColor(1);
+    if active then
+        draw_item_underline();
+    end
+    imgui.PopStyleColor(4);
+end
+
+-- Learned log (per character, newest last; capped).
+local LEARNED_LOG_MAX = 500;
+
+local function add_learned_log_entry(spell)
+    if config.learned_log == nil then config.learned_log = T{}; end
+
+    local zone_id = safe_current_zone_id();
+    local mob = nil;
+    local defeat = state.last_defeat;
+    if defeat ~= nil and (os.time() - (tonumber(defeat.time) or 0)) <= 90
+        and (zone_id == nil or tonumber(defeat.zone) == zone_id) then
+        mob = defeat.name;
+    end
+
+    config.learned_log[#config.learned_log + 1] = T{
+        spell = tostring(spell.name),
+        time = os.time(),
+        zone = zone_id or 0,
+        mob = mob or '',
+    };
+    while #config.learned_log > LEARNED_LOG_MAX do
+        table.remove(config.learned_log, 1);
+    end
+    state.settings_dirty = true;
 end
 
 local function update_known_snapshot()
+    refresh_known_cache(false);
+    if state.known_snapshot_initialized and state.snapshot_version == known_cache.version then
+        return;
+    end
+    state.snapshot_version = known_cache.version;
+
     local now = os.clock();
 
     if not state.known_snapshot_initialized then
         for _, spell in ipairs(spells) do
-            state.known_snapshot[normalize_name(spell.name)] = is_known(spell.name);
+            state.known_snapshot[spell._key] = is_known(spell.name);
         end
         state.known_snapshot_initialized = true;
         return;
     end
 
+    -- Collect newly learned spells first. More than 3 at once is the
+    -- client loading the spell list (login / job change), not learning.
+    local newly = {};
     for _, spell in ipairs(spells) do
-        local key = normalize_name(spell.name);
+        local key = spell._key;
         local known = is_known(spell.name);
-        local previous = state.known_snapshot[key] == true;
+        if known and state.known_snapshot[key] ~= true then
+            newly[#newly + 1] = spell;
+        end
+        state.known_snapshot[key] = known;
+    end
 
-        if known and not previous and state.auto_highlight_learned[1] then
+    if #newly == 0 or #newly > 3 then
+        return;
+    end
+
+    for _, spell in ipairs(newly) do
+        add_learned_log_entry(spell);
+        if state.auto_highlight_learned[1] then
             state.selected_spell = spell.name;
             state.learned_flash_until = now + 5.0;
             state.jump_to_selected = true;
         end
-
-        state.known_snapshot[key] = known;
     end
 end
 
@@ -1262,6 +1841,11 @@ end
 
 local function draw_table_headers()
     imgui.TableNextRow();
+
+    -- Solid header strip so the sortable column titles read as a header row.
+    if imgui.TableSetBgColor ~= nil and ImGuiTableBgTarget_RowBg0 ~= nil then
+        imgui.TableSetBgColor(ImGuiTableBgTarget_RowBg0, imgui.GetColorU32(TABLE_HEADER));
+    end
 
     imgui.TableNextColumn();
     draw_sort_header('Spell', 'name');
@@ -1527,6 +2111,7 @@ local function draw_fallback_rows(filtered, first, last)
                     state.location_spell = nil;
                 else
                     state.location_spell = spell;
+                    state.location_reset_scroll = true;
                     state.location_open[1] = true;
                     state.location_apply_default_size = not state.location_size_initialized;
                 end
@@ -1596,6 +2181,12 @@ local function save_config()
     config.behavior.remember_filters = state.remember_filters[1];
     config.behavior.auto_highlight_learned = state.auto_highlight_learned[1];
     config.behavior.location_interaction = state.location_interaction == 'hover' and 'hover' or 'click';
+    config.behavior.target_tag = state.target_tag[1] == true;
+    config.behavior.target_tag_locked = state.target_tag_locked[1] == true;
+    config.behavior.assimilation = math.max(0, math.min(5, math.floor(tonumber(state.assimilation[1]) or 0)));
+    config.appearance.theme = state.theme;
+    config.target_tag_window.x = state.target_tag_x;
+    config.target_tag_window.y = state.target_tag_y;
 
     if state.remember_filters[1] then
         config.ui_state.search = tostring(state.search[1] or '');
@@ -1690,29 +2281,119 @@ local function capture_zone_geometry()
     end
 end
 
+-- Each push_theme records how many colors / vars it actually pushed so the
+-- matching pop_theme stays balanced even if a constant is missing on an
+-- older Ashita build.
+local theme_stack = {};
+
 local function push_theme()
-    imgui.PushStyleColor(ImGuiCol_WindowBg, {
+    local color_count = 0;
+    local var_count = 0;
+
+    local function color(index, value)
+        if index ~= nil then
+            imgui.PushStyleColor(index, value);
+            color_count = color_count + 1;
+        end
+    end
+
+    local function var(index, value)
+        if index ~= nil then
+            imgui.PushStyleVar(index, value);
+            var_count = var_count + 1;
+        end
+    end
+
+    -- Window surfaces.
+    color(ImGuiCol_WindowBg, {
         state.background[1], state.background[2], state.background[3], state.background[4]
     });
-    imgui.PushStyleColor(ImGuiCol_TitleBg, TITLE);
-    imgui.PushStyleColor(ImGuiCol_TitleBgActive, TITLE);
-    imgui.PushStyleColor(ImGuiCol_Border, BORDER);
-    imgui.PushStyleColor(ImGuiCol_Text, TEXT);
-    imgui.PushStyleColor(ImGuiCol_FrameBg, CONTROL);
-    imgui.PushStyleColor(ImGuiCol_FrameBgHovered, CONTROL_HOVER);
-    imgui.PushStyleColor(ImGuiCol_FrameBgActive, CONTROL_ACTIVE);
-    imgui.PushStyleColor(ImGuiCol_Button, CONTROL);
-    imgui.PushStyleColor(ImGuiCol_ButtonHovered, CONTROL_HOVER);
-    imgui.PushStyleColor(ImGuiCol_ButtonActive, CONTROL_ACTIVE);
-    imgui.PushStyleColor(ImGuiCol_Separator, BORDER);
+    color(ImGuiCol_ChildBg, TRANSPARENT);
+    color(ImGuiCol_PopupBg, POPUP);
+    color(ImGuiCol_TitleBg, TITLE);
+    color(ImGuiCol_TitleBgActive, TITLE_ACTIVE);
+    color(ImGuiCol_TitleBgCollapsed, TITLE);
+    color(ImGuiCol_Border, BORDER);
+    color(ImGuiCol_BorderShadow, TRANSPARENT);
+
+    -- Text.
+    color(ImGuiCol_Text, TEXT);
+    color(ImGuiCol_TextDisabled, MUTED);
+    color(ImGuiCol_TextSelectedBg, accent(0.35));
+
+    -- Inputs, sliders, combos.
+    color(ImGuiCol_FrameBg, CONTROL);
+    color(ImGuiCol_FrameBgHovered, CONTROL_HOVER);
+    color(ImGuiCol_FrameBgActive, CONTROL_ACTIVE);
+    color(ImGuiCol_CheckMark, accent());
+    color(ImGuiCol_SliderGrab, accent(0.75));
+    color(ImGuiCol_SliderGrabActive, accent());
+
+    -- Buttons.
+    color(ImGuiCol_Button, CONTROL);
+    color(ImGuiCol_ButtonHovered, CONTROL_HOVER);
+    color(ImGuiCol_ButtonActive, CONTROL_ACTIVE);
+
+    -- Selectable rows / headers.
+    color(ImGuiCol_Header, accent(0.22));
+    color(ImGuiCol_HeaderHovered, accent(0.30));
+    color(ImGuiCol_HeaderActive, accent(0.40));
+
+    -- Separators.
+    color(ImGuiCol_Separator, BORDER);
+    color(ImGuiCol_SeparatorHovered, accent(0.60));
+    color(ImGuiCol_SeparatorActive, accent());
+
+    -- Scrollbars.
+    color(ImGuiCol_ScrollbarBg, { 0.00, 0.00, 0.00, 0.12 });
+    color(ImGuiCol_ScrollbarGrab, CONTROL_HOVER);
+    color(ImGuiCol_ScrollbarGrabHovered, CONTROL_ACTIVE);
+    color(ImGuiCol_ScrollbarGrabActive, accent(0.80));
+
+    -- Progress bars.
+    color(ImGuiCol_PlotHistogram, accent());
+    color(ImGuiCol_PlotHistogramHovered, accent());
+
+    -- Resize grip.
+    color(ImGuiCol_ResizeGrip, accent(0.20));
+    color(ImGuiCol_ResizeGripHovered, accent(0.45));
+    color(ImGuiCol_ResizeGripActive, accent(0.70));
+
+    -- Tables.
+    color(ImGuiCol_TableHeaderBg, TABLE_HEADER);
+    color(ImGuiCol_TableBorderStrong, BORDER);
+    color(ImGuiCol_TableBorderLight, { BORDER[1], BORDER[2], BORDER[3], 0.45 });
+    color(ImGuiCol_TableRowBg, TRANSPARENT);
+    color(ImGuiCol_TableRowBgAlt, { 1.00, 1.00, 1.00, 0.035 });
+
+    -- Shape and spacing: rounded corners and roomier padding.
+    var(ImGuiStyleVar_WindowRounding, 6.0);
+    var(ImGuiStyleVar_ChildRounding, 4.0);
+    var(ImGuiStyleVar_FrameRounding, 4.0);
+    var(ImGuiStyleVar_PopupRounding, 4.0);
+    var(ImGuiStyleVar_ScrollbarRounding, 6.0);
+    var(ImGuiStyleVar_GrabRounding, 4.0);
+    var(ImGuiStyleVar_ScrollbarSize, 11.0);
+    var(ImGuiStyleVar_WindowPadding, { 12, 10 });
+    var(ImGuiStyleVar_FramePadding, { 8, 4 });
+    var(ImGuiStyleVar_ItemSpacing, { 8, 4 });
+    var(ImGuiStyleVar_ItemInnerSpacing, { 6, 4 });
+
+    theme_stack[#theme_stack + 1] = { color_count, var_count };
 end
 
 local function pop_theme()
-    imgui.PopStyleColor(12);
+    local entry = table.remove(theme_stack);
+    if entry == nil then return; end
+
+    if entry[2] > 0 then imgui.PopStyleVar(entry[2]); end
+    if entry[1] > 0 then imgui.PopStyleColor(entry[1]); end
 end
 
 local function reset_appearance()
     state.font_scale[1] = defaults.font_scale;
+    state.theme = 'midnight';
+    apply_theme_surfaces('midnight');
 
     for i = 1, 4 do
         state.background[i] = defaults.appearance.background[i];
@@ -1789,7 +2470,10 @@ end
 
 local function section_title(value)
     imgui.TextColored(state.header_color, value);
+    imgui.PushStyleColor(ImGuiCol_Separator, accent(0.35));
     imgui.Separator();
+    imgui.PopStyleColor(1);
+    imgui.Spacing();
 end
 
 local function draw_window_tab()
@@ -1847,6 +2531,26 @@ local function draw_window_tab()
 end
 
 local function draw_font_colors_tab()
+    section_title('THEME');
+
+    local theme_index = 0;
+    local theme_labels = {};
+    for index, key in ipairs(AC_THEME_ORDER) do
+        theme_labels[#theme_labels + 1] = AC_THEMES[key].label;
+        if key == state.theme then theme_index = index - 1; end
+    end
+    local theme_value = { theme_index };
+    imgui.PushItemWidth(260);
+    if imgui.Combo('Theme##azure_theme', theme_value, table.concat(theme_labels, '\0') .. '\0\0') then
+        local chosen = AC_THEME_ORDER[(tonumber(theme_value[1]) or 0) + 1];
+        if chosen and chosen ~= state.theme then
+            select_theme(chosen);
+        end
+    end
+    imgui.PopItemWidth();
+    imgui.TextColored(MUTED, 'Sets window surfaces, Window Color and Header / Accent (still editable below).');
+
+    imgui.Spacing();
     section_title('FONT');
 
     imgui.PushItemWidth(260);
@@ -1885,18 +2589,16 @@ end
 local function draw_display_tab()
     section_title('ROW SPACING');
 
-    if state.row_spacing == 'compact' then
-        imgui.TextColored(state.header_color, 'Compact');
-    elseif imgui.Button('Compact##row_spacing') then
+    if draw_toggle_button('Compact', 'row_spacing_compact', state.row_spacing == 'compact')
+        and state.row_spacing ~= 'compact' then
         state.row_spacing = 'compact';
         state.settings_dirty = true;
     end
 
     imgui.SameLine();
 
-    if state.row_spacing == 'normal' then
-        imgui.TextColored(state.header_color, 'Normal');
-    elseif imgui.Button('Normal##row_spacing') then
+    if draw_toggle_button('Normal', 'row_spacing_normal', state.row_spacing == 'normal')
+        and state.row_spacing ~= 'normal' then
         state.row_spacing = 'normal';
         state.settings_dirty = true;
     end
@@ -1904,9 +2606,8 @@ local function draw_display_tab()
     imgui.Spacing();
     section_title('ROWS PER PAGE');
 
-    if state.rows_mode == 'auto' then
-        imgui.TextColored(state.header_color, 'Auto');
-    elseif imgui.Button('Auto##rows_mode') then
+    if draw_toggle_button('Auto', 'rows_mode_auto', state.rows_mode == 'auto')
+        and state.rows_mode ~= 'auto' then
         state.rows_mode = 'auto';
         state.page = 1;
         state.settings_dirty = true;
@@ -1914,9 +2615,8 @@ local function draw_display_tab()
 
     imgui.SameLine();
 
-    if state.rows_mode == 'fixed' then
-        imgui.TextColored(state.header_color, 'Fixed');
-    elseif imgui.Button('Fixed##rows_mode') then
+    if draw_toggle_button('Fixed', 'rows_mode_fixed', state.rows_mode == 'fixed')
+        and state.rows_mode ~= 'fixed' then
         state.rows_mode = 'fixed';
         state.page = 1;
         state.settings_dirty = true;
@@ -1982,26 +2682,16 @@ local function draw_behavior_tab()
 
     imgui.TextColored(MUTED, 'Choose how the Learned From information opens.');
 
-    if state.location_interaction == 'click' then
-        imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        imgui.Button('Click##location_mode_click');
-        imgui.PopStyleColor(3);
-    elseif imgui.Button('Click##location_mode_click') then
+    if draw_toggle_button('Click', 'location_mode_click', state.location_interaction == 'click')
+        and state.location_interaction ~= 'click' then
         state.location_interaction = 'click';
         state.settings_dirty = true;
     end
 
     imgui.SameLine();
 
-    if state.location_interaction == 'hover' then
-        imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        imgui.Button('Hover##location_mode_hover');
-        imgui.PopStyleColor(3);
-    elseif imgui.Button('Hover##location_mode_hover') then
+    if draw_toggle_button('Hover', 'location_mode_hover', state.location_interaction == 'hover')
+        and state.location_interaction ~= 'hover' then
         state.location_interaction = 'hover';
         state.location_open[1] = false;
         state.settings_dirty = true;
@@ -2012,6 +2702,31 @@ local function draw_behavior_tab()
     else
         imgui.TextColored(MUTED, 'Hover a spell name for the large quick-view tooltip. Best for high-resolution screens.');
     end
+
+    imgui.Spacing();
+    section_title('BLU LIMITS');
+
+    imgui.PushItemWidth(200);
+    if imgui.SliderInt('Assimilation merits##azure_assimilation', state.assimilation, 0, 5) then
+        state.settings_dirty = true;
+    end
+    imgui.PopItemWidth();
+    imgui.TextColored(MUTED, 'Adds +1 Blue Magic Point each at Lv75 when the client does not report live points.');
+
+    imgui.Spacing();
+    section_title('TARGET TAG');
+
+    local tag = { state.target_tag[1] };
+    if imgui.Checkbox('Show "Teaches" tag for targeted mobs', tag) then
+        state.target_tag[1] = tag[1];
+        state.settings_dirty = true;
+    end
+    local tag_locked = { state.target_tag_locked[1] };
+    if imgui.Checkbox('Lock tag position', tag_locked) then
+        state.target_tag_locked[1] = tag_locked[1];
+        state.settings_dirty = true;
+    end
+    imgui.TextColored(MUTED, 'While BLU is your main job: a small tag shows when your target teaches a spell you are missing in this zone.');
 
     imgui.Spacing();
     section_title('RESET');
@@ -2033,30 +2748,32 @@ local function get_build_points_used()
     return total, count;
 end
 
-local function enforce_build_cap(point_cap)
-    point_cap = tonumber(point_cap) or 50;
+local function enforce_build_cap(point_cap, slot_cap)
+    point_cap = tonumber(point_cap) or 45;
     if point_cap < 0 then point_cap = 0; end
+    slot_cap = tonumber(slot_cap) or 20;
 
     local total = 0;
     local slots = 0;
 
-    -- Keep the current selections in master-list order and remove any spell
-    -- that would exceed the live point cap or the 20-slot BLU set limit.
+    -- Totals only. Selections are never removed here (1.12.0): new picks are
+    -- blocked at the checkbox when they would go over, and Equip refuses a
+    -- build that is over your limits, so a plan made for a higher level
+    -- (or imported from BLUPrint-View) is kept intact.
     for _, spell in ipairs(spells) do
-        local key = normalize_name(spell.name);
+        local key = spell._key;
         if state.build_selected[key] == true then
-            local cost = tonumber(spell.points) or 0;
-            if slots >= 20 or (total + cost) > point_cap then
-                state.build_selected[key] = false;
-            else
-                total = total + cost;
-                slots = slots + 1;
-            end
+            total = total + (tonumber(spell.points) or 0);
+            slots = slots + 1;
         end
     end
 
     return total, slots;
 end
+
+-- Equipped-set cache (see get_current_equipped_spell_names); declared here so
+-- the equip task can clear it when it finishes.
+local equipped_cache = { names = {}, at = -1 };
 
 local function equip_spell_list(selected, used, selected_count, source_label)
     if blu == nil or blu.reset_all_spells == nil or blu.set_spell_by_name == nil then
@@ -2068,16 +2785,15 @@ local function equip_spell_list(selected, used, selected_count, source_label)
     selected_count = tonumber(selected_count) or #selected;
     used = tonumber(used) or 0;
 
-    local _, live_max = get_blu_points();
-    local point_cap = tonumber(live_max) or 50;
+    local point_cap, slot_cap = get_build_caps();
 
     if selected_count == 0 then
         log_message('No spells selected for the build.');
         return false;
     end
 
-    if selected_count > 20 then
-        log_message(('Cannot equip %d spells. BLU has a maximum of 20 set slots.'):fmt(selected_count));
+    if selected_count > slot_cap then
+        log_message(('Cannot equip %d spells. Your BLU level allows %d set slots.'):fmt(selected_count, slot_cap));
         return false;
     end
 
@@ -2127,6 +2843,7 @@ local function equip_spell_list(selected, used, selected_count, source_label)
         end);
 
         state.build_equipping[1] = false;
+        equipped_cache.at = -1;
 
         if ok then
             log_message('Finished equipping BLU spell build.');
@@ -2152,16 +2869,28 @@ local function equip_selected_build()
 end
 
 
+-- The spell-set offset pattern is scanned once (scanning on every click
+-- caused a hitch); the equipped list itself is cached for one second.
+local equipped_offset_ptr = nil;
+
 local function get_current_equipped_spell_names()
+    local now = os.clock();
+    if equipped_cache.at >= 0 and (now - equipped_cache.at) < 1.0 then
+        return equipped_cache.names;
+    end
+    equipped_cache.at = now;
+
     local ok, result = pcall(function()
         -- Read the same BLU spell-set memory used by Ashita's official blu helper.
-        local offset_ptr = ashita.memory.find(0, 0, 'C1E1032BC8B0018D????????????B9????????F3A55F5E5B', 10, 0);
-        local points_ptr = ashita.memory.find(0, 0, 'A1????????33C98A4E5E33D28A565D5F5E8950148948185B83C414C20400', 1, 0);
-        if offset_ptr == nil or points_ptr == nil then
-            return {};
+        if equipped_offset_ptr == nil then
+            local found = ashita.memory.find(0, 0, 'C1E1032BC8B0018D????????????B9????????F3A55F5E5B', 10, 0);
+            if found == nil or found == 0 then
+                return {};
+            end
+            equipped_offset_ptr = found;
         end
 
-        local offset = ffi.cast('uint32_t*', offset_ptr);
+        local offset = ffi.cast('uint32_t*', equipped_offset_ptr);
         local blu_buffer = ashita.memory.read_uint32(AshitaCore:GetPointerManager():Get('inventory'));
         if blu_buffer == 0 then return {}; end
         blu_buffer = ashita.memory.read_uint32(blu_buffer);
@@ -2187,9 +2916,46 @@ local function get_current_equipped_spell_names()
     end);
 
     if not ok or result == nil then
-        return {};
+        result = {};
     end
+    equipped_cache.names = result;
     return result;
+end
+
+-- Spells currently set in game, as spell rows, plus their point total.
+local function get_equipped_spells()
+    local lookup = {};
+    for _, name in ipairs(get_current_equipped_spell_names()) do
+        lookup[normalize_name(name)] = true;
+    end
+    local list = {};
+    local points = 0;
+    for _, spell in ipairs(spells) do
+        local alias = resource_aliases[spell._key];
+        if lookup[spell._key] or (alias ~= nil and lookup[alias]) then
+            list[#list + 1] = spell;
+            points = points + (tonumber(spell.points) or 0);
+        end
+    end
+    return list, points;
+end
+
+-- What equipping `target` would change: spells added, removed, unchanged.
+local function equipped_diff(target)
+    local equipped = get_equipped_spells();
+    local in_target = {};
+    for _, spell in ipairs(target or {}) do in_target[spell._key] = true; end
+    local in_equipped = {};
+    for _, spell in ipairs(equipped) do in_equipped[spell._key] = true; end
+
+    local adds, removes, same = {}, {}, 0;
+    for _, spell in ipairs(target or {}) do
+        if in_equipped[spell._key] then same = same + 1; else adds[#adds + 1] = spell; end
+    end
+    for _, spell in ipairs(equipped) do
+        if not in_target[spell._key] then removes[#removes + 1] = spell; end
+    end
+    return adds, removes, same, #equipped;
 end
 
 local function ensure_build_folder()
@@ -2204,8 +2970,7 @@ end
 
 local function save_build_to_file()
     local used, selected_count = get_build_points_used()
-    local _, live_max = get_blu_points()
-    local point_cap = tonumber(live_max) or 50
+    local point_cap, slot_cap = get_build_caps()
 
     if selected_count == 0 then
         log_message('No spells selected. Nothing to save.')
@@ -2237,7 +3002,7 @@ local function save_build_to_file()
     file:write('==============================\n')
     file:write('Generated: ' .. os.date('%Y-%m-%d %H:%M:%S') .. '\n')
     file:write('Point Total: ' .. tostring(used) .. '/' .. tostring(point_cap) .. '\n')
-    file:write('Spells: ' .. tostring(selected_count) .. '/20\n')
+    file:write('Spells: ' .. tostring(selected_count) .. '/' .. tostring(slot_cap) .. '\n')
     file:write('\nSelected Spells\n')
     file:write('------------------------------\n')
 
@@ -2251,10 +3016,27 @@ local function save_build_to_file()
     end
 
     file:close()
+    state.build_files_at = -1
+    state.view_cache = nil
     log_message('Saved BLU spell build to ' .. path)
 end
 
+local get_saved_build_files_uncached;
+
+-- The folder listing is cached for 3 seconds (it was read from disk every
+-- frame on the BLUPrints / BLUPrint-View pages). Save / delete / Refresh
+-- clear it immediately.
 local function get_saved_build_files()
+    local now = os.clock();
+    if state.build_files ~= nil and (state.build_files_at or -1) >= 0 and (now - state.build_files_at) < 3.0 then
+        return state.build_files;
+    end
+    state.build_files = get_saved_build_files_uncached();
+    state.build_files_at = now;
+    return state.build_files;
+end
+
+get_saved_build_files_uncached = function()
     local files = {};
     local folder = ensure_build_folder();
 
@@ -2297,8 +3079,7 @@ local function load_saved_build_file(filename, equip_in_game)
     end
     file:close()
 
-    local _, live_max = get_blu_points()
-    local point_cap = tonumber(live_max) or 50
+    local point_cap, slot_cap = get_build_caps()
     local selected = {}
     local used = 0
     local count = 0
@@ -2306,7 +3087,7 @@ local function load_saved_build_file(filename, equip_in_game)
     for _, spell in ipairs(spells) do
         local key = normalize_name(spell.name)
         local cost = tonumber(spell.points) or 0
-        if loaded[key] and count < 20 and (used + cost) <= point_cap then
+        if loaded[key] and count < slot_cap and (used + cost) <= point_cap then
             selected[#selected + 1] = spell
             used = used + cost
             count = count + 1
@@ -2340,6 +3121,7 @@ local function draw_saved_build_loader()
     end
 
     state.build_load_files = get_saved_build_files()
+    push_theme()
     if imgui.Begin('Load BLU Spell Build##bluspells_load_build', state.build_load_open, 0) then
         imgui.TextColored(state.header_color, 'Saved Builds')
         imgui.Separator()
@@ -2357,6 +3139,201 @@ local function draw_saved_build_loader()
     end
 
     imgui.End()
+    pop_theme()
+end
+
+-- Trait list with tier, points toward the next tier and a progress bar.
+local function draw_trait_list(traits, id_prefix)
+    if #traits == 0 then
+        imgui.TextColored(MUTED, 'No traits selected.');
+        return;
+    end
+
+    for index, entry in ipairs(traits) do
+        local color = entry.tier > 0 and state.known_color or state.unknown_color;
+        imgui.TextColored(color, trait_label(entry));
+        imgui.SameLine();
+        if entry.maxed then
+            imgui.TextColored(MUTED, ('%d pts  MAX'):fmt(entry.points));
+        else
+            imgui.TextColored(MUTED, ('%d / %d pts'):fmt(entry.points, entry.next_points or 0));
+            if entry.tier > 0 then
+                imgui.SameLine();
+                imgui.TextColored(MUTED, ('(next: %s)'):fmt(ROMAN[entry.tier + 1] or tostring(entry.tier + 1)));
+            end
+        end
+        if imgui.ProgressBar ~= nil then
+            local ratio = 1.0;
+            if not entry.maxed and entry.next_points ~= nil then
+                local span = math.max(1, entry.next_points - entry.prev_points);
+                ratio = math.max(0, math.min(1.0, (entry.points - entry.prev_points) / span));
+            end
+            imgui.ProgressBar(ratio, { 0, 6 }, '');
+        end
+    end
+end
+
+-- "vs Equipped" summary for a planned / saved build.
+local function draw_equipped_diff(target)
+    local adds, removes, same, equipped_count = equipped_diff(target);
+    imgui.TextColored(state.header_color, 'VS EQUIPPED');
+    imgui.SameLine();
+    if equipped_count == 0 then
+        imgui.TextColored(MUTED, '(equipped set not readable - BLU main only)');
+        return;
+    end
+    if #adds == 0 and #removes == 0 then
+        imgui.TextColored(state.known_color, 'Same as your equipped set.');
+        return;
+    end
+    imgui.TextColored(MUTED, ('%d unchanged'):fmt(same));
+
+    local function names(list)
+        local parts = {};
+        for _, spell in ipairs(list) do parts[#parts + 1] = tostring(spell.name); end
+        return table.concat(parts, ', ');
+    end
+    if #adds > 0 then
+        imgui.TextColored(state.known_color, '+ ');
+        imgui.SameLine(0, 0);
+        imgui.TextWrapped(names(adds));
+    end
+    if #removes > 0 then
+        imgui.TextColored(state.unknown_color, '- ');
+        imgui.SameLine(0, 0);
+        imgui.TextWrapped(names(removes));
+    end
+end
+
+-- Cheapest known, unselected spells that reach the trait's next tier.
+local function plan_next_tier(trait_key, current_weight, next_need)
+    local candidates = {};
+    for _, spell in ipairs(spells) do
+        if state.build_selected[spell._key] ~= true and is_known(spell.name) then
+            local trait_name = get_spell_trait_name(spell);
+            if trait_name ~= nil and normalize_name(trait_name) == trait_key then
+                candidates[#candidates + 1] = spell;
+            end
+        end
+    end
+    table.sort(candidates, function(a, b)
+        local ar = (tonumber(a.points) or 0) / get_trait_weight(a);
+        local br = (tonumber(b.points) or 0) / get_trait_weight(b);
+        if ar ~= br then return ar < br; end
+        return (tonumber(a.points) or 0) < (tonumber(b.points) or 0);
+    end);
+
+    local needed = (tonumber(next_need) or 0) - (tonumber(current_weight) or 0);
+    local picks, cost, got = {}, 0, 0;
+    for _, spell in ipairs(candidates) do
+        if got >= needed then break; end
+        picks[#picks + 1] = spell;
+        cost = cost + (tonumber(spell.points) or 0);
+        got = got + get_trait_weight(spell);
+    end
+    return picks, cost, got >= needed;
+end
+
+local planner_cache = { key = nil, rows = {} };
+
+local function draw_trait_planner(traits, used, selected_count, point_cap, slot_cap)
+    imgui.TextColored(state.header_color, 'TRAIT PLANNER');
+    imgui.SameLine();
+    imgui.Checkbox('All traits##azure_planner_all', state.planner_all);
+    imgui.Separator();
+    imgui.TextColored(MUTED, 'Cheapest known spells to reach each next tier.');
+
+    -- The plan only changes with the selection, known spells or options.
+    local selected_keys = {};
+    for _, spell in ipairs(spells) do
+        if state.build_selected[spell._key] == true then selected_keys[#selected_keys + 1] = spell._key; end
+    end
+    local cache_key = table.concat({
+        table.concat(selected_keys, ','), tostring(known_cache.version), tostring(state.planner_all[1]),
+    }, '|');
+    if planner_cache.key ~= cache_key then
+        planner_cache.key = cache_key;
+        planner_cache.rows = nil;
+    end
+
+    -- Traits in the build, or every trait any known spell can give.
+    local list = {};
+    local seen = {};
+    for _, entry in ipairs(traits) do
+        list[#list + 1] = entry;
+        seen[entry.key] = true;
+    end
+    if state.planner_all[1] then
+        local extra = {};
+        for _, spell in ipairs(spells) do
+            local trait_name = get_spell_trait_name(spell);
+            if trait_name ~= nil then
+                local key = normalize_name(trait_name);
+                if not seen[key] and is_known(spell.name) then
+                    seen[key] = true;
+                    local tiers = trait_tiers_for(trait_name);
+                    extra[#extra + 1] = {
+                        name = trait_name, key = key, weight = 0, tier = 0,
+                        max_tier = #tiers, maxed = false, points = 0,
+                        next_need = tiers[1], next_points = tiers[1] * TRAIT_POINT_SCALE, prev_points = 0,
+                    };
+                end
+            end
+        end
+        table.sort(extra, function(a, b) return a.name:lower() < b.name:lower(); end);
+        for _, entry in ipairs(extra) do list[#list + 1] = entry; end
+    end
+
+    if planner_cache.rows == nil then
+        planner_cache.rows = {};
+        for _, entry in ipairs(list) do
+            if not entry.maxed and entry.next_need ~= nil then
+                local picks, cost, complete = plan_next_tier(entry.key, entry.weight, entry.next_need);
+                planner_cache.rows[#planner_cache.rows + 1] = {
+                    entry = entry, picks = picks, cost = cost, complete = complete,
+                };
+            end
+        end
+    end
+
+    local shown = 0;
+    for _, plan in ipairs(planner_cache.rows) do
+        local entry = plan.entry;
+        do
+            shown = shown + 1;
+            local picks, cost, complete = plan.picks, plan.cost, plan.complete;
+            local target_label = ('%s %s'):fmt(entry.name, ROMAN[entry.tier + 1] or tostring(entry.tier + 1));
+            imgui.TextColored(state.header_color, target_label);
+            imgui.SameLine();
+            if #picks == 0 then
+                imgui.TextColored(MUTED, 'no known spells left');
+            elseif not complete then
+                local parts = {};
+                for _, spell in ipairs(picks) do parts[#parts + 1] = tostring(spell.name); end
+                imgui.TextColored(MUTED, ('not reachable yet (%s)'):fmt(table.concat(parts, ', ')));
+            else
+                local fits = (used + cost) <= point_cap and (selected_count + #picks) <= slot_cap;
+                local parts = {};
+                for _, spell in ipairs(picks) do parts[#parts + 1] = tostring(spell.name); end
+                imgui.TextColored(fits and TEXT or state.unknown_color,
+                    ('+%s  (%d pt, %d slot%s)'):fmt(table.concat(parts, ', '), cost, #picks, #picks == 1 and '' or 's'));
+                if fits then
+                    imgui.SameLine();
+                    if imgui.SmallButton('Add##azure_plan_' .. entry.key) then
+                        for _, spell in ipairs(picks) do
+                            state.build_selected[spell._key] = true;
+                        end
+                    end
+                else
+                    imgui.SameLine();
+                    imgui.TextColored(MUTED, '[over cap]');
+                end
+            end
+        end
+    end
+    if shown == 0 then
+        imgui.TextColored(MUTED, #list == 0 and 'Select spells (or tick All traits) to plan.' or 'Every listed trait is maxed.');
+    end
 end
 
 local function draw_spell_build_tab()
@@ -2390,14 +3367,15 @@ local function draw_spell_build_tab()
             local filename = chosen_index > 0 and state.spellsets_files[chosen_index] or nil
             if filename ~= nil then
                 state.spellset_selected[1] = filename
-                -- Equip directly from BLUPrints; do not populate Calculator state.
-                load_saved_build_file(filename, true)
+                -- Ask first; equipping replaces your whole set.
+                state.loadout_pending = filename
             end
         end
         imgui.PopItemWidth()
 
         imgui.SameLine();
         if imgui.Button('Refresh##azure_bluprints_refresh') then
+            state.build_files_at = -1;
             state.spellsets_files = get_saved_build_files();
             local current = tostring(state.spellset_selected[1] or '');
             local found = false;
@@ -2410,6 +3388,20 @@ local function draw_spell_build_tab()
             if not found then
                 state.spellset_selected[1] = '';
             end
+            state.view_cache = nil;
+        end
+
+        if state.loadout_pending ~= nil then
+            imgui.TextColored(state.learnable_color, ('Equip %s?'):fmt(tostring(state.loadout_pending)));
+            imgui.SameLine();
+            if imgui.Button('Equip##azure_loadout_confirm') then
+                load_saved_build_file(state.loadout_pending, true);
+                state.loadout_pending = nil;
+            end
+            imgui.SameLine();
+            if imgui.Button('Cancel##azure_loadout_cancel') then
+                state.loadout_pending = nil;
+            end
         end
     end
 
@@ -2417,9 +3409,8 @@ local function draw_spell_build_tab()
     imgui.Spacing();
     section_title('BLUPRINTS');
 
-    local _, live_max = get_blu_points();
-    local point_cap = tonumber(live_max) or 50;
-    local used, selected_count = enforce_build_cap(point_cap);
+    local point_cap, slot_cap = get_build_caps();
+    local used, selected_count = enforce_build_cap(point_cap, slot_cap);
     local remaining = point_cap - used;
 
     -- Calculator controls are intentionally stacked for a cleaner layout.
@@ -2453,7 +3444,7 @@ local function draw_spell_build_tab()
         for _, spell in ipairs(spells) do
             local key = normalize_name(spell.name);
             local cost = tonumber(spell.points) or 0;
-            if equipped_lookup[key] and selected_count < 20 and (used + cost) <= point_cap then
+            if equipped_lookup[key] and selected_count < slot_cap and (used + cost) <= point_cap then
                 state.build_selected[key] = true;
                 used = used + cost;
                 selected_count = selected_count + 1;
@@ -2478,6 +3469,7 @@ local function draw_spell_build_tab()
 
     imgui.Spacing();
     imgui.Spacing();
+    align_label();
     imgui.Text('Search:');
     imgui.SameLine();
     imgui.PushItemWidth(260);
@@ -2495,7 +3487,7 @@ local function draw_spell_build_tab()
         used, selected_count = 0, 0;
         remaining = point_cap;
     end
-    imgui.TextColored(MUTED, 'Choose up to 20 spells within your current BLU point cap.');
+    imgui.TextColored(MUTED, ('Choose up to %d spells within %d BLU points (your current limits).'):fmt(slot_cap, point_cap));
     imgui.Spacing();
 
     -- Keep the BLUPrint controls and SELECT SPELLS header fixed while only
@@ -2512,21 +3504,14 @@ local function draw_spell_build_tab()
 
     local query = tostring(state.build_search[1] or ''):lower();
     for _, spell in ipairs(spells) do
-        local haystack = table.concat({
-            tostring(spell.name or ''),
-            tostring(spell.level or ''),
-            tostring(spell.points or ''),
-            tostring(spell.type or ''),
-            tostring(spell.trait or ''),
-            tostring(spell.mob_family or ''),
-        }, ' '):lower();
+        local haystack = spell_haystack(spell);
 
         if query == '' or haystack:find(query, 1, true) ~= nil then
             local key = normalize_name(spell.name);
             local checked = state.build_selected[key] == true;
             local cost = tonumber(spell.points) or 0;
             local would_exceed_points = (not checked) and ((used + cost) > point_cap);
-            local would_exceed_slots = (not checked) and (selected_count >= 20);
+            local would_exceed_slots = (not checked) and (selected_count >= slot_cap);
             local blocked = would_exceed_points or would_exceed_slots;
             local known = is_known(spell.name);
 
@@ -2552,7 +3537,7 @@ local function draw_spell_build_tab()
                     if checked then
                         state.build_selected[key] = false;
                         used, selected_count = get_build_points_used();
-                    elseif (used + cost) <= point_cap and selected_count < 20 then
+                    elseif (used + cost) <= point_cap and selected_count < slot_cap then
                         state.build_selected[key] = true;
                         used = used + cost;
                         selected_count = selected_count + 1;
@@ -2563,9 +3548,9 @@ local function draw_spell_build_tab()
             imgui.PopStyleColor(1);
 
             imgui.SameLine();
-            local suffix = blocked and (would_exceed_points and '  [cap]' or '  [20 slots]') or '';
+            local suffix = blocked and (would_exceed_points and '  [cap]' or ('  [%d slots]'):fmt(slot_cap)) or '';
             imgui.TextColored(MUTED, ('Lv %s  %s%s'):fmt(
-                tostring(spell.level or '--'), tostring(get_spell_trait_display(spell) or 'None'), suffix));
+                tostring(spell.level or '--'), tostring(get_spell_trait_badge(spell) or 'None'), suffix));
         end
     end
 
@@ -2604,23 +3589,26 @@ local function draw_bluprints_companion_window()
         local requested_size = base_font_size * state.font_scale[1];
         imgui.PushFont(nil, requested_size);
 
-        local _, live_max = get_blu_points();
-        local point_cap = tonumber(live_max) or 50;
-        local used, selected_count = enforce_build_cap(point_cap);
+        local point_cap, slot_cap, cap_estimated = get_build_caps();
+        local used, selected_count = enforce_build_cap(point_cap, slot_cap);
         local trait_totals, selected_spells = get_trait_totals();
 
         imgui.TextColored(state.header_color, 'SPELL CARD');
         imgui.Separator();
-        imgui.TextColored(state.known_color, ('%d / 20 SPELLS'):fmt(selected_count));
+        imgui.TextColored(state.known_color, ('%d / %d SPELLS'):fmt(selected_count, slot_cap));
         imgui.SameLine();
         imgui.Text(('%d / %d POINTS'):fmt(used, point_cap));
+        if cap_estimated then
+            imgui.SameLine();
+            imgui.TextColored(MUTED, '(level limits)');
+        end
         imgui.Spacing();
 
         if #selected_spells == 0 then
             imgui.TextColored(MUTED, 'No spells selected.');
             imgui.TextColored(MUTED, 'Your BLUPrint will appear here.');
         else
-            for slot = 1, 20 do
+            for slot = 1, slot_cap do
                 local spell = selected_spells[slot];
                 if spell ~= nil then
                     local cost = tonumber(spell.points) or 0;
@@ -2629,7 +3617,7 @@ local function draw_bluprints_companion_window()
                     imgui.Text(tostring(spell.name));
                     imgui.SameLine();
                     imgui.TextColored(MUTED, ('Lv %s  %d pt'):fmt(tostring(spell.level or '--'), cost));
-                    local trait_text = get_spell_trait_display(spell);
+                    local trait_text = get_spell_trait_badge(spell);
                     if trait_text ~= nil and tostring(trait_text):lower() ~= 'none' then
                         imgui.SameLine();
                         imgui.TextColored(state.header_color, tostring(trait_text));
@@ -2646,34 +3634,31 @@ local function draw_bluprints_companion_window()
             imgui.ProgressBar(ratio, { 0, 8 }, '');
         end
 
+        if #selected_spells > 0 then
+            imgui.Spacing();
+            draw_equipped_diff(selected_spells);
+        end
+
         imgui.Spacing();
         imgui.Separator();
         imgui.TextColored(state.header_color, 'TRAIT CALCULATOR');
-        imgui.Separator();
-        imgui.TextColored(MUTED, '8 trait points unlock each tier.');
-        imgui.Spacing();
-
-        if #trait_totals == 0 then
-            imgui.TextColored(MUTED, 'No traits selected.');
-        else
-            for _, trait in ipairs(trait_totals) do
-                local points = tonumber(trait.points) or 0;
-                local next_threshold = 8;
-                if points >= 8 then
-                    next_threshold = math.ceil((points + 1) / 8) * 8;
-                end
-                local text = ('%s  %d / %d'):fmt(tostring(trait.name), points, next_threshold);
-                if points >= 8 then
-                    imgui.TextColored(state.known_color, text);
-                else
-                    imgui.TextColored(state.unknown_color, text);
-                end
-                if imgui.ProgressBar ~= nil then
-                    local ratio = math.min(1.0, points / next_threshold);
-                    imgui.ProgressBar(ratio, { 0, 6 }, '');
-                end
-            end
+        imgui.SameLine();
+        imgui.TextDisabled('(?)');
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.PushTextWrapPos(420);
+            imgui.TextUnformatted('HorizonXI / LandSandBoat 75-era rules: each spell gives 4 points to its trait (some give more: '
+                .. 'Self-Destruct, Frightful Roar, Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge, '
+                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh needs 32; Resist Gravity '
+                .. 'tiers are 8 / 12 / 16. Each trait has its own maximum tier.');
+            imgui.PopTextWrapPos();
+            imgui.EndTooltip();
         end
+        imgui.Separator();
+        draw_trait_list(trait_totals, 'card');
+
+        imgui.Spacing();
+        draw_trait_planner(trait_totals, used, selected_count, point_cap, slot_cap);
 
         imgui.PopFont();
     end
@@ -3069,6 +4054,339 @@ local function draw_zone_info_window()
     pop_theme();
 end
 
+-- ----------------------------------------------------------------------------
+-- Learning index (missing spells by zone / mob). Rebuilt when known spells or
+-- Blue Magic skill change. Era zones only (locations.lua filters them).
+-- ----------------------------------------------------------------------------
+local learning_index = { key = nil, zones = {}, ranked = {}, by_mob = {} };
+
+local function get_learning_index()
+    refresh_known_cache(false);
+    local skill = safe_blue_magic_skill();
+    local cache_key = tostring(known_cache.version) .. '|' .. tostring(skill);
+    if learning_index.key == cache_key then
+        return learning_index;
+    end
+
+    local zones = {};
+    local by_mob = {};
+
+    for _, spell in ipairs(spells) do
+        if not is_known(spell.name) then
+            local display_state = get_spell_display_state(spell);
+            local learnable = display_state == 'learnable';
+            for _, entry in ipairs(locations.get(spell.name) or {}) do
+                local zone_id = tonumber(entry.zone);
+                if zone_id ~= nil then
+                    local zone = zones[zone_id];
+                    if zone == nil then
+                        zone = { id = zone_id, rows = {}, missing = 0, learnable = 0 };
+                        zones[zone_id] = zone;
+                    end
+                    zone.rows[#zone.rows + 1] = { spell = spell, mobs = entry.mobs or {}, learnable = learnable };
+                    zone.missing = zone.missing + 1;
+                    if learnable then zone.learnable = zone.learnable + 1; end
+
+                    by_mob[zone_id] = by_mob[zone_id] or {};
+                    for _, mob in ipairs(entry.mobs or {}) do
+                        local mob_key = tostring(mob):lower();
+                        by_mob[zone_id][mob_key] = by_mob[zone_id][mob_key] or {};
+                        table.insert(by_mob[zone_id][mob_key], { spell = spell, learnable = learnable });
+                    end
+                end
+            end
+        end
+    end
+
+    local ranked = {};
+    for _, zone in pairs(zones) do
+        zone.name = locations.get_zone_name(zone.id);
+        table.sort(zone.rows, function(a, b)
+            if a.learnable ~= b.learnable then return a.learnable; end
+            return tostring(a.spell.name):lower() < tostring(b.spell.name):lower();
+        end);
+        ranked[#ranked + 1] = zone;
+    end
+    table.sort(ranked, function(a, b)
+        if a.learnable ~= b.learnable then return a.learnable > b.learnable; end
+        if a.missing ~= b.missing then return a.missing > b.missing; end
+        return tostring(a.name):lower() < tostring(b.name):lower();
+    end);
+
+    learning_index.key = cache_key;
+    learning_index.zones = zones;
+    learning_index.ranked = ranked;
+    learning_index.by_mob = by_mob;
+    return learning_index;
+end
+
+local function draw_close_button(id, open_ref)
+    if state.title_bar[1] then return; end
+    local window_w = tonumber((imgui.GetWindowSize())) or 400;
+    local saved_x, saved_y = imgui.GetCursorPos();
+    imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
+    if imgui.Button('X##' .. id, { 22, 20 }) then
+        open_ref[1] = false;
+    end
+    imgui.SetCursorPos({ saved_x, saved_y });
+end
+
+local function draw_farm_window()
+    if not state.farm_open[1] then
+        state.farm_apply_geometry = true;
+        return;
+    end
+
+    if state.farm_apply_geometry then
+        imgui.SetNextWindowPos({ tonumber(config.farm_window.x) or 1040, tonumber(config.farm_window.y) or 160 });
+        imgui.SetNextWindowSize({ tonumber(config.farm_window.width) or 520, tonumber(config.farm_window.height) or 560 });
+        state.farm_apply_geometry = false;
+    end
+
+    local flags = 0;
+    if not state.title_bar[1] then flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar); end
+
+    push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
+    if imgui.Begin('Azure Codex - Farm Zones###azure_farm_zones', state.farm_open, flags) then
+        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+        draw_close_button('azure_farm_close', state.farm_open);
+
+        local index = get_learning_index();
+        local current_zone = safe_current_zone_id();
+
+        imgui.TextColored(state.header_color, 'BEST ZONES TO FARM');
+        imgui.SameLine();
+        imgui.Checkbox('Learnable only##azure_farm_learnable', state.farm_learnable_only);
+        imgui.TextColored(MUTED, 'Zones ranked by spells you are missing (learnable first). Click a zone to expand.');
+        imgui.Separator();
+
+        -- Only the list scrolls; the header (and the close button) stay put.
+        imgui.BeginChild('##azure_farm_list', { 0, 0 });
+
+        local shown = 0;
+        for _, zone in ipairs(index.ranked) do
+            if not state.farm_learnable_only[1] or zone.learnable > 0 then
+                shown = shown + 1;
+                local expanded = state.farm_expanded[zone.id] == true;
+                local label = ('%s %s'):fmt(expanded and 'v' or '>', tostring(zone.name));
+                if zone.id == current_zone then label = label .. '  (here)'; end
+                imgui.PushStyleColor(ImGuiCol_Text, zone.learnable > 0 and state.learnable_color or TEXT);
+                if imgui.Selectable(label .. '##azure_farm_zone_' .. tostring(zone.id), expanded) then
+                    state.farm_expanded[zone.id] = not expanded;
+                end
+                imgui.PopStyleColor(1);
+                imgui.SameLine();
+                imgui.TextColored(MUTED, ('%d missing, %d learnable'):fmt(zone.missing, zone.learnable));
+
+                if expanded then
+                    for _, row in ipairs(zone.rows) do
+                        if not state.farm_learnable_only[1] or row.learnable then
+                            local _, color = get_spell_display_state(row.spell);
+                            imgui.TextColored(color, ('    %s'):fmt(tostring(row.spell.name)));
+                            imgui.SameLine();
+                            imgui.TextColored(MUTED, ('Lv %s  -  %s'):fmt(tostring(row.spell.level or '--'),
+                                table.concat(row.mobs, ', ')));
+                        end
+                    end
+                end
+            end
+        end
+        if shown == 0 then
+            imgui.TextColored(MUTED, 'Nothing left to learn from mobs in era zones.');
+        end
+
+        imgui.EndChild();
+
+        local x, y = imgui.GetWindowPos();
+        local w, h = imgui.GetWindowSize();
+        x, y, w, h = tonumber(x), tonumber(y), tonumber(w), tonumber(h);
+        if x and y and w and h then
+            local fw = config.farm_window;
+            if math.abs(x - (tonumber(fw.x) or 0)) >= 1 or math.abs(y - (tonumber(fw.y) or 0)) >= 1
+                or math.abs(w - (tonumber(fw.width) or 0)) >= 1 or math.abs(h - (tonumber(fw.height) or 0)) >= 1 then
+                fw.x, fw.y, fw.width, fw.height = x, y, w, h;
+                state.settings_dirty = true;
+            end
+        end
+
+        imgui.PopFont();
+    end
+    imgui.End();
+    imgui.PopStyleVar(1);
+    pop_theme();
+end
+
+-- Formatted log lines, built once per entry (not saved to settings).
+local log_line_cache = setmetatable({}, { __mode = 'k' });
+
+local function log_line(entry)
+    local line = log_line_cache[entry];
+    if line == nil then
+        local where = (tonumber(entry.zone) or 0) > 0 and locations.get_zone_name(entry.zone) or '';
+        local mob = tostring(entry.mob or '');
+        line = {
+            date = os.date('%Y-%m-%d %H:%M', tonumber(entry.time) or 0),
+            spell = tostring(entry.spell or '?'),
+            detail = ('%s%s%s'):fmt(where, (where ~= '' and mob ~= '') and '  -  ' or '', mob),
+        };
+        log_line_cache[entry] = line;
+    end
+    return line;
+end
+
+local function draw_log_window()
+    if not state.log_open[1] then
+        state.log_apply_geometry = true;
+        return;
+    end
+
+    if state.log_apply_geometry then
+        imgui.SetNextWindowPos({ tonumber(config.log_window.x) or 1060, tonumber(config.log_window.y) or 180 });
+        imgui.SetNextWindowSize({ tonumber(config.log_window.width) or 560, tonumber(config.log_window.height) or 460 });
+        state.log_apply_geometry = false;
+    end
+
+    local flags = 0;
+    if not state.title_bar[1] then flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar); end
+
+    push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
+    if imgui.Begin('Azure Codex - Learned Log###azure_learned_log', state.log_open, flags) then
+        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+        draw_close_button('azure_log_close', state.log_open);
+
+        local log = config.learned_log or {};
+        imgui.TextColored(state.header_color, 'LEARNED LOG');
+        imgui.SameLine();
+        imgui.TextColored(MUTED, ('%d entries (this character)'):fmt(#log));
+
+        if #log > 0 then
+            imgui.SameLine();
+            if not state.log_clear_confirm then
+                if imgui.SmallButton('Clear##azure_log_clear') then state.log_clear_confirm = true; end
+            else
+                imgui.TextColored(state.unknown_color, 'Clear the whole log?');
+                imgui.SameLine();
+                if imgui.SmallButton('Yes##azure_log_clear_yes') then
+                    config.learned_log = T{};
+                    state.log_clear_confirm = false;
+                    state.settings_dirty = true;
+                end
+                imgui.SameLine();
+                if imgui.SmallButton('No##azure_log_clear_no') then state.log_clear_confirm = false; end
+            end
+        end
+        imgui.Separator();
+
+        imgui.BeginChild('##azure_log_list', { 0, 0 });
+        if #log == 0 then
+            imgui.TextColored(MUTED, 'Spells you learn from now on are listed here with the time, zone and mob.');
+        else
+            for i = #log, 1, -1 do
+                local line = log_line(log[i]);
+                imgui.TextColored(MUTED, line.date);
+                imgui.SameLine();
+                imgui.TextColored(state.known_color, line.spell);
+                if line.detail ~= '' then
+                    imgui.SameLine();
+                    imgui.TextColored(MUTED, line.detail);
+                end
+            end
+        end
+        imgui.EndChild();
+
+        local x, y = imgui.GetWindowPos();
+        local w, h = imgui.GetWindowSize();
+        x, y, w, h = tonumber(x), tonumber(y), tonumber(w), tonumber(h);
+        if x and y and w and h then
+            local lw = config.log_window;
+            if math.abs(x - (tonumber(lw.x) or 0)) >= 1 or math.abs(y - (tonumber(lw.y) or 0)) >= 1
+                or math.abs(w - (tonumber(lw.width) or 0)) >= 1 or math.abs(h - (tonumber(lw.height) or 0)) >= 1 then
+                lw.x, lw.y, lw.width, lw.height = x, y, w, h;
+                state.settings_dirty = true;
+            end
+        end
+
+        imgui.PopFont();
+    end
+    imgui.End();
+    imgui.PopStyleVar(1);
+    pop_theme();
+end
+
+-- Small tag for the current target: "Teaches: <missing spell>". Reads only
+-- your target and the static location data; BLU main only.
+local function get_target_mob_name()
+    local ok, name = pcall(function()
+        local mm = AshitaCore:GetMemoryManager();
+        local target = mm:GetTarget();
+        local index = 0;
+        if target:GetIsSubTargetActive() ~= 0 then
+            index = target:GetTargetIndex(1);
+        else
+            index = target:GetTargetIndex(0);
+        end
+        index = tonumber(index) or 0;
+        if index <= 0 then return nil; end
+        local entity = mm:GetEntity();
+        local flags = tonumber(entity:GetSpawnFlags(index)) or 0;
+        if bit.band(flags, 0x10) == 0 then return nil; end
+        return entity:GetName(index);
+    end);
+    if not ok or name == nil or tostring(name) == '' then return nil; end
+    return tostring(name);
+end
+
+local function draw_target_tag()
+    if not state.target_tag[1] then return; end
+    if safe_blu_level() == nil then return; end
+
+    local zone_id = safe_current_zone_id();
+    if zone_id == nil then return; end
+    local name = get_target_mob_name();
+    if name == nil then return; end
+
+    local index = get_learning_index();
+    local zone_mobs = index.by_mob[zone_id];
+    local list = zone_mobs and zone_mobs[name:lower()] or nil;
+    if list == nil or #list == 0 then return; end
+
+    if state.target_tag_apply_pos then
+        imgui.SetNextWindowPos({ state.target_tag_x, state.target_tag_y });
+        state.target_tag_apply_pos = false;
+    end
+
+    local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_AlwaysAutoResize,
+        ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoFocusOnAppearing or 0, ImGuiWindowFlags_NoSavedSettings or 0);
+    if state.target_tag_locked[1] then
+        flags = bit.bor(flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoInputs or 0);
+    end
+
+    push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
+    if imgui.Begin('Azure Codex - Target Tag###azure_target_tag', nil, flags) then
+        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+        imgui.TextColored(state.header_color, 'Teaches:');
+        for _, item in ipairs(list) do
+            imgui.SameLine();
+            local color = item.learnable and state.learnable_color or state.unknown_color;
+            imgui.TextColored(color, tostring(item.spell.name));
+        end
+        imgui.PopFont();
+
+        local x, y = imgui.GetWindowPos();
+        x, y = tonumber(x), tonumber(y);
+        if x and y and (math.abs(x - state.target_tag_x) >= 1 or math.abs(y - state.target_tag_y) >= 1) then
+            state.target_tag_x, state.target_tag_y = x, y;
+            state.settings_dirty = true;
+        end
+    end
+    imgui.End();
+    imgui.PopStyleVar(1);
+    pop_theme();
+end
+
 local function draw_about_tab()
     section_title('ABOUT AZURE CODEX');
 
@@ -3175,13 +4493,26 @@ local function draw_bluprint_view_page()
         return;
     end
 
-    local selected_spells, used, count = get_saved_build_spells_for_view(selected_name);
+    -- Parse the selected file once (it was re-read every frame).
+    if state.view_cache == nil or state.view_cache.name ~= selected_name then
+        local list, pts, n = get_saved_build_spells_for_view(selected_name);
+        state.view_cache = { name = selected_name, spells = list, used = pts, count = n };
+    end
+    local selected_spells = state.view_cache.spells;
+    local used = state.view_cache.used;
+    local count = state.view_cache.count;
     state.bluprint_view_spells = selected_spells;
+    local view_point_cap, view_slot_cap = get_build_caps();
 
     imgui.Spacing();
     imgui.TextColored(state.header_color, selected_name);
     imgui.SameLine();
-    imgui.TextColored(MUTED, ('%d / 20 spells   %d points'):fmt(count, used));
+    local over = count > view_slot_cap or used > view_point_cap;
+    imgui.TextColored(over and state.unknown_color or MUTED,
+        ('%d / %d spells   %d / %d points'):fmt(count, view_slot_cap, used, view_point_cap));
+    if over then
+        imgui.TextColored(state.unknown_color, 'Over your current limits - equipping would be refused.');
+    end
 
     if count > 0 then
         if imgui.Button('Equip##azure_bluprint_view_equip') then
@@ -3218,6 +4549,8 @@ local function draw_bluprint_view_page()
                 log_message('Deleted BLUPrint: ' .. tostring(selected_name));
                 state.bluprint_view_selected[1] = '';
                 state.bluprint_view_spells = {};
+                state.view_cache = nil;
+                state.build_files_at = -1;
             else
                 log_message('Unable to delete BLUPrint: ' .. tostring(err or path));
             end
@@ -3229,19 +4562,14 @@ local function draw_bluprint_view_page()
         end
     end
 
+    if count > 0 then
+        imgui.Spacing();
+        draw_equipped_diff(selected_spells);
+    end
+
     imgui.Separator();
 
-    local trait_totals = {};
-    for _, spell in ipairs(selected_spells) do
-        local trait_name, value = get_trait_parts(spell);
-        if trait_name ~= nil then
-            local key = normalize_name(trait_name);
-            if trait_totals[key] == nil then
-                trait_totals[key] = { name = trait_name, points = 0 };
-            end
-            trait_totals[key].points = trait_totals[key].points + value;
-        end
-    end
+    local trait_totals = compute_traits(selected_spells);
 
     imgui.TextColored(state.header_color, 'SPELLS');
     imgui.Spacing();
@@ -3249,7 +4577,7 @@ local function draw_bluprint_view_page()
         imgui.TextColored(MUTED, 'No valid spells found in this BLUPrint.');
     else
         for index, spell in ipairs(selected_spells) do
-            local trait_text = get_spell_trait_display(spell);
+            local trait_text = get_spell_trait_badge(spell);
             imgui.TextColored(state.header_color, ('%02d'):fmt(index));
             imgui.SameLine();
             imgui.Text(tostring(spell.name));
@@ -3267,28 +4595,10 @@ local function draw_bluprint_view_page()
     imgui.TextColored(state.header_color, 'TRAITS');
     imgui.Spacing();
 
-    local sorted_traits = {};
-    for _, trait in pairs(trait_totals) do
-        sorted_traits[#sorted_traits + 1] = trait;
-    end
-    table.sort(sorted_traits, function(a, b)
-        if a.points == b.points then
-            return a.name:lower() < b.name:lower();
-        end
-        return a.points > b.points;
-    end);
-
-    if #sorted_traits == 0 then
+    if #trait_totals == 0 then
         imgui.TextColored(MUTED, 'No trait contributions in this BLUPrint.');
     else
-        for _, trait in ipairs(sorted_traits) do
-            local points = tonumber(trait.points) or 0;
-            local next_threshold = math.max(8, math.ceil(points / 8) * 8);
-            if points > 0 and points % 8 == 0 then
-                next_threshold = points;
-            end
-            imgui.TextColored(points >= 8 and state.known_color or state.unknown_color, ('%s   %d / %d'):fmt(tostring(trait.name), points, next_threshold));
-        end
+        draw_trait_list(trait_totals, 'view');
     end
 end
 
@@ -3326,39 +4636,40 @@ local function draw_config_window()
     push_theme();
 
     if imgui.Begin('Azure Codex - Config##bluspells_config', state.config_open, 0) then
-        if imgui.BeginTabBar ~= nil and imgui.BeginTabBar('##bluspells_config_tabs') then
-            if imgui.BeginTabItem('Window') then
-                draw_window_tab();
-                imgui.EndTabItem();
-            end
-            if imgui.BeginTabItem('Font & Colors') then
-                draw_font_colors_tab();
-                imgui.EndTabItem();
-            end
-            if imgui.BeginTabItem('Display') then
-                draw_display_tab();
-                imgui.EndTabItem();
-            end
-            if imgui.BeginTabItem('Behavior') then
-                draw_behavior_tab();
-                imgui.EndTabItem();
-            end
-            if imgui.BeginTabItem('About') then
-                draw_about_tab();
-                imgui.EndTabItem();
-            end
-            imgui.EndTabBar();
-        else
-            draw_window_tab();
-            imgui.Spacing();
-            draw_font_colors_tab();
-            imgui.Spacing();
-            draw_display_tab();
-            imgui.Spacing();
-            draw_behavior_tab();
-            imgui.Spacing();
-            draw_about_tab();
+        local config_tabs = {
+            { label = 'Window', id = 'cfg_tab_window', draw = draw_window_tab },
+            { label = 'Font & Colors', id = 'cfg_tab_font_colors', draw = draw_font_colors_tab },
+            { label = 'Display', id = 'cfg_tab_display', draw = draw_display_tab },
+            { label = 'Behavior', id = 'cfg_tab_behavior', draw = draw_behavior_tab },
+            { label = 'About', id = 'cfg_tab_about', draw = draw_about_tab },
+        };
+
+        local selected_tab = tonumber(state.config_tab) or 1;
+        if selected_tab < 1 or selected_tab > #config_tabs then
+            selected_tab = 1;
         end
+
+        -- Flat styled tab row with an accent underline on the active tab.
+        imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 12, 6 });
+        for index, tab in ipairs(config_tabs) do
+            if index > 1 then
+                imgui.SameLine(0, 4);
+            end
+            if draw_styled_tab(tab.label, tab.id, index == selected_tab) then
+                selected_tab = index;
+            end
+        end
+        imgui.PopStyleVar(1);
+        state.config_tab = selected_tab;
+
+        imgui.Spacing();
+        imgui.Separator();
+        imgui.Spacing();
+
+        -- Only the tab content scrolls; the tab row stays in place.
+        imgui.BeginChild('##bluspells_config_content', { 0, 0 });
+        config_tabs[selected_tab].draw();
+        imgui.EndChild();
 
         capture_config_geometry();
     end
@@ -3369,21 +4680,13 @@ end
 
 local function draw_filter_button(label, mode, enabled)
     if enabled == false then
-        imgui.BeginDisabled();
-        imgui.Button(label .. '##filter_' .. mode);
-        imgui.EndDisabled();
+        draw_toggle_button(label, 'filter_' .. mode, false, true);
         return;
     end
 
-    if state.filter_mode == mode and not state.build_page[1] and not state.spellsets_page[1] then
-        imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        if imgui.Button(label .. '##filter_' .. mode) then
-            set_filter(mode);
-        end
-        imgui.PopStyleColor(3);
-    elseif imgui.Button(label .. '##filter_' .. mode) then
+    local selected = state.filter_mode == mode and not state.build_page[1]
+        and not state.spellsets_page[1] and not state.bluprint_view_page[1];
+    if draw_toggle_button(label, 'filter_' .. mode, selected) then
         set_filter(mode);
     end
 end
@@ -3490,6 +4793,7 @@ local function draw_window()
         end
 
         -- Search + config toolbar.
+        align_label();
         imgui.Text('Search:');
         imgui.SameLine();
 
@@ -3531,36 +4835,21 @@ local function draw_window()
         );
 
         imgui.SameLine();
-        if state.build_page[1] then
-            imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        end
-        if imgui.Button('BLUPrints##blu_main_spell_build') then
+        if draw_toggle_button('BLUPrints', 'blu_main_spell_build', state.build_page[1]) then
             state.build_page[1] = true;
             state.spellsets_page[1] = false;
             state.bluprint_view_page[1] = false;
         end
-        if state.build_page[1] then
-            imgui.PopStyleColor(3);
-        end
 
         imgui.SameLine();
-        if state.bluprint_view_page[1] then
-            imgui.PushStyleColor(ImGuiCol_Button, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonHovered, state.header_color);
-            imgui.PushStyleColor(ImGuiCol_ButtonActive, state.header_color);
-        end
-        if imgui.Button('BLUPrint-View##blu_main_spell_build_view') then
+        if draw_toggle_button('BLUPrint-View', 'blu_main_spell_build_view', state.bluprint_view_page[1]) then
             state.bluprint_view_page[1] = true;
             state.build_page[1] = false;
             state.spellsets_page[1] = false;
         end
-        if state.bluprint_view_page[1] then
-            imgui.PopStyleColor(3);
-        end
 
         imgui.SameLine();
+        align_label();
         imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
 
         local blu_skill = safe_blue_magic_skill();
@@ -3589,6 +4878,14 @@ local function draw_window()
         imgui.SameLine();
         if blu_spent ~= nil and blu_max ~= nil then
             imgui.Text(('%d/%d'):fmt(blu_spent, blu_max));
+        elseif blu_skill_level ~= nil then
+            -- Client does not expose live points: equipped total vs the
+            -- HorizonXI level limit.
+            local cap_points, cap_slots = horizon_blu_caps(blu_skill_level);
+            local equipped_list, equipped_points = get_equipped_spells();
+            imgui.Text(('%d/%d'):fmt(equipped_points, cap_points));
+            imgui.SameLine();
+            imgui.TextColored(MUTED, ('Spells: %d/%d'):fmt(#equipped_list, cap_slots));
         else
             imgui.TextColored(MUTED, '--/--');
         end
@@ -3628,6 +4925,17 @@ local function draw_window()
         end
 
         imgui.Text(('%d of %d learned from this Zone'):fmt(zone_known_count, zone_total_count));
+
+        imgui.SameLine();
+        if draw_toggle_button('Farm Zones', 'azure_farm_btn', state.farm_open[1] == true) then
+            state.farm_open[1] = not state.farm_open[1];
+            state.farm_apply_geometry = true;
+        end
+        imgui.SameLine();
+        if draw_toggle_button('Learned Log', 'azure_log_btn', state.log_open[1] == true) then
+            state.log_open[1] = not state.log_open[1];
+            state.log_apply_geometry = true;
+        end
 
         if imgui.ProgressBar ~= nil then
             local avail_w = select(1, imgui.GetContentRegionAvail());
@@ -3786,6 +5094,16 @@ ashita.events.register('command', 'bluspells_command_cb', function(e)
         state.config_open[1] = not state.config_open[1];
         return;
     end
+    if #args >= 2 and tostring(args[2]):lower() == 'farm' then
+        state.farm_open[1] = not state.farm_open[1];
+        state.farm_apply_geometry = true;
+        return;
+    end
+    if #args >= 2 and tostring(args[2]):lower() == 'log' then
+        state.log_open[1] = not state.log_open[1];
+        state.log_apply_geometry = true;
+        return;
+    end
 
     state.open[1] = not state.open[1];
 
@@ -3805,5 +5123,34 @@ ashita.events.register('unload', 'bluspells_unload_cb', function()
 end);
 
 ashita.events.register('d3d_present', 'bluspells_present_cb', function()
+    -- Runs every frame (cheap unless a spell was just learned) so the
+    -- Learned Log records the right time / zone / mob even with the main
+    -- window closed.
+    update_known_snapshot();
     draw_window();
+    draw_farm_window();
+    draw_log_window();
+    draw_target_tag();
+end);
+
+-- Remember the last mob you (or your party) defeated, so the Learned Log
+-- can say which mob taught a spell. 0x029 messages 6 / 20 = defeated.
+ashita.events.register('packet_in', 'azurecodex_packet_in_cb', function(e)
+    if e == nil or e.id ~= 0x029 or e.data_modified == nil then return; end
+    local ok, target_index, message = pcall(function()
+        return struct.unpack('H', e.data_modified, 0x16 + 1), struct.unpack('H', e.data_modified, 0x18 + 1);
+    end);
+    if not ok then return; end
+    message = bit.band(tonumber(message) or 0, 0x7FFF);
+    if message ~= 6 and message ~= 20 then return; end
+
+    local ok_name, name = pcall(function()
+        local entity = AshitaCore:GetMemoryManager():GetEntity();
+        local flags = tonumber(entity:GetSpawnFlags(target_index)) or 0;
+        if bit.band(flags, 0x10) == 0 then return nil; end
+        return entity:GetName(target_index);
+    end);
+    if ok_name and name ~= nil and tostring(name) ~= '' then
+        state.last_defeat = { name = tostring(name), time = os.time(), zone = safe_current_zone_id() };
+    end
 end);
