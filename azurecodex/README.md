@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.13.3  
+**Version:** 1.14.2  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -137,24 +137,24 @@ Zone Info and Spell Locations can be dragged from any empty spot, with or withou
 
 ## BLUPrints – Build Planner
 
-Click **BLUPrints** in the sidebar to plan a spell set. A **Spell Card** opens beside the main window and shows the build slot by slot, with its points and traits.
+Click **BLUPrints** in the sidebar to plan a spell set.
 
-- Only spells you have learned can be selected.
+- **Top row:** the **Loadout** dropdown of your saved sets (asks before equipping) with Refresh, and on the right a build name box with **Save** (writes the set to the `BLUPrints` folder).
+- **Budget bars:** spells and points used against your limits, plus how the build compares with your equipped set.
+- **Known Spells (left):** click a spell to add it to the build; click it again to take it out. Search covers spells, traits and mob families, and **Show unlearned** lists spells you haven't learned yet (they can't be added). Spells that would go over your limits are dimmed.
+- **Your Build (right):** the set slot by slot with points and traits; click a spell to remove it. Underneath: **Equip build**, **Load equipped** (loads the spells you have set right now) and **Clear**, then **Filter by Trait**: chips that filter Known Spells in one click (for example, only Auto Refresh spells, or spells with no trait).
+- **Side panel:** totals, **VS Equipped** (what equipping would add or remove), the **Trait Calculator** and the **Trait Planner**. Its width follows the text, so nothing is cut off.
 - Limits follow your level: points and spell slots come from the live game value when available, otherwise from the HorizonXI level table (see [HorizonXI Rules Used](#horizonxi-rules-used)).
-- **Equip This Build** sets the spells in game.
-- **Select Currently Equipped** loads your current set into the planner.
-- **Save Current Build** writes the set to the `BLUPrints` folder.
-- **VS Equipped** shows which spells a build would add or remove compared with your current set.
 
-![BLUPrints build planner with Spell Card and Trait Calculator](Screenshots/traits_1.13.png)
+![BLUPrints build planner with Your Build and Trait Calculator](Screenshots/traits_1.14.png)
 
 ---
 
 ## Trait Calculator & Trait Planner
 
-The **Trait Calculator** (below the Spell Card) shows each trait in the build with its current tier, its points toward the next tier, and a progress bar. Hover **(?)** for a summary of the rules.
+The **Trait Calculator** (BLUPrints side panel) shows each trait in the build with its current tier, its points toward the next tier, and a progress bar. Hover **(?)** for a summary of the rules.
 
-The **Trait Planner** lists the cheapest spells you know that would reach each trait's next tier. When those spells fit your limits, an **Add** button selects them for you. Tick **All traits** to plan traits that aren't in the build yet.
+The **Trait Planner** (side panel) lists the cheapest spells you know that would reach each trait's next tier. When those spells fit your limits, an **Add** button selects them for you. Tick **All traits** to plan traits that aren't in the build yet.
 
 Spells that count extra toward their trait show the multiplier, e.g. *Auto Refresh x2*.
 
@@ -195,7 +195,7 @@ Open **Config** from the bottom of the sidebar or with `/ac config`.
 | **Behavior** | Remember search / filter / sort, highlight new spells, click or hover for locations, **Assimilation merits**, **Target Tag**, reset all settings |
 | **About** | Version and credits |
 
-**Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards. In Garnet, trait names on the Spell Card and Trait Planner are sand-colored and unreached traits are amber, so they stand apart from the red accent.
+**Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards. In Garnet, trait names in Your Build and the Trait Planner are sand-colored and unreached traits are amber, so they stand apart from the red accent.
 
 ![Theme selection in Config](Screenshots/theme.png)
 
@@ -247,6 +247,18 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.14.2
+- Trait Calculator back in the BLUPrints side panel (which still sizes to its text).
+- Trait chips moved under Your Build as **Filter by Trait**.
+
+### 1.14.1
+- Trait Calculator moved under Your Build in the main window.
+- The BLUPrints side panel sizes its width to the Trait Planner text instead of cutting it off.
+
+### 1.14.0
+- BLUPrints redesigned: Loadout and Save on one row, budget bars, **Known Spells** on the left (click to add, trait chips to filter, search, Show unlearned) and **Your Build** on the right (click to remove) with Equip build / Load equipped / Clear.
+- The side panel now holds the totals, VS Equipped, Trait Calculator and Trait Planner.
 
 ### 1.13.3
 - Zone Info and Spell Locations: only the list scrolls now (like Farm Zones), so the header and close button stay in place.
