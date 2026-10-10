@@ -1,249 +1,264 @@
 # Azure Codex
 
-**Azure Codex (orig BLUSpells)** is an Ashita v4 addon built
-specifically for **HorizonXI Blue Mage** players. It combines Blue Magic
-progression tracking, spell-learning locations, build planning, trait
-calculation, and saved spell loadouts in one interface.
+**Azure Codex** (formerly *BLUSpells*) is an Ashita v4 addon for **Blue Mage players on HorizonXI**. It brings spell tracking, learning locations, build planning, trait calculation and saved spell sets together in one in-game window.
 
-Azure Codex is intentionally tailored to HorizonXI's current era and
-content progression rather than modern retail FFXI.
+All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Authors:** Izumi (ShiroIzumi) / Kyrias\
-**Special thanks:** Demiora for testing
+**Version:** 1.12.2  
+**Authors:** Izumi (ShiroIzumi) · Kyrias  
+**Testing:** Demiora
 
-------------------------------------------------------------------------
+![Azure Codex main window](Screenshots/main.png)
 
-## Features
+---
 
--   Tracks all **106 Blue Magic spells** currently supported by the
-    addon.
--   Detects learned spells directly from the local character.
--   Displays **learned, learnable, and currently unlearnable** spells
-    with configurable colors.
--   Uses your current **Blue Magic skill** and BLU level to show
-    progression and learning readiness.
--   Shows learned count, missing count, completion percentage, BLU
-    skill, and BLU point information.
--   Filters by **All**, **Known**, **Missing**, or **Up to your current
-    BLU level**.
--   Searches across spell information with support for `|` OR searches.
--   Sortable spell table with Level, Points, Learn Skill, Type, Trait,
-    and Mob Family data.
--   Configurable visible columns, row spacing, paging behavior, font
-    scale, colors, and window appearance.
--   Optional persistence of search, filter, and sort settings.
--   Automatically highlights newly learned spells.
+## Contents
 
-![Azure Codex main spell list](Screenshots/Screenshot%202026-09-16%20202509.png)
+- [Features at a Glance](#features-at-a-glance)
+- [Installation](#installation)
+- [Commands](#commands)
+- [Spell List](#spell-list)
+- [Learning Locations](#learning-locations)
+- [Zone Info](#zone-info)
+- [Farm Zones](#farm-zones)
+- [BLUPrints – Build Planner](#bluprints--build-planner)
+- [Trait Calculator & Trait Planner](#trait-calculator--trait-planner)
+- [BLUPrint-View & Azure Loadout](#bluprint-view--azure-loadout)
+- [Target Tag](#target-tag)
+- [Learned Log](#learned-log)
+- [Themes & Configuration](#themes--configuration)
+- [HorizonXI Rules Used](#horizonxi-rules-used)
+- [Compatibility](#compatibility)
+- [Credits](#credits)
+- [Changelog](#changelog)
 
-## Spell Learning & Location Data
+---
 
-Select a spell to view HorizonXI-specific information about where it can
-be learned.
+## Features at a Glance
 
--   Displays learning zones and the mobs that use the selected Blue
-    Magic spell.
--   Supports multi-zone and multi-mob learning data.
--   Learned From information can open by **Click** or **Hover**.
--   Location windows retain their position and size.
--   Mob lists automatically use a compact multi-column layout where
-    appropriate.
--   Location data is curated for HorizonXI's available content.
+| | |
+|---|---|
+| **Spell tracking** | All 106 HorizonXI Blue Magic spells, colored as Known, Learnable or Unlearnable based on your live Blue Magic skill. |
+| **Search & filters** | Search every column at once; use `\|` to match any of several terms. Quick filters: All, Known, Missing, Up to my level. |
+| **Learning locations** | Every zone and mob that teaches each spell, for HorizonXI-era zones only. |
+| **Zone Info** | The spells you can learn in your current zone, and from which mobs. |
+| **Farm Zones** | Zones ranked by how many spells you are still missing there. |
+| **BLUPrints** | Plan a spell set within your real point and slot limits, then save it or equip it in game. |
+| **Trait Calculator** | Trait tiers for a build, following HorizonXI's 75-era rules. |
+| **Trait Planner** | The cheapest spells you know that reach each trait's next tier. |
+| **Target Tag** | Shows "Teaches: …" when your target teaches a spell you are missing. |
+| **Learned Log** | A per-character history of every spell you learn: when, where, and from which mob. |
+| **Themes** | Midnight, Abyss, Twilight, Golden, Garnet and Silver, all fully customizable. |
 
-![Learned From window](Screenshots/Screenshot%202026-09-16%20202544.png)
-
-### Zone Info
-
-The **Zone Info** window provides the reverse view: it shows which
-tracked Blue Magic spells can be learned from mobs in your current zone.
-
--   Automatically identifies the current zone.
--   Shows zone-specific learning progress.
--   Lists applicable spells and mobs.
--   Can hide already-known spells.
--   Can be opened independently of the main Azure Codex window.
--   Position and size can be locked from configuration.
-
-![Zone Info window](Screenshots/Screenshot%202026-09-16%20202556.png)
-
-## BLUPrints
-
-**BLUPrints** is the build-planning workspace for creating Blue Magic
-spell sets before equipping them.
-
--   Select up to **20 learned spells**.
--   Enforces the character's current **BLU point cap**.
--   Shows the point cost of every spell.
--   Unknown spells remain visible for reference but cannot be selected.
--   Uses the configured Known / Learnable / Unlearnable colors.
--   Search within the available spell list.
--   Select the character's currently equipped Blue Magic.
--   Clear the current build or all checked spells.
--   Equip the planned build directly.
--   Name and save builds for later use.
-
-The companion panel displays the active **Spell Card** and **Trait
-Calculator** while BLUPrints is open.
-
-### Trait Calculator
-
-Azure Codex totals the traits given by the selected spells using the
-HorizonXI / LandSandBoat 75-era rules and shows each trait's tier and
-progress toward the next one.
-
--   Each spell gives 4 points to its trait (8 points = a tier for most
-    traits). Some spells count more: Self-Destruct, Frightful Roar,
-    Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma
-    Charge, Winds of Promyvion x4 (shown as "x2" etc. next to the trait).
--   Auto Refresh needs 32 points; Resist Gravity tiers are 8 / 12 / 16;
-    each trait has its own maximum tier.
--   **Trait Planner** lists the cheapest known spells that reach each
-    trait's next tier, with an **Add** button when they fit your limits.
-    Tick **All traits** to plan traits not in the build yet.
--   **VS Equipped** shows which spells a build would add or remove
-    compared with your currently set spells.
-
-Point and slot limits follow your BLU level (HorizonXI table: 10 points /
-6 spells at Lv1-10 up to 45 / 20 at Lv71-75). If the client exposes live
-Blue Magic Points, those are used instead.
-
-![BLUPrints build planner and trait
-calculator](Screenshots/Screenshot%202026-09-16%20202526.png)
-
-## Azure Loadout
-
-**Azure Loadout** provides quick access to saved BLUPrints sets.
-
--   Reads saved Blue Magic builds from the addon's BLUPrints folder.
--   Refreshes the available loadout list on demand.
--   Loads and equips a saved spell set directly in game (asks to confirm
-    first).
--   Keeps reusable spell configurations separate from the active
-    build-planning workflow.
-
-## Configuration
-
-Azure Codex includes an in-game configuration window for the main UI and
-supporting windows.
-
-### Font & Colors
-
-Pick a **Theme** (Midnight - default, Abyss, Twilight, Golden, Garnet, Silver), then customize
-font scale, spell-state colors, header/accent color, paging color, and
-window appearance.
-
-![Font and color configuration](Screenshots/Screenshot%202026-09-16%20202615.png)
-
-### Display
-
-Configure compact/normal row spacing, automatic/fixed rows per page, and
-visible spell-table columns including Level, Points, Learn Skill, Type,
-Trait, and Mob Family.
-
-![Display configuration](Screenshots/Screenshot%202026-09-16%20202628.png)
-
-### Behavior
-
-Configure remembered Search / Filter / Sort state, newly learned spell
-highlighting, Click/Hover Learned From interaction, the **Target Tag**,
-and settings reset.
-
-## Farm Zones, Target Tag and Learned Log (1.12.0)
-
--   **Farm Zones** (`/ac farm` or the toolbar button): era zones ranked
-    by how many spells you are missing there, learnable ones first.
-    Click a zone to see the spells and the mobs that teach them.
--   **Target Tag**: while BLU is your main job, a small "Teaches:" tag
-    appears when your target teaches a spell you are missing in the
-    current zone (Learnable color = you can learn it now, Unlearnable color = skill too low).
-    Drag it where you like; lock it in Behavior.
--   **Learned Log** (`/ac log`): every spell you learn from now on, with
-    the date, zone and the mob you defeated, saved per character.
-
-![Behavior configuration](Screenshots/Screenshot%202026-09-16%20202620.png)
-
-## Commands
-
-  -----------------------------------------------------------------------
-  Command                             Description
-  ----------------------------------- -----------------------------------
-  `/azurecodex`                       Toggle the main Azure Codex window.
-
-  `/ac`                               Short alias for `/azurecodex`.
-
-  `/azurecodex config`                Toggle the configuration window.
-
-  `/ac config`                        Short alias for the configuration
-                                      window.
-
-  `/ac farm`                          Toggle the Farm Zones window.
-
-  `/ac log`                           Toggle the Learned Log window.
-
-  `/azurecodexzone`                   Toggle Zone Info directly.
-
-  `/acz`                              Short alias for Zone Info.
-
-  `/bluspells`, `/bsp`, `/bsl`        Legacy main-window aliases retained
-                                      for compatibility.
-
-  `/bluspellszone`, `/bsz`            Legacy Zone Info aliases retained
-                                      for compatibility.
-  -----------------------------------------------------------------------
+---
 
 ## Installation
 
-1.  Copy the `azurecodex` folder into your Ashita v4 `addons` directory.
-2.  Start FFXI through Ashita.
-3.  Load the addon:
+1. Copy the `azurecodex` folder into your HorizonXI addons folder:
+   ```
+   C:\HorizonXI\HorizonXI\Game\addons\azurecodex\
+   ```
+2. Start HorizonXI through Ashita.
+3. Load the addon:
+   ```
+   /addon load azurecodex
+   ```
+4. Open Azure Codex:
+   ```
+   /ac
+   ```
 
-``` text
-/addon load azurecodex
-```
+The folder contains `azurecodex.lua`, `spells.lua`, `locations.lua`, a `BLUPrints` folder (saved builds) and `Screenshots`.
 
-4.  Open Azure Codex:
+---
 
-``` text
-/ac
-```
+## Commands
+
+| Command | Description |
+|---|---|
+| `/ac` · `/azurecodex` | Open or close the main window |
+| `/ac config` | Open or close the Config window |
+| `/acz` · `/azurecodexzone` | Open or close Zone Info |
+| `/ac farm` | Open or close Farm Zones |
+| `/ac log` | Open or close the Learned Log |
+| `/bluspells` · `/bsp` · `/bsl` | Legacy aliases for the main window |
+| `/bluspellszone` · `/bsz` | Legacy aliases for Zone Info |
+
+---
+
+## Spell List
+
+The main window lists every Blue Magic spell with its **Level, Points, Learn Skill, Type, Trait and Mob Family**.
+
+- **Colors:** Known, Learnable (your current Blue Magic skill is high enough) and Unlearnable.
+- **Sort:** click any column header; click again to reverse the order.
+- **Search:** checks every column. Use `|` for OR searches, e.g. `refresh|regen|goblin`.
+- **Filters:** **All**, **Known**, **Missing**, **Up to Lv N** (missing spells at or below your BLU level).
+- **Status line:** Blue Magic skill and cap, BLU points, overall progress (learned / missing) and progress for the current zone.
+- **New spells:** a newly learned spell is selected and highlighted for a few seconds.
+
+**Learn Skill** is the minimum Blue Magic skill needed to learn the spell. On HorizonXI that is the A+ skill cap at the spell's level, minus 31.
+
+---
+
+## Learning Locations
+
+Click a spell name to open its **Spell Locations** window. It lists every HorizonXI-era zone and mob that teaches the spell. On high-resolution screens you can switch to a hover tooltip instead (Config → Behavior).
+
+![Spell Locations window](Screenshots/mobinfo.png)
+
+---
+
+## Zone Info
+
+**Zone Info** (`/acz` or the **Zone Info** button) shows every spell you can learn in your current zone. Each entry shows the required Blue Magic skill, the spell level, your status (Known / Learnable / Unlearnable) and the mobs that teach it. Tick **Hide Known** to see only what is left.
+
+![Zone Info window](Screenshots/zoneinfo.png)
+
+---
+
+## Farm Zones
+
+**Farm Zones** (`/ac farm` or the toolbar button) ranks HorizonXI-era zones by how many spells you are still missing there. Zones with spells you can learn right now are listed first.
+
+- Click a zone to expand it and see each missing spell with the mobs that teach it.
+- **Learnable only** hides spells your Blue Magic skill can't learn yet.
+- Your current zone is marked *(here)*.
+
+![Farm Zones window](Screenshots/zonestofarm.png)
+
+---
+
+## BLUPrints – Build Planner
+
+Click **BLUPrints** in the main window to plan a spell set. A **Spell Card** opens beside the main window and shows the build slot by slot, with its points and traits.
+
+- Only spells you have learned can be selected.
+- Limits follow your level: points and spell slots come from the live game value when available, otherwise from the HorizonXI level table (see [HorizonXI Rules Used](#horizonxi-rules-used)).
+- **Equip This Build** sets the spells in game.
+- **Select Currently Equipped** loads your current set into the planner.
+- **Save Current Build** writes the set to the `BLUPrints` folder.
+- **VS Equipped** shows which spells a build would add or remove compared with your current set.
+
+![BLUPrints build planner with Spell Card and Trait Calculator](Screenshots/traits.png)
+
+---
+
+## Trait Calculator & Trait Planner
+
+The **Trait Calculator** (below the Spell Card) shows each trait in the build with its current tier, its points toward the next tier, and a progress bar. Hover **(?)** for a summary of the rules.
+
+The **Trait Planner** lists the cheapest spells you know that would reach each trait's next tier. When those spells fit your limits, an **Add** button selects them for you. Tick **All traits** to plan traits that aren't in the build yet.
+
+Spells that count extra toward their trait show the multiplier, e.g. *Auto Refresh x2*.
+
+---
+
+## BLUPrint-View & Azure Loadout
+
+- **BLUPrint-View** opens a saved BLUPrint and shows its spells, points, traits and its difference from your current set. From there you can **Equip** it, **Import** it into BLUPrints, or **Delete** it (asks first).
+- **Azure Loadout** (top of BLUPrints) is a quick dropdown of your saved sets. Choosing one asks for confirmation, then equips it.
+
+---
+
+## Target Tag
+
+While Blue Mage is your main job, a small **"Teaches:"** tag appears when your current target teaches a spell you are still missing in this zone. The spell name uses your Learnable or Unlearnable color.
+
+- Drag the tag anywhere you like.
+- Lock it, or turn it off, in Config → Behavior.
+- It only reads your target and the addon's own location data.
+
+---
+
+## Learned Log
+
+The **Learned Log** (`/ac log` or the toolbar button) records every spell you learn from now on: the date and time, the zone, and the mob you defeated. It is saved separately for each character and can be cleared from the window.
+
+---
+
+## Themes & Configuration
+
+Open **Config** from the main window or with `/ac config`.
+
+| Tab | Options |
+|---|---|
+| **Window** | Lock each window, title bar, border, window color and opacity, reset position |
+| **Font & Colors** | **Theme**, font scale, and colors for Known / Learnable / Unlearnable, Header / Accent and the paging buttons |
+| **Display** | Compact or normal rows, automatic or fixed rows per page, visible columns |
+| **Behavior** | Remember search / filter / sort, highlight new spells, click or hover for locations, **Assimilation merits**, **Target Tag**, reset all settings |
+| **About** | Version and credits |
+
+**Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards.
+
+![Theme selection in Config](Screenshots/theme.png)
+
+Search boxes are skipped by the Tab key, so pressing Tab in game to target never jumps into Azure Codex. Click a box to type in it.
+
+---
+
+## HorizonXI Rules Used
+
+**Blue Magic set limits by level** (the live game value is used when the client provides it):
+
+| Level | Blue Magic Points | Spells |
+|---|---|---|
+| 1–10 | 10 | 6 |
+| 11–20 | 15 | 8 |
+| 21–30 | 20 | 10 |
+| 31–40 | 25 | 12 |
+| 41–50 | 30 | 14 |
+| 51–60 | 35 | 16 |
+| 61–70 | 40 | 18 |
+| 71–75 | 45 (+ Assimilation merits) | 20 |
+
+**Traits** (HorizonXI / LandSandBoat 75-era rules):
+
+- Each set spell gives **4 trait points** to its trait. The in-game description shows this as e.g. "Job Trait: Auto Refresh (4)".
+- Most traits gain a tier every **8 points**.
+- **Auto Refresh** needs **32 points**. **Resist Gravity** tiers are 8 / 12 / 16.
+- Spells that count extra: Self-Destruct, Frightful Roar, Light of Penance **x2** · Voracious Trunk **x3** · Actinic Burst, Plasma Charge, Winds of Promyvion **x4**.
+- Each trait has its own maximum tier.
+
+---
 
 ## Compatibility
 
-Azure Codex is designed for **Ashita v4** and **HorizonXI**. Spell,
-trait, mob, and location information is HorizonXI-focused and should not
-be treated as a modern retail FFXI database.
+- **Ashita v4** on **HorizonXI**.
+- Equipping uses Ashita's `blusets` helper when it is installed, and a built-in fallback otherwise.
+- Data is HorizonXI-specific (level-75 era) and is not meant for retail FFXI.
 
-------------------------------------------------------------------------
+---
 
 ## Credits
 
-**Izumi (ShiroIzumi)** --- Original BLUSpells / Azure Codex development\
-**Kyrias** --- Collaboration, BLUPrints, spell-set/build functionality,
-and data development\
-**Demiora** --- Testing
+- **Izumi (ShiroIzumi)**: original BLUSpells / Azure Codex development
+- **Kyrias**: collaboration, BLUPrints, spell-set / build functionality, data development
+- **Demiora**: testing
 
-Azure Codex continues the original BLUSpells project under its new
-collaborative name.
+Azure Codex continues the original BLUSpells project under its new collaborative name.
 
-------------------------------------------------------------------------
+---
 
-## Changes in 1.12.1
+## Changelog
 
--   Three more themes: Golden (XIUI-style), Garnet (SCL's subtle red), Silver.
--   Farm Zones and Learned Log keep their header (and close button) in place while the list scrolls.
+### 1.12.2
+- Pressing Tab in game no longer focuses the Azure Codex search box.
 
-## Changes in 1.12.0
+### 1.12.1
+- New themes: Golden, Garnet and Silver.
+- Farm Zones and the Learned Log keep their header and close button in place while the list scrolls.
 
--   Trait Calculator fixed (it never counted anything) and rebuilt on
-    HorizonXI / LandSandBoat 75-era trait rules, in BLUPrints and
-    BLUPrint-View. New Trait Planner and VS Equipped.
--   Point / slot limits now follow your BLU level (they were fixed at 50 /
-    20); BLU Points shows equipped total / level limit when the client
-    does not expose live points.
--   Clicking a filter while on BLUPrint-View returns to the spell list.
--   Azure Loadout asks before equipping.
--   Faster: the BLUPrints folder is no longer read from disk every frame,
-    known spells / zone progress / the filtered list are cached, and the
-    equipped-set memory pattern is scanned once.
--   New: Theme dropdown, Farm Zones, Target Tag, Learned Log.
--   Version number fixed (header and addon both 1.12.0).
+### 1.12.0
+- **Trait Calculator fixed** (it never counted anything) and rebuilt on HorizonXI 75-era rules, in both BLUPrints and BLUPrint-View.
+- **Point and slot limits follow your level** (they were fixed at 50 / 20), with an Assimilation merit setting. Builds over the limit are kept but can't be equipped.
+- BLU Points shows your equipped total against the level limit when the client doesn't report live points.
+- Clicking a filter while on BLUPrint-View returns to the spell list.
+- Azure Loadout asks before equipping.
+- Performance: the BLUPrints folder is no longer read every frame, the spell list and zone progress are cached, and the equipped-set memory lookup runs once.
+- New: Trait Planner, VS Equipped, Farm Zones, Target Tag, Learned Log, Theme dropdown.
+- Version number fixed.
+
+### 1.11 and earlier
+- Restyled to an XIUI-style flat look with tabs and accent underlines; default midnight blue background (`#010022`).
+- BLUPrints, Azure Loadout, Zone Info, spell locations, filters, search and config windows.
