@@ -260,5 +260,5 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 - Version number fixed.
 
 ### 1.11 and earlier
-- Restyled to an XIUI-style flat look with tabs and accent underlines; default midnight blue background (`#010022`).
+- Restyled to a flat look with tabs and accent underlines; default midnight blue background (`#010022`).
 - BLUPrints, Azure Loadout, Zone Info, spell locations, filters, search and config windows.
