@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.12.2  
+**Version:** 1.13.3  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -88,22 +88,26 @@ The folder contains `azurecodex.lua`, `spells.lua`, `locations.lua`, a `BLUPrint
 
 ## Spell List
 
-The main window lists every Blue Magic spell with its **Level, Points, Learn Skill, Type, Trait and Mob Family**.
+The main window has a **sidebar** on the left and the spell list on the right.
+
+- **Sidebar:** your Blue Magic skill, set points (and spells set), overall learned progress and the current zone's progress, each with a progress bar. Below them: **Spells**, **BLUPrints** and **BLUPrint-View**, then **Zone Info**, **Farm Zones**, **Learned Log**, and **Config** at the bottom.
+- **Main area:** the search box, the filters and the current page. Below the list: Prev / Next paging, how many spells match, and the color legend.
+
+The spell list shows every Blue Magic spell with its **Level, Points, Learn (skill needed), Type, Trait and Mob Family**.
 
 - **Colors:** Known, Learnable (your current Blue Magic skill is high enough) and Unlearnable.
 - **Sort:** click any column header; click again to reverse the order.
-- **Search:** checks every column. Use `|` for OR searches, e.g. `refresh|regen|goblin`.
+- **Search:** checks every column. Use `|` for OR searches, e.g. `refresh|regen|goblin` (hover the box for a reminder).
 - **Filters:** **All**, **Known**, **Missing**, **Up to Lv N** (missing spells at or below your BLU level).
-- **Status line:** Blue Magic skill and cap, BLU points, overall progress (learned / missing) and progress for the current zone.
 - **New spells:** a newly learned spell is selected and highlighted for a few seconds.
 
-**Learn Skill** is the minimum Blue Magic skill needed to learn the spell. On HorizonXI that is the A+ skill cap at the spell's level, minus 31.
+**Learn** is the minimum Blue Magic skill needed to learn the spell. On HorizonXI that is the A+ skill cap at the spell's level, minus 31.
 
 ---
 
 ## Learning Locations
 
-Click a spell name to open its **Spell Locations** window. It lists every HorizonXI-era zone and mob that teaches the spell. On high-resolution screens you can switch to a hover tooltip instead (Config → Behavior).
+Click a spell name to open its **Spell Locations** window. It lists every HorizonXI-era zone and mob that teaches the spell, with the spell's mob family in the header. Only the list scrolls, so the header and close button stay in place. On high-resolution screens you can switch to a hover tooltip instead (Config → Behavior).
 
 ![Spell Locations window](Screenshots/mobinfo.png)
 
@@ -111,7 +115,9 @@ Click a spell name to open its **Spell Locations** window. It lists every Horizo
 
 ## Zone Info
 
-**Zone Info** (`/acz` or the **Zone Info** button) shows every spell you can learn in your current zone. Each entry shows the required Blue Magic skill, the spell level, your status (Known / Learnable / Unlearnable) and the mobs that teach it. Tick **Hide Known** to see only what is left.
+**Zone Info** (`/acz` or **Zone Info** in the sidebar) shows every spell you can learn in your current zone. Each entry shows the required Blue Magic skill, the spell level, your status (Known / Learnable / Unlearnable) and the mobs that teach it. Tick **Hide Known** to see only what is left. Only the list scrolls, so the header, Hide Known and the close button stay in place.
+
+Zone Info and Spell Locations can be dragged from any empty spot, with or without the title bar. If a window won't move, check its lock in Config → Window.
 
 ![Zone Info window](Screenshots/zoneinfo.png)
 
@@ -119,7 +125,7 @@ Click a spell name to open its **Spell Locations** window. It lists every Horizo
 
 ## Farm Zones
 
-**Farm Zones** (`/ac farm` or the toolbar button) ranks HorizonXI-era zones by how many spells you are still missing there. Zones with spells you can learn right now are listed first.
+**Farm Zones** (`/ac farm` or **Farm Zones** in the sidebar) ranks HorizonXI-era zones by how many spells you are still missing there. Zones with spells you can learn right now are listed first.
 
 - Click a zone to expand it and see each missing spell with the mobs that teach it.
 - **Learnable only** hides spells your Blue Magic skill can't learn yet.
@@ -131,7 +137,7 @@ Click a spell name to open its **Spell Locations** window. It lists every Horizo
 
 ## BLUPrints – Build Planner
 
-Click **BLUPrints** in the main window to plan a spell set. A **Spell Card** opens beside the main window and shows the build slot by slot, with its points and traits.
+Click **BLUPrints** in the sidebar to plan a spell set. A **Spell Card** opens beside the main window and shows the build slot by slot, with its points and traits.
 
 - Only spells you have learned can be selected.
 - Limits follow your level: points and spell slots come from the live game value when available, otherwise from the HorizonXI level table (see [HorizonXI Rules Used](#horizonxi-rules-used)).
@@ -156,7 +162,7 @@ Spells that count extra toward their trait show the multiplier, e.g. *Auto Refre
 
 ## BLUPrint-View & Azure Loadout
 
-- **BLUPrint-View** opens a saved BLUPrint and shows its spells, points, traits and its difference from your current set. From there you can **Equip** it, **Import** it into BLUPrints, or **Delete** it (asks first).
+- **BLUPrint-View** (sidebar) opens a saved BLUPrint and shows its spells, points, traits and its difference from your current set. From there you can **Equip** it, **Import** it into BLUPrints, or **Delete** it (asks first).
 - **Azure Loadout** (top of BLUPrints) is a quick dropdown of your saved sets. Choosing one asks for confirmation, then equips it.
 
 ---
@@ -173,13 +179,13 @@ While Blue Mage is your main job, a small **"Teaches:"** tag appears when your c
 
 ## Learned Log
 
-The **Learned Log** (`/ac log` or the toolbar button) records every spell you learn from now on: the date and time, the zone, and the mob you defeated. It is saved separately for each character and can be cleared from the window.
+The **Learned Log** (`/ac log` or **Learned Log** in the sidebar) records every spell you learn from now on: the date and time, the zone, and the mob you defeated. It is saved separately for each character and can be cleared from the window.
 
 ---
 
 ## Themes & Configuration
 
-Open **Config** from the main window or with `/ac config`.
+Open **Config** from the bottom of the sidebar or with `/ac config`.
 
 | Tab | Options |
 |---|---|
@@ -189,7 +195,7 @@ Open **Config** from the main window or with `/ac config`.
 | **Behavior** | Remember search / filter / sort, highlight new spells, click or hover for locations, **Assimilation merits**, **Target Tag**, reset all settings |
 | **About** | Version and credits |
 
-**Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards.
+**Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards. In Garnet, trait names on the Spell Card and Trait Planner are sand-colored and unreached traits are amber, so they stand apart from the red accent.
 
 ![Theme selection in Config](Screenshots/theme.png)
 
@@ -241,6 +247,29 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.13.3
+- Zone Info and Spell Locations: only the list scrolls now (like Farm Zones), so the header and close button stay in place.
+- Their lists no longer use ImGui tables (measured columns instead), the same as the windows that already drag fine.
+
+### 1.13.2
+- Zone Info and Spell Locations can be dragged from any empty spot, with or without the title bar.
+- Spell Locations header: spell name and mob family on the left, close button on the right (no overlap).
+- Spell list columns: Lvl, Points and Learn (was "Learn Skill") are narrow fixed columns; Spell, Type, Trait and Mob Family share the rest equally.
+- Garnet theme: trait names on the Spell Card / Trait Planner use a sand color and unreached traits / over-limit picks use amber, so they no longer blend into the red accent. Other themes are unchanged.
+
+### 1.13.1
+- Fixed: 1.13.0 failed to load on newer Ashita builds (error in BeginChild).
+
+### 1.13.0
+- New main-window layout: a sidebar with progress bars (Blue Magic skill, set points and spells, learned, current zone) and the navigation (Spells, BLUPrints, BLUPrint-View, Zone Info, Farm Zones, Learned Log, Config). The search box, filters and spell list fill the right side.
+- The whole main window follows the font scale, not just the table.
+- Pager and color legend tidied up; the close button (title bar hidden) sits at the end of the search row.
+
+### 1.12.3
+- Zone Info can be dragged by its header, even with the title bar hidden.
+- Zone Info header no longer overlaps: name, zone ID and progress on the left, Hide Known and the close button on the right, at any font scale.
+- Zone Info level / status columns size to the font scale.
 
 ### 1.12.2
 - Pressing Tab in game no longer focuses the Azure Codex search box.
