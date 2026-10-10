@@ -8,7 +8,7 @@ All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**.
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
-![Azure Codex main window](Screenshots/main.png)
+![Azure Codex main window](Screenshots/main_1.13.png)
 
 ---
 
@@ -146,7 +146,7 @@ Click **BLUPrints** in the sidebar to plan a spell set. A **Spell Card** opens b
 - **Save Current Build** writes the set to the `BLUPrints` folder.
 - **VS Equipped** shows which spells a build would add or remove compared with your current set.
 
-![BLUPrints build planner with Spell Card and Trait Calculator](Screenshots/traits.png)
+![BLUPrints build planner with Spell Card and Trait Calculator](Screenshots/traits_1.13.png)
 
 ---
 
