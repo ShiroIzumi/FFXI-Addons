@@ -2,8 +2,11 @@
 
 **NAInv** is an Ashita v4 addon for **HorizonXI** that replaces the 10-line inventory list with a modern, configurable window: every bag in tabs, game icons, the quantity right beside the name, list, grid or categories view, item values, favorites, search, sorting, filters, item tooltips, a right-click menu, a session loot log, your other characters' bags and your key items.
 
-**Version:** 1.3.4  
+**Version:** 1.3.5  
 **Author:** Izumi (ShiroIzumi)
+
+![NAInv: Inventory, Safe, Satchel, Wardrobe and Wardrobe 2 open side by side, each in its own view](screenshots/multi.png)
+*Inventory with Safe, Satchel and two Wardrobes popped out (Shift+Click a tab), each with its own view: Categories, List and Grid.*
 
 ---
 
@@ -33,12 +36,26 @@
 - **Grid view:** a Bagnon-style icon grid with the quantity in the corner.
 - **Categories view** (AdiBags style): items grouped into Favorites, New, Equipped, Weapons, Armor, Ammo, Usable, Crystals, Rare / Ex and Materials. Each section header shows the item count and its sell value; click a header to collapse it. Sections can show as a list or a grid, and you set their order in Config.
 - Switch views with the **List / Grid / Categories** menu in the toolbar.
+
+<table>
+  <tr>
+    <th>List</th>
+    <th>Grid</th>
+    <th>Categories</th>
+  </tr>
+  <tr>
+    <td><img src="screenshots/main.png" width="260" alt="List view"></td>
+    <td><img src="screenshots/grid.png" width="260" alt="Grid view"></td>
+    <td><img src="screenshots/categories.png" width="260" alt="Categories view"></td>
+  </tr>
+</table>
+
 - **Search** item names, **sort** by Slot, Name, Type, Qty or Newest (pick the same sort again to reverse), and **filter** with the chips: All, Weapons, Armor, Usable, Crystals, Materials, Rare / Ex, Favorites.
 - **Tooltip:** hover an item for its description, equip slots, level and jobs, stack size, split stacks, **sell value**, and where it is.
 - **Favorites:** right-click > Add to favorites. They get a gold star, sit at the top of List / Grid (optional), have their own section and filter, and **can't be dropped** until you remove them.
 - **Gear you can't wear** on your current job / level is greyed out (optional).
 - **Split stacks:** partial stacks of the same item in one bag get a **Split** tag (a blue corner in the grid) so you know they can be merged.
-- **New items** glow for a few seconds (time set in Config). Zoning does not count as new.
+- **New items** stay highlighted until you hover them or close the window (or glow for a set time, in Config). Zoning does not count as new.
 - **Footer:** slots used (red when full), the sell value of what's shown, your gil and how much you gained or spent this session.
 - **Inventory full warning:** a banner at the top of the screen for a few seconds when an item comes in and you're at or under your free-slot limit (5 by default).
 
@@ -75,7 +92,7 @@ Nothing happens unless you click it. Other characters' items and Mog House snaps
 
 | Tab | Options |
 |---|---|
-| **Look** | Theme (Copper default, Black, Garnet, Silver, Emerald, Amethyst), window color and opacity, lock, title bar, reset position, list / grid / categories, size (scales text, icons and rows), list icon size, grid cell size, row spacing, E / Rare / Ex tags, quantity format (`x12` or `12/99`), grey out unusable gear, pin favorites, split stack marker, inventory full warning and its free-slot limit (with a Test button), new-item highlight and its time |
+| **Look** | Theme (Copper default, Black, Garnet, Silver, Emerald, Amethyst), window color and opacity, lock, title bar, reset position, list / grid / categories, size (scales text, icons and rows), list icon size, grid cell size, row spacing, E / Rare / Ex tags, quantity format (`x12` or `12/99`), grey out unusable gear, pin favorites, split stack marker, inventory full warning and its free-slot limit (with a Test button), new-item highlight (until hovered / window closed, or for a set time) |
 | **Text** | Text effect (None, Shadow, Outline, Outline + Shadow, Glow), effect color and opacity, item name color, quantity / gil color, show x1 on single items, live preview |
 | **Value** | Show sell values, show AH category, price list status and Reload, learned price count, Forget learned prices (click twice) |
 | **Categories** | Sections as list or grid, section order (up / down), Reset order, Expand all sections |
@@ -91,6 +108,9 @@ Settings are saved per character. Learned prices and every character's bags are 
 - Text effects are drawn as a few extra text passes, so they cost almost nothing.
 
 ## Changelog
+
+### 1.3.5
+- New items stay highlighted until you hover them with the mouse or close the window (Config > New items > *Keep highlighted until I hover the item or close the window*, on by default). Turn it off to get the timed highlight back.
 
 ### 1.3.4
 - Key Items: temporary key items get the **TEMP** tag automatically, from a built-in list of key item IDs (permanent key items and job gestures are known; maps, claim slips, Voidwatch and Abyssea items are never tagged; everything else is temporary).
