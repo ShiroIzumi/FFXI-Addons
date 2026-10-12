@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.12.1
+    Version 1.12.3
 
     Commands:
       /azurecodex
@@ -27,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.12.1';
+addon.version   = '1.12.5';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -246,6 +246,7 @@ local defaults = T{
     },
 
     display = T{
+        visible_tabs = T{ all = true, known = true, missing = true, ready = true, bluprints = true, view = true },
         row_spacing = 'compact',
         rows_mode = 'auto',
         rows_per_page = 30,
@@ -386,6 +387,10 @@ local function ensure_tables()
     if config.appearance.title_bar == nil then config.appearance.title_bar = defaults.appearance.title_bar; end
     if config.appearance.locked == nil then config.appearance.locked = defaults.appearance.locked; end
 
+    if config.display.visible_tabs == nil then config.display.visible_tabs = T{}; end
+    for _, key in ipairs({ 'all', 'known', 'missing', 'ready', 'bluprints', 'view' }) do
+        if config.display.visible_tabs[key] == nil then config.display.visible_tabs[key] = true; end
+    end
     if config.display.row_spacing == nil then config.display.row_spacing = defaults.display.row_spacing; end
     if config.display.rows_mode == nil then config.display.rows_mode = defaults.display.rows_mode; end
     if config.display.rows_per_page == nil then config.display.rows_per_page = defaults.display.rows_per_page; end
@@ -494,6 +499,14 @@ local state = T{
     zone_locked = { config.appearance.zone_locked == true },
     location_locked = { config.appearance.location_locked == true },
 
+    visible_tabs = {
+        all = { config.display.visible_tabs.all ~= false },
+        known = { config.display.visible_tabs.known ~= false },
+        missing = { config.display.visible_tabs.missing ~= false },
+        ready = { config.display.visible_tabs.ready ~= false },
+        bluprints = { config.display.visible_tabs.bluprints ~= false },
+        view = { config.display.visible_tabs.view ~= false },
+    },
     row_spacing = tostring(config.display.row_spacing or 'compact'),
     rows_mode = tostring(config.display.rows_mode or 'auto'),
     rows_per_page = { tonumber(config.display.rows_per_page) or 30 },
@@ -642,6 +655,9 @@ local function apply_loaded_config(s)
     state.zone_locked[1] = config.appearance.zone_locked == true
     state.location_locked[1] = config.appearance.location_locked == true
 
+    for key, value in pairs(state.visible_tabs) do
+        value[1] = config.display.visible_tabs[key] ~= false;
+    end
     state.row_spacing = tostring(config.display.row_spacing or defaults.display.row_spacing)
     state.rows_mode = tostring(config.display.rows_mode or defaults.display.rows_mode)
     state.rows_per_page[1] = tonumber(config.display.rows_per_page) or defaults.display.rows_per_page
@@ -996,10 +1012,10 @@ local TRAIT_TIERS = {
     defensebonus = { 2, 4, 6, 8, 10, 12 },
     plantoidkiller = { 2, 4, 6 },
     magicdefensebonus = { 2, 4, 6, 8, 10 },
-    autorefresh = { 8 },
+    autorefresh = { 2 }, -- Single tier; unlocks at 8 trait points.
     maxhpboost = { 2, 4, 6, 8, 10, 12 },
     accuracybonus = { 2, 4, 6, 8, 10, 12 },
-    conservemp = { 2, 4, 6, 8, 10 },
+    conservemp = { 2 }, -- Single tier; unlocks at 8 trait points.
     evasionbonus = { 2, 4, 6, 8, 10 },
     resistgravity = { 2, 3, 4 },
     storetp = { 2, 4, 6, 8, 10 },
@@ -2167,6 +2183,9 @@ local function save_config()
     config.appearance.zone_locked = state.zone_locked[1];
     config.appearance.location_locked = state.location_locked[1];
 
+    for key, value in pairs(state.visible_tabs) do
+        config.display.visible_tabs[key] = value[1];
+    end
     config.display.row_spacing = state.row_spacing;
     config.display.rows_mode = state.rows_mode;
     config.display.rows_per_page = math.floor(clamp(state.rows_per_page[1], 8, 60));
@@ -2425,6 +2444,7 @@ local function reset_all()
     reset_appearance();
     reset_window();
 
+    for _, value in pairs(state.visible_tabs) do value[1] = true; end
     state.row_spacing = defaults.display.row_spacing;
     state.rows_mode = defaults.display.rows_mode;
     state.rows_per_page[1] = defaults.display.rows_per_page;
@@ -2584,6 +2604,26 @@ local function draw_font_colors_tab()
     if imgui.Button('Reset Appearance') then
         reset_appearance();
     end
+end
+
+local function draw_tabs_config_tab()
+    section_title('MAIN TABS');
+    imgui.TextColored(MUTED, 'Choose which navigation tabs appear in the main window.');
+    for _, item in ipairs({
+        { 'All', 'all' },
+        { 'Known', 'known' },
+        { 'Missing', 'missing' },
+        { 'Up to My Level', 'ready' },
+        { 'BLUPrints', 'bluprints' },
+        { 'BLUPrint-View', 'view' },
+    }) do
+        if imgui.Checkbox(item[1] .. '##azure_visible_tab_' .. item[2], state.visible_tabs[item[2]]) then
+            state.settings_dirty = true;
+        end
+    end
+    imgui.Spacing();
+    imgui.TextColored(MUTED, 'Hiding the current tab does not close its page.');
+    imgui.TextColored(MUTED, 'Config stays available at all times.');
 end
 
 local function draw_display_tab()
@@ -3649,7 +3689,7 @@ local function draw_bluprints_companion_window()
             imgui.PushTextWrapPos(420);
             imgui.TextUnformatted('HorizonXI / LandSandBoat 75-era rules: each spell gives 4 points to its trait (some give more: '
                 .. 'Self-Destruct, Frightful Roar, Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge, '
-                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh needs 32; Resist Gravity '
+                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh has one tier at 8 points; Conserve MP has one tier at 8; Resist Gravity '
                 .. 'tiers are 8 / 12 / 16. Each trait has its own maximum tier.');
             imgui.PopTextWrapPos();
             imgui.EndTooltip();
@@ -4640,6 +4680,7 @@ local function draw_config_window()
             { label = 'Window', id = 'cfg_tab_window', draw = draw_window_tab },
             { label = 'Font & Colors', id = 'cfg_tab_font_colors', draw = draw_font_colors_tab },
             { label = 'Display', id = 'cfg_tab_display', draw = draw_display_tab },
+            { label = 'Tabs', id = 'cfg_tab_tabs', draw = draw_tabs_config_tab },
             { label = 'Behavior', id = 'cfg_tab_behavior', draw = draw_behavior_tab },
             { label = 'About', id = 'cfg_tab_about', draw = draw_about_tab },
         };
@@ -4819,36 +4860,40 @@ local function draw_window()
             state.config_open[1] = not state.config_open[1];
         end
 
-        -- Filter toolbar.
+        -- Each tab has its own visibility setting. Keep the current page active
+        -- even if its navigation button is hidden.
+        local vt = state.visible_tabs;
+        local first_nav = true;
+        local function next_nav()
+            if not first_nav then imgui.SameLine(); end
+            first_nav = false;
+        end
         local blu_level = safe_blu_level();
-
-        draw_filter_button('All', 'all', true);
-        imgui.SameLine();
-        draw_filter_button('Known', 'known', true);
-        imgui.SameLine();
-        draw_filter_button('Missing', 'missing', true);
-        imgui.SameLine();
-        draw_filter_button(
-            blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
-            'ready',
-            blu_level ~= nil
-        );
-
-        imgui.SameLine();
-        if draw_toggle_button('BLUPrints', 'blu_main_spell_build', state.build_page[1]) then
-            state.build_page[1] = true;
-            state.spellsets_page[1] = false;
-            state.bluprint_view_page[1] = false;
+        if vt.all[1] then next_nav(); draw_filter_button('All', 'all', true); end
+        if vt.known[1] then next_nav(); draw_filter_button('Known', 'known', true); end
+        if vt.missing[1] then next_nav(); draw_filter_button('Missing', 'missing', true); end
+        if vt.ready[1] then
+            next_nav();
+            draw_filter_button(blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
+                'ready', blu_level ~= nil);
         end
-
-        imgui.SameLine();
-        if draw_toggle_button('BLUPrint-View', 'blu_main_spell_build_view', state.bluprint_view_page[1]) then
-            state.bluprint_view_page[1] = true;
-            state.build_page[1] = false;
-            state.spellsets_page[1] = false;
+        if vt.bluprints[1] then
+            next_nav();
+            if draw_toggle_button('BLUPrints', 'blu_main_spell_build', state.build_page[1]) then
+                state.build_page[1] = true;
+                state.spellsets_page[1] = false;
+                state.bluprint_view_page[1] = false;
+            end
         end
-
-        imgui.SameLine();
+        if vt.view[1] then
+            next_nav();
+            if draw_toggle_button('BLUPrint-View', 'blu_main_spell_build_view', state.bluprint_view_page[1]) then
+                state.bluprint_view_page[1] = true;
+                state.build_page[1] = false;
+                state.spellsets_page[1] = false;
+            end
+        end
+        if not first_nav then imgui.SameLine(); end
         align_label();
         imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
 
