@@ -11,6 +11,19 @@
 **Version:** 1.0.0
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
+<table>
+  <tr>
+    <th>Character</th>
+    <th>Inventory</th>
+    <th>Actions</th>
+  </tr>
+  <tr>
+    <td><img src="screenshots/character-overview.png" width="270" alt="Character window: equipment, attributes, resistances, haste and jobs"></td>
+    <td><img src="screenshots/inventory-list.png" width="270" alt="Inventory window: list view with icons, quantities and tags"></td>
+    <td><img src="screenshots/actions-magic.png" width="270" alt="Actions window: Ninjutsu and Blue Magic"></td>
+  </tr>
+</table>
+
 ---
 
 ## Installation
@@ -48,6 +61,17 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 - **Overview:** your equipped items as icons (hover for the item description), attributes with gear bonuses, ATK / DEF, resistances, gear and active haste, and every job's level.
 - **Skills:** combat, magic and crafting skills in alphabetical order, each with a bar toward its cap for your jobs and level. Skill-ups gained this session show next to the skill.
 - **Currencies:** conquest points, seals, crests, guild points, Imperial Standing and more. The ones you have come first, then the ones at zero, each alphabetical, with a search box. Open **Main Menu > Currencies** in game once to load them; MogSuite remembers them for that character. The game only sends this list when you open that menu, so open it again to refresh.
+<table>
+  <tr>
+    <th>Skills</th>
+    <th>Currencies</th>
+  </tr>
+  <tr>
+    <td><img src="screenshots/character-skills.png" width="300" alt="Character > Skills: combat, magic and crafting skills with caps"></td>
+    <td><img src="screenshots/character-currencies.png" width="300" alt="Character > Currencies: what you have earned"></td>
+  </tr>
+</table>
+
 - **Gear Stats:** accuracy, attack, haste, Store TP, Fast Cast, Cure Potency and more, totaled from your equipped gear's descriptions. Pet, latent, set and enchantment lines are not counted as your own stats.
 
 ## Inventory
@@ -66,6 +90,9 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 - **Loot log (Log button):** everything you gained this session, gil gained per hour and today, and the value of your loot.
 - **Inventory full warning:** a banner at the top of the screen when an item comes in and you are almost full.
 
+![Inventory with Safe, Satchel, Wardrobe, Wardrobe 2 and Wardrobe 8 popped out, each in its own view](screenshots/inventory-popouts.png)
+*The Inventory with five bags popped out (Shift+Click a tab), each with its own view: Categories, Grid and List.*
+
 ## Actions
 
 - **Header:** your jobs and HP / MP / TP bars (the TP bar has a mark at 1000).
@@ -79,6 +106,17 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 - **Pets:** your pet's HP / MP / TP while it is out, its commands, and for Summoner every blood pact (Rage / Ward) of the avatar that is out.
 - **Using:** double-click a row, click a pinned action, or right-click for Use on me / a party member / a selected enemy.
 
+<table>
+  <tr>
+    <th>Abilities</th>
+    <th>Weapon Skills</th>
+  </tr>
+  <tr>
+    <td><img src="screenshots/actions-abilities.png" width="300" alt="Actions > Abilities with badges and merit abilities"></td>
+    <td><img src="screenshots/actions-weaponskills.png" width="300" alt="Actions > Weapon Skills with the weapon card and next weapon skill"></td>
+  </tr>
+</table>
+
 ---
 
 ## Settings (`/ms`)
@@ -91,6 +129,17 @@ One window with a tab for each part of the suite:
 | **Inventory** | Window and layout, Items (quantity format, favorites, warnings, new items), Colors, Value (price list, learned prices), Categories (section order), Bags (hide tabs) |
 | **Actions** | Window and layout, Colors, Lists (support abilities, relic / mythic weapon skills, spells, sorting) |
 | **Global** | Appearance (theme, background, opacity), Text effect, Keybinds, Windows (lock all, reset all), About |
+
+<table>
+  <tr>
+    <th>Global</th>
+    <th>Character</th>
+  </tr>
+  <tr>
+    <td><img src="screenshots/settings-global.png" width="320" alt="Settings > Global > Appearance: theme, background and opacity"></td>
+    <td><img src="screenshots/settings-character.png" width="320" alt="Settings > Character > Tabs"></td>
+  </tr>
+</table>
 
 Themes: **Copper**, **Garnet**, **Silver** (default), **Amethyst**, **Emerald** and **Midnight**.
 
@@ -106,6 +155,7 @@ MogSuite/
   modules/inventory/    the Inventory window
   modules/actions/      the Actions window
   data/                 shared data (bags, learned prices, key item marks, built-in price list)
+  screenshots/          the pictures in this README
 ```
 
 Each module folder has an `init.lua` (how the suite talks to it), a `config.lua` (its settings tab) and a `defaults.lua` (its default settings). The files of one module share one module scope, so they can use each other's functions; modules are separate from each other.
