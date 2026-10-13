@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.18.0
+    Version 1.18.2
 
     Commands:
       /azurecodex
@@ -27,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.18.0';
+addon.version   = '1.18.2';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -277,6 +277,7 @@ local defaults = T{
     },
 
     display = T{
+        visible_tabs = T{ all = true, known = true, missing = true, ready = true, bluprints = true, view = true },
         row_spacing = 'compact',
         rows_mode = 'auto',
         rows_per_page = 30,
@@ -366,6 +367,10 @@ local function ensure_tables()
 
     if config.display == nil then config.display = T{}; end
     if config.display.columns == nil then config.display.columns = T{}; end
+    if config.display.visible_tabs == nil then config.display.visible_tabs = T{}; end
+    for _, key in ipairs({ 'all', 'known', 'missing', 'ready', 'bluprints', 'view' }) do
+        if config.display.visible_tabs[key] == nil then config.display.visible_tabs[key] = true; end
+    end
 
     if config.behavior == nil then config.behavior = T{}; end
     if config.ui_state == nil then config.ui_state = T{}; end
@@ -547,6 +552,14 @@ local state = T{
     rows_mode = tostring(config.display.rows_mode or 'auto'),
     rows_per_page = { tonumber(config.display.rows_per_page) or 30 },
 
+    visible_tabs = {
+        all = { config.display.visible_tabs.all ~= false },
+        known = { config.display.visible_tabs.known ~= false },
+        missing = { config.display.visible_tabs.missing ~= false },
+        ready = { config.display.visible_tabs.ready ~= false },
+        bluprints = { config.display.visible_tabs.bluprints ~= false },
+        view = { config.display.visible_tabs.view ~= false },
+    },
     columns = {
         level = { config.display.columns.level ~= false },
         points = { config.display.columns.points ~= false },
@@ -695,6 +708,9 @@ local function apply_loaded_config(s)
     state.rows_mode = tostring(config.display.rows_mode or defaults.display.rows_mode)
     state.rows_per_page[1] = tonumber(config.display.rows_per_page) or defaults.display.rows_per_page
 
+    for key, value in pairs(state.visible_tabs) do
+        value[1] = config.display.visible_tabs[key] ~= false;
+    end
     state.columns.level[1] = config.display.columns.level ~= false
     state.columns.points[1] = config.display.columns.points ~= false
     state.columns.learn_skill[1] = config.display.columns.learn_skill ~= false
@@ -929,7 +945,10 @@ local function accent(alpha_mul)
 end
 
 -- Draws a short accent bar along the bottom edge of the last drawn item.
-local function draw_item_underline()
+-- Group helper functions to stay below LuaJIT's 200 local-variable chunk limit.
+local ac_helpers = {};
+
+function ac_helpers.draw_item_underline()
     if imgui.GetItemRectMin == nil or imgui.GetItemRectMax == nil then return; end
 
     local min_x = imgui.GetItemRectMin();
@@ -950,7 +969,7 @@ end
 
 -- Button that shows an on/off state: accent-tinted fill and underline when
 -- selected, standard midnight control when not. Returns true when clicked.
-local function draw_toggle_button(label, id, selected, disabled)
+function ac_helpers.draw_toggle_button(label, id, selected, disabled)
     if selected then
         imgui.PushStyleColor(ImGuiCol_Button, accent(0.26));
         imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.32));
@@ -973,7 +992,7 @@ local function draw_toggle_button(label, id, selected, disabled)
     end
 
     if selected and not disabled then
-        draw_item_underline();
+        ac_helpers.draw_item_underline();
     end
 
     imgui.PopStyleColor(4);
@@ -982,7 +1001,7 @@ end
 
 -- Flat tab button for the Config window: transparent with accent text and
 -- underline when selected, subdued when not. Returns true when clicked.
-local function draw_styled_tab(label, id, selected)
+function ac_helpers.draw_styled_tab(label, id, selected)
     if selected then
         imgui.PushStyleColor(ImGuiCol_Button, accent(0.12));
         imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.16));
@@ -998,7 +1017,7 @@ local function draw_styled_tab(label, id, selected)
     local clicked = imgui.Button(label .. '##' .. id);
 
     if selected then
-        draw_item_underline();
+        ac_helpers.draw_item_underline();
     end
 
     imgui.PopStyleColor(4);
@@ -1009,10 +1028,10 @@ end
 -- did not work for Zone Info / Spell Locations; if ImGui does start its own
 -- move, this backs off so the window doesn't move twice as fast.
 -- The new position is applied with SetNextWindowPos before the next Begin
--- (call window_drag_apply right before Begin).
+-- (call ac_helpers.window_drag_apply right before Begin).
 local window_drag_state = {};
 
-local function window_drag_apply(key)
+function ac_helpers.window_drag_apply(key)
     local st = window_drag_state[key];
     if st ~= nil and st.next ~= nil then
         imgui.SetNextWindowPos(st.next, { 0, 0 });
@@ -1020,7 +1039,7 @@ local function window_drag_apply(key)
     end
 end
 
-local function window_drag(key, locked)
+function ac_helpers.window_drag(key, locked)
     if locked then
         window_drag_state[key] = nil;
         return;
@@ -1047,7 +1066,7 @@ local function window_drag(key, locked)
 end
 
 -- Aligns a plain text label with the frame padding of the controls beside it.
-local function align_label()
+function ac_helpers.align_label()
     if imgui.AlignTextToFramePadding ~= nil then
         imgui.AlignTextToFramePadding();
     end
@@ -1055,7 +1074,7 @@ end
 
 -- Text box that is skipped by Tab focus cycling, so pressing Tab in game
 -- (targeting) never jumps into an Azure Codex search box. Click it to type.
-local function input_text_no_tab(label, buffer, size)
+function ac_helpers.input_text_no_tab(label, buffer, size)
     local pushed = false;
     if imgui.PushItemFlag ~= nil and ImGuiItemFlags_NoTabStop ~= nil then
         imgui.PushItemFlag(ImGuiItemFlags_NoTabStop, true);
@@ -1070,7 +1089,7 @@ end
 
 -- Memoized: names are normalized thousands of times per frame otherwise.
 local normalize_cache = {};
-local function normalize_name(value)
+function ac_helpers.normalize_name(value)
     if value == nil then return ''; end
     local raw = tostring(value);
     local cached = normalize_cache[raw];
@@ -1083,11 +1102,11 @@ end
 
 -- Static per-spell values computed once.
 for _, spell in ipairs(spells) do
-    spell._key = normalize_name(spell.name);
+    spell._key = ac_helpers.normalize_name(spell.name);
 end
 
 
-local function get_spell_trait_display(spell)
+function ac_helpers.get_spell_trait_display(spell)
     return tostring(spell and spell.trait or 'None')
 end
 
@@ -1100,7 +1119,7 @@ end
 -- named in spells.lua. A trait tier unlocks at the thresholds below, in
 -- weight units. Shown x4 so a normal tier reads as 8 trait points.
 --   * most traits: a tier every 2 spells (8 pts)
---   * Auto Refresh: one tier at 8 weight (32 pts)
+--   * Auto Refresh: one tier at 2 weight (8 pts)
 --   * Resist Gravity: 2 / 3 / 4 weight
 -- Heavier spells (LandSandBoat weights): Self-Destruct, Frightful Roar,
 -- Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge,
@@ -1122,10 +1141,10 @@ local TRAIT_TIERS = {
     defensebonus = { 2, 4, 6, 8, 10, 12 },
     plantoidkiller = { 2, 4, 6 },
     magicdefensebonus = { 2, 4, 6, 8, 10 },
-    autorefresh = { 8 },
+    autorefresh = { 2 }, -- Tier I only: 8 trait points.
     maxhpboost = { 2, 4, 6, 8, 10, 12 },
     accuracybonus = { 2, 4, 6, 8, 10, 12 },
-    conservemp = { 2, 4, 6, 8, 10 },
+    conservemp = { 2 }, -- Tier I only: 8 trait points.
     evasionbonus = { 2, 4, 6, 8, 10 },
     resistgravity = { 2, 3, 4 },
     storetp = { 2, 4, 6, 8, 10 },
@@ -1149,38 +1168,38 @@ local TRAIT_WEIGHTS = {
 
 local ROMAN = { 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII' };
 
-local function get_spell_trait_name(spell)
+function ac_helpers.get_spell_trait_name(spell)
     local text = tostring(spell and spell.trait or '');
     if text == '' or text:lower() == 'none' then return nil; end
     return text;
 end
 
-local function get_trait_weight(spell)
-    return TRAIT_WEIGHTS[spell._key or normalize_name(spell.name)] or 1;
+function ac_helpers.get_trait_weight(spell)
+    return TRAIT_WEIGHTS[spell._key or ac_helpers.normalize_name(spell.name)] or 1;
 end
 
-local function trait_tiers_for(trait_name)
-    return TRAIT_TIERS[normalize_name(trait_name)] or { 2, 4, 6 };
+function ac_helpers.trait_tiers_for(trait_name)
+    return TRAIT_TIERS[ac_helpers.normalize_name(trait_name)] or { 2, 4, 6 };
 end
 
 -- Totals for a list of spells. Each entry:
 --   name, key, weight, points, tier, max_tier, next_points, prev_points, maxed
-local function compute_traits(spell_list)
+function ac_helpers.compute_traits(spell_list)
     local totals = {};
     for _, spell in ipairs(spell_list or {}) do
-        local trait_name = get_spell_trait_name(spell);
+        local trait_name = ac_helpers.get_spell_trait_name(spell);
         if trait_name ~= nil then
-            local key = normalize_name(trait_name);
+            local key = ac_helpers.normalize_name(trait_name);
             if totals[key] == nil then
                 totals[key] = { name = trait_name, key = key, weight = 0 };
             end
-            totals[key].weight = totals[key].weight + get_trait_weight(spell);
+            totals[key].weight = totals[key].weight + ac_helpers.get_trait_weight(spell);
         end
     end
 
     local result = {};
     for _, entry in pairs(totals) do
-        local tiers = trait_tiers_for(entry.name);
+        local tiers = ac_helpers.trait_tiers_for(entry.name);
         local tier = 0;
         for index, need in ipairs(tiers) do
             if entry.weight >= need then tier = index; end
@@ -1204,25 +1223,25 @@ local function compute_traits(spell_list)
     return result;
 end
 
-local function trait_label(entry)
+function ac_helpers.trait_label(entry)
     if entry.tier > 0 then
         return ('%s %s'):fmt(entry.name, ROMAN[entry.tier] or tostring(entry.tier));
     end
     return entry.name;
 end
 
-local function get_trait_totals()
+function ac_helpers.get_trait_totals()
     local selected_spells = {};
     for _, spell in ipairs(spells) do
         if state.build_selected[spell._key] == true then
             selected_spells[#selected_spells + 1] = spell;
         end
     end
-    return compute_traits(selected_spells), selected_spells;
+    return ac_helpers.compute_traits(selected_spells), selected_spells;
 end
 
 -- Weighted spells show their weight next to the trait, e.g. "Auto Refresh x2".
-local function get_spell_trait_badge(spell)
+function ac_helpers.get_spell_trait_badge(spell)
     local name = tostring(spell and spell.trait or 'None');
     if name:lower() == 'none' then return name; end
     local weight = TRAIT_WEIGHTS[spell._key or ''] or 1;
@@ -1238,7 +1257,7 @@ local resource_aliases = T{
     ['quadraticcontinnuum'] = 'quadcontinuum',
 };
 
-local function build_resource_cache()
+function ac_helpers.build_resource_cache()
     if state.resource_cache_ready then return; end
 
     local rm = AshitaCore:GetResourceManager();
@@ -1246,7 +1265,7 @@ local function build_resource_cache()
 
     local wanted = T{};
     for _, spell in ipairs(spells) do
-        local key = normalize_name(spell.name);
+        local key = ac_helpers.normalize_name(spell.name);
         wanted[key] = true;
         if resource_aliases[key] ~= nil then
             wanted[resource_aliases[key]] = true;
@@ -1256,7 +1275,7 @@ local function build_resource_cache()
     for id = 0, 2048 do
         local res = rm:GetSpellById(id);
         if res ~= nil and res.Name ~= nil and res.Name[1] ~= nil then
-            local key = normalize_name(res.Name[1]);
+            local key = ac_helpers.normalize_name(res.Name[1]);
             if wanted[key] then
                 state.resource_ids[key] = id;
             end
@@ -1272,7 +1291,7 @@ local function build_resource_cache()
     state.resource_cache_ready = true;
 end
 
-local function safe_player()
+function ac_helpers.safe_player()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
     local player = mm:GetPlayer();
@@ -1285,18 +1304,18 @@ end
 -- invalidates the list / zone / farm caches below.
 local known_cache = { by_key = {}, count = 0, version = 0, checked = -1 };
 
-local function refresh_known_cache(force)
+function ac_helpers.refresh_known_cache(force)
     local now = os.clock();
     if not force and known_cache.checked >= 0 and (now - known_cache.checked) < 0.5 then
         return;
     end
     known_cache.checked = now;
 
-    local player = safe_player();
+    local player = ac_helpers.safe_player();
     if not player then return; end
 
     if not state.resource_cache_ready then
-        build_resource_cache();
+        ac_helpers.build_resource_cache();
     end
 
     local changed = false;
@@ -1322,17 +1341,17 @@ local function refresh_known_cache(force)
     end
 end
 
-local function is_known(spell_name)
-    refresh_known_cache(false);
-    return known_cache.by_key[normalize_name(spell_name)] == true;
+function ac_helpers.is_known(spell_name)
+    ac_helpers.refresh_known_cache(false);
+    return known_cache.by_key[ac_helpers.normalize_name(spell_name)] == true;
 end
 
-local function get_learned_count()
-    refresh_known_cache(false);
+function ac_helpers.get_learned_count()
+    ac_helpers.refresh_known_cache(false);
     return known_cache.count;
 end
 
-local function safe_current_zone_id()
+function ac_helpers.safe_current_zone_id()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
 
@@ -1366,7 +1385,7 @@ local function safe_current_zone_id()
     return zone_id;
 end
 
-local function get_zone_spell_rows(zone_id)
+function ac_helpers.get_zone_spell_rows(zone_id)
     zone_id = tonumber(zone_id);
     if not zone_id then
         return {};
@@ -1400,7 +1419,7 @@ local function get_zone_spell_rows(zone_id)
             rows[#rows + 1] = {
                 spell = spell,
                 mobs = mobs,
-                known = is_known(spell.name),
+                known = ac_helpers.is_known(spell.name),
             };
         end
     end
@@ -1414,11 +1433,11 @@ end
 
 local zone_rows_cache = { key = nil, rows = {} };
 
-local function get_zone_progress(zone_id)
-    refresh_known_cache(false);
+function ac_helpers.get_zone_progress(zone_id)
+    ac_helpers.refresh_known_cache(false);
     local cache_key = tostring(zone_id) .. '|' .. tostring(known_cache.version);
     if zone_rows_cache.key ~= cache_key then
-        zone_rows_cache.rows = get_zone_spell_rows(zone_id);
+        zone_rows_cache.rows = ac_helpers.get_zone_spell_rows(zone_id);
         zone_rows_cache.key = cache_key;
     end
     local rows = zone_rows_cache.rows;
@@ -1433,7 +1452,7 @@ local function get_zone_progress(zone_id)
     return known, #rows, rows;
 end
 
-local function safe_blu_level()
+function ac_helpers.safe_blu_level()
     local mm = AshitaCore:GetMemoryManager();
     if not mm then return nil; end
 
@@ -1496,7 +1515,7 @@ local read_blue_magic_skill;
 local skill_cache = { value = nil, at = -1 };
 
 -- Cached for a quarter second (it was read once per table row per frame).
-local function safe_blue_magic_skill()
+function ac_helpers.safe_blue_magic_skill()
     local now = os.clock();
     if skill_cache.at >= 0 and (now - skill_cache.at) < 0.25 then
         return skill_cache.value;
@@ -1548,7 +1567,7 @@ end
 
 -- Reads the player's current BLU set points from Ashita's BLU state.
 local blu_points_ptr = nil;
-local function get_blu_points()
+function ac_helpers.get_blu_points()
     if blu_points_ptr == nil then
         local ok, ptr = pcall(function()
             return ffi.cast('uint8_t***', ashita.memory.find(0, 0, 'A1????????33C98A4E5E33D28A565D5F5E8950148948185B83C414C20400', 1, 0));
@@ -1573,7 +1592,7 @@ end
 -- A spell's learning skill is its A+ cap at the spell's usable level.
 -- HorizonXI documents a maximum learning gap of 31 skill points, so the
 -- minimum skill shown here is: A+ cap at spell level - 31.
-local function blue_magic_cap_for_level(level)
+function ac_helpers.blue_magic_cap_for_level(level)
     level = math.floor(tonumber(level) or 1);
     if level < 1 then level = 1; end
     if level > 75 then level = 75; end
@@ -1592,8 +1611,8 @@ local function blue_magic_cap_for_level(level)
     return 236 + ((level - 67) * 5);
 end
 
-local function blue_magic_learn_skill(spell)
-    local cap = blue_magic_cap_for_level(spell and spell.level or 1);
+function ac_helpers.blue_magic_learn_skill(spell)
+    local cap = ac_helpers.blue_magic_cap_for_level(spell and spell.level or 1);
     return math.max(0, cap - 31);
 end
 
@@ -1609,7 +1628,7 @@ local HORIZON_BLU_CAPS = {
     { 75, 45, 20 },
 };
 
-local function horizon_blu_caps(level)
+function ac_helpers.horizon_blu_caps(level)
     level = math.floor(tonumber(level) or 75);
     -- Assimilation merits (+1 Blue Magic Point each, Lv75) from Config.
     local merits = math.max(0, math.min(5, math.floor(tonumber(state.assimilation and state.assimilation[1]) or 0)));
@@ -1625,10 +1644,10 @@ end
 -- Point cap, slot cap, whether the point cap is an estimate, live spent.
 -- Live points are used when the client exposes them; otherwise the HorizonXI
 -- level table. Not on BLU: Lv75 limits (planning mode).
-local function get_build_caps()
-    local spent, live_max = get_blu_points();
-    local level = safe_blu_level();
-    local points, slots = horizon_blu_caps(level or 75);
+function ac_helpers.get_build_caps()
+    local spent, live_max = ac_helpers.get_blu_points();
+    local level = ac_helpers.safe_blu_level();
+    local points, slots = ac_helpers.horizon_blu_caps(level or 75);
     local estimated = true;
     if live_max ~= nil and live_max > 0 then
         points = live_max;
@@ -1642,17 +1661,17 @@ end
 --   Learnable   = not learned, current BLU level is high enough, and current
 --                 Blue Magic skill meets the minimum learning threshold
 --   Unlearnable = not currently learnable by the local player
-local function get_spell_display_state(spell)
+function ac_helpers.get_spell_display_state(spell)
     if spell == nil then
         return 'unlearnable', state.unknown_color;
     end
 
-    if is_known(spell.name) then
+    if ac_helpers.is_known(spell.name) then
         return 'known', state.known_color;
     end
 
-    local blu_skill = safe_blue_magic_skill();
-    local learn_skill = blue_magic_learn_skill(spell);
+    local blu_skill = ac_helpers.safe_blue_magic_skill();
+    local learn_skill = ac_helpers.blue_magic_learn_skill(spell);
 
     -- Learning availability is based on the player's current Blue Magic skill,
     -- not the spell's listed job level. A BLU can learn a spell above its
@@ -1664,14 +1683,14 @@ local function get_spell_display_state(spell)
     return 'unlearnable', state.unknown_color;
 end
 
-local function spell_state_text(spell)
-    local display_state = get_spell_display_state(spell);
+function ac_helpers.spell_state_text(spell)
+    local display_state = ac_helpers.get_spell_display_state(spell);
     if display_state == 'known' then return 'Known'; end
     if display_state == 'learnable' then return 'Learnable'; end
     return 'Unlearnable';
 end
 
-local function split_search_terms(value)
+function ac_helpers.split_search_terms(value)
     local terms = {};
     value = tostring(value or ''):lower();
 
@@ -1686,13 +1705,13 @@ local function split_search_terms(value)
 end
 
 -- Built once per spell (all of these fields are static).
-local function spell_haystack(spell)
+function ac_helpers.spell_haystack(spell)
     if spell._haystack == nil then
         spell._haystack = table.concat({
             tostring(spell.name or ''),
             tostring(spell.level or ''),
             tostring(spell.points or ''),
-            tostring(blue_magic_learn_skill(spell)),
+            tostring(ac_helpers.blue_magic_learn_skill(spell)),
             tostring(spell.type or ''),
             tostring(spell.trait or ''),
             tostring(spell.mob_family or ''),
@@ -1701,10 +1720,10 @@ local function spell_haystack(spell)
     return spell._haystack;
 end
 
-local function spell_matches_search(spell, terms)
+function ac_helpers.spell_matches_search(spell, terms)
     if #terms == 0 then return true; end
 
-    local haystack = spell_haystack(spell);
+    local haystack = ac_helpers.spell_haystack(spell);
 
     -- "|" searches are OR matches, matching FancyChat behavior.
     for _, term in ipairs(terms) do
@@ -1716,7 +1735,7 @@ local function spell_matches_search(spell, terms)
     return false;
 end
 
-local function filter_accepts(spell, known, blu_level)
+function ac_helpers.filter_accepts(spell, known, blu_level)
     if state.filter_mode == 'known' then
         return known;
     elseif state.filter_mode == 'missing' then
@@ -1727,7 +1746,7 @@ local function filter_accepts(spell, known, blu_level)
     return true;
 end
 
-local function compare_spells(a, b)
+function ac_helpers.compare_spells(a, b)
     local key = state.sort_mode;
     local av, bv;
 
@@ -1736,7 +1755,7 @@ local function compare_spells(a, b)
     elseif key == 'points' then
         av, bv = tonumber(a.points) or 0, tonumber(b.points) or 0;
     elseif key == 'learn_skill' then
-        av, bv = blue_magic_learn_skill(a), blue_magic_learn_skill(b);
+        av, bv = ac_helpers.blue_magic_learn_skill(a), ac_helpers.blue_magic_learn_skill(b);
     elseif key == 'type' then
         av, bv = tostring(a.type or ''):lower(), tostring(b.type or ''):lower();
     elseif key == 'trait' then
@@ -1765,9 +1784,9 @@ end
 local filtered_cache = { key = nil, result = {}, blu_level = nil };
 
 -- Rebuilt only when search / filter / sort / known spells / level change.
-local function get_filtered_spells()
-    refresh_known_cache(false);
-    local blu_level = safe_blu_level();
+function ac_helpers.get_filtered_spells()
+    ac_helpers.refresh_known_cache(false);
+    local blu_level = ac_helpers.safe_blu_level();
     local cache_key = table.concat({
         tostring(state.search[1] or ''), state.filter_mode, state.sort_mode,
         tostring(state.sort_desc), tostring(known_cache.version), tostring(blu_level),
@@ -1776,24 +1795,24 @@ local function get_filtered_spells()
         return filtered_cache.result, filtered_cache.blu_level;
     end
 
-    local terms = split_search_terms(state.search[1]);
+    local terms = ac_helpers.split_search_terms(state.search[1]);
     local result = {};
 
     for _, spell in ipairs(spells) do
-        local known = is_known(spell.name);
-        if filter_accepts(spell, known, blu_level) and spell_matches_search(spell, terms) then
+        local known = ac_helpers.is_known(spell.name);
+        if ac_helpers.filter_accepts(spell, known, blu_level) and ac_helpers.spell_matches_search(spell, terms) then
             result[#result + 1] = spell;
         end
     end
 
-    table.sort(result, compare_spells);
+    table.sort(result, ac_helpers.compare_spells);
     filtered_cache.key = cache_key;
     filtered_cache.result = result;
     filtered_cache.blu_level = blu_level;
     return result, blu_level;
 end
 
-local function clamp_page(total_rows)
+function ac_helpers.clamp_page(total_rows)
     local pages = math.max(1, math.ceil(total_rows / math.max(1, state.per_page)));
     if state.page < 1 then
         state.page = 1;
@@ -1803,59 +1822,59 @@ local function clamp_page(total_rows)
     return pages;
 end
 
-local function mark_ui_state_changed(reset_page)
+function ac_helpers.mark_ui_state_changed(reset_page)
     if reset_page then
         state.page = 1;
     end
     state.settings_dirty = true;
 end
 
-local function set_filter(mode)
+function ac_helpers.set_filter(mode)
     if state.filter_mode ~= mode then
         state.filter_mode = mode;
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
         state.bluprint_view_page[1] = false;
-        mark_ui_state_changed(true);
+        ac_helpers.mark_ui_state_changed(true);
     elseif state.build_page[1] or state.spellsets_page[1] or state.bluprint_view_page[1] then
         -- Clicking any main filter returns to the spell list, even when
         -- that filter was already active (BLUPrint-View included).
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
         state.bluprint_view_page[1] = false;
-        mark_ui_state_changed(true);
+        ac_helpers.mark_ui_state_changed(true);
     end
 end
 
-local function set_sort(mode)
+function ac_helpers.set_sort(mode)
     if state.sort_mode == mode then
         state.sort_desc = not state.sort_desc;
     else
         state.sort_mode = mode;
         state.sort_desc = false;
     end
-    mark_ui_state_changed(true);
+    ac_helpers.mark_ui_state_changed(true);
 end
 
-local function sort_label(label, mode)
+function ac_helpers.sort_label(label, mode)
     if state.sort_mode ~= mode then
         return label;
     end
     return label .. (state.sort_desc and ' v' or ' ^');
 end
 
-local function draw_sort_header(label, mode)
+function ac_helpers.draw_sort_header(label, mode)
     local active = state.sort_mode == mode;
 
     imgui.PushStyleColor(ImGuiCol_Button, TRANSPARENT);
     imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(0.14));
     imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.24));
     imgui.PushStyleColor(ImGuiCol_Text, active and accent() or accent(0.78));
-    if imgui.Button(sort_label(label, mode) .. '##sort_' .. mode) then
-        set_sort(mode);
+    if imgui.Button(ac_helpers.sort_label(label, mode) .. '##sort_' .. mode) then
+        ac_helpers.set_sort(mode);
     end
     if active then
-        draw_item_underline();
+        ac_helpers.draw_item_underline();
     end
     imgui.PopStyleColor(4);
 end
@@ -1863,10 +1882,10 @@ end
 -- Learned log (per character, newest last; capped).
 local LEARNED_LOG_MAX = 500;
 
-local function add_learned_log_entry(spell)
+function ac_helpers.add_learned_log_entry(spell)
     if config.learned_log == nil then config.learned_log = T{}; end
 
-    local zone_id = safe_current_zone_id();
+    local zone_id = ac_helpers.safe_current_zone_id();
     local mob = nil;
     local defeat = state.last_defeat;
     if defeat ~= nil and (os.time() - (tonumber(defeat.time) or 0)) <= 90
@@ -1886,8 +1905,8 @@ local function add_learned_log_entry(spell)
     state.settings_dirty = true;
 end
 
-local function update_known_snapshot()
-    refresh_known_cache(false);
+function ac_helpers.update_known_snapshot()
+    ac_helpers.refresh_known_cache(false);
     if state.known_snapshot_initialized and state.snapshot_version == known_cache.version then
         return;
     end
@@ -1897,7 +1916,7 @@ local function update_known_snapshot()
 
     if not state.known_snapshot_initialized then
         for _, spell in ipairs(spells) do
-            state.known_snapshot[spell._key] = is_known(spell.name);
+            state.known_snapshot[spell._key] = ac_helpers.is_known(spell.name);
         end
         state.known_snapshot_initialized = true;
         return;
@@ -1908,7 +1927,7 @@ local function update_known_snapshot()
     local newly = {};
     for _, spell in ipairs(spells) do
         local key = spell._key;
-        local known = is_known(spell.name);
+        local known = ac_helpers.is_known(spell.name);
         if known and state.known_snapshot[key] ~= true then
             newly[#newly + 1] = spell;
         end
@@ -1920,7 +1939,7 @@ local function update_known_snapshot()
     end
 
     for _, spell in ipairs(newly) do
-        add_learned_log_entry(spell);
+        ac_helpers.add_learned_log_entry(spell);
         if state.auto_highlight_learned[1] then
             state.selected_spell = spell.name;
             state.learned_flash_until = now + 5.0;
@@ -1929,7 +1948,7 @@ local function update_known_snapshot()
     end
 end
 
-local function maybe_jump_to_selected(filtered)
+function ac_helpers.maybe_jump_to_selected(filtered)
     if not state.jump_to_selected or not state.selected_spell then
         return;
     end
@@ -1944,7 +1963,7 @@ local function maybe_jump_to_selected(filtered)
     state.jump_to_selected = false;
 end
 
-local function active_column_count()
+function ac_helpers.active_column_count()
     local count = 1;
     if state.columns.level[1] then count = count + 1; end
     if state.columns.points[1] then count = count + 1; end
@@ -1958,7 +1977,7 @@ end
 -- Lvl / Points / Learn are narrow fixed columns sized from the header text
 -- (plus the sort arrow); Spell, Type, Trait and Mob Family share the rest
 -- equally.
-local function setup_table_columns()
+function ac_helpers.setup_table_columns()
     local function fixed_w(header, sample)
         local a = tonumber((imgui.CalcTextSize(header .. ' ^'))) or 40;
         local b = tonumber((imgui.CalcTextSize(sample))) or 30;
@@ -1985,36 +2004,36 @@ local function draw_table_headers()
     end
 
     imgui.TableNextColumn();
-    draw_sort_header('Spell', 'name');
+    ac_helpers.draw_sort_header('Spell', 'name');
 
     if state.columns.level[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Lvl', 'level');
+        ac_helpers.draw_sort_header('Lvl', 'level');
     end
 
     if state.columns.points[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Points', 'points');
+        ac_helpers.draw_sort_header('Points', 'points');
     end
 
     if state.columns.learn_skill[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Learn', 'learn_skill');
+        ac_helpers.draw_sort_header('Learn', 'learn_skill');
     end
 
     if state.columns.type[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Type', 'type');
+        ac_helpers.draw_sort_header('Type', 'type');
     end
 
     if state.columns.trait[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Trait', 'trait');
+        ac_helpers.draw_sort_header('Trait', 'trait');
     end
 
     if state.columns.mob_family[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Mob Family', 'mob_family');
+        ac_helpers.draw_sort_header('Mob Family', 'mob_family');
     end
 end
 
@@ -2123,9 +2142,9 @@ local function draw_learning_tooltip(spell)
 end
 
 local function draw_spell_table_row(spell)
-    local known = is_known(spell.name);
+    local known = ac_helpers.is_known(spell.name);
     local selected = state.selected_spell == spell.name;
-    local _, color = get_spell_display_state(spell);
+    local _, color = ac_helpers.get_spell_display_state(spell);
 
     local line_h = imgui.GetTextLineHeightWithSpacing();
     local row_h = state.row_spacing == 'normal' and (line_h + 5) or (line_h + 1);
@@ -2142,7 +2161,7 @@ local function draw_spell_table_row(spell)
     end
 
     imgui.PushStyleColor(ImGuiCol_Text, color);
-    if imgui.Selectable(spell.name .. '##spell_' .. normalize_name(spell.name), selected, selectable_flags) then
+    if imgui.Selectable(spell.name .. '##spell_' .. ac_helpers.normalize_name(spell.name), selected, selectable_flags) then
         state.selected_spell = spell.name;
         if state.location_interaction == 'click' then
             if state.location_open[1] and state.location_spell and state.location_spell.name == spell.name then
@@ -2175,7 +2194,7 @@ local function draw_spell_table_row(spell)
 
     if state.columns.learn_skill[1] then
         imgui.TableNextColumn();
-        imgui.Text(tostring(blue_magic_learn_skill(spell)));
+        imgui.Text(tostring(ac_helpers.blue_magic_learn_skill(spell)));
     end
 
     if state.columns.type[1] then
@@ -2235,12 +2254,12 @@ local function draw_fallback_rows(filtered, first, last)
 
     for i = first, last do
         local spell = filtered[i];
-        local known = is_known(spell.name);
+        local known = ac_helpers.is_known(spell.name);
         local selected = state.selected_spell == spell.name;
-        local _, color = get_spell_display_state(spell);
+        local _, color = ac_helpers.get_spell_display_state(spell);
 
         imgui.PushStyleColor(ImGuiCol_Text, color);
-        if imgui.Selectable(spell.name .. '##fallback_' .. normalize_name(spell.name), selected) then
+        if imgui.Selectable(spell.name .. '##fallback_' .. ac_helpers.normalize_name(spell.name), selected) then
             state.selected_spell = spell.name;
             if state.location_interaction == 'click' then
                 if state.location_open[1] and state.location_spell and state.location_spell.name == spell.name then
@@ -2267,7 +2286,7 @@ local function draw_fallback_rows(filtered, first, last)
             x = x + 65;
         end
         if state.columns.learn_skill[1] then
-            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(blue_magic_learn_skill(spell)));
+            imgui.SameLine(); imgui.SetCursorPosX(x); imgui.Text(tostring(ac_helpers.blue_magic_learn_skill(spell)));
             x = x + 95;
         end
         if state.columns.type[1] then
@@ -2308,6 +2327,9 @@ local function save_config()
     config.display.rows_mode = state.rows_mode;
     config.display.rows_per_page = math.floor(clamp(state.rows_per_page[1], 8, 60));
 
+    for key, value in pairs(state.visible_tabs) do
+        config.display.visible_tabs[key] = value[1];
+    end
     config.display.columns.level = state.columns.level[1];
     config.display.columns.points = state.columns.points[1];
     config.display.columns.learn_skill = state.columns.learn_skill[1];
@@ -2578,6 +2600,7 @@ local function reset_all()
     state.rows_mode = defaults.display.rows_mode;
     state.rows_per_page[1] = defaults.display.rows_per_page;
 
+    for _, value in pairs(state.visible_tabs) do value[1] = true; end
     state.columns.level[1] = defaults.display.columns.level;
     state.columns.points[1] = defaults.display.columns.points;
     state.columns.learn_skill[1] = defaults.display.columns.learn_skill;
@@ -2775,7 +2798,7 @@ end
 local function draw_display_tab()
     section_title('ROW SPACING');
 
-    if draw_toggle_button('Compact', 'row_spacing_compact', state.row_spacing == 'compact')
+    if ac_helpers.draw_toggle_button('Compact', 'row_spacing_compact', state.row_spacing == 'compact')
         and state.row_spacing ~= 'compact' then
         state.row_spacing = 'compact';
         state.settings_dirty = true;
@@ -2783,7 +2806,7 @@ local function draw_display_tab()
 
     imgui.SameLine();
 
-    if draw_toggle_button('Normal', 'row_spacing_normal', state.row_spacing == 'normal')
+    if ac_helpers.draw_toggle_button('Normal', 'row_spacing_normal', state.row_spacing == 'normal')
         and state.row_spacing ~= 'normal' then
         state.row_spacing = 'normal';
         state.settings_dirty = true;
@@ -2792,7 +2815,7 @@ local function draw_display_tab()
     imgui.Spacing();
     section_title('ROWS PER PAGE');
 
-    if draw_toggle_button('Auto', 'rows_mode_auto', state.rows_mode == 'auto')
+    if ac_helpers.draw_toggle_button('Auto', 'rows_mode_auto', state.rows_mode == 'auto')
         and state.rows_mode ~= 'auto' then
         state.rows_mode = 'auto';
         state.page = 1;
@@ -2801,7 +2824,7 @@ local function draw_display_tab()
 
     imgui.SameLine();
 
-    if draw_toggle_button('Fixed', 'rows_mode_fixed', state.rows_mode == 'fixed')
+    if ac_helpers.draw_toggle_button('Fixed', 'rows_mode_fixed', state.rows_mode == 'fixed')
         and state.rows_mode ~= 'fixed' then
         state.rows_mode = 'fixed';
         state.page = 1;
@@ -2840,6 +2863,26 @@ local function draw_display_tab()
     end
 end
 
+local function draw_tabs_config_tab()
+    section_title('MAIN TABS');
+    imgui.TextColored(MUTED, 'Choose which navigation tabs appear in the main window.');
+    for _, item in ipairs({
+        { 'All', 'all' },
+        { 'Known', 'known' },
+        { 'Missing', 'missing' },
+        { 'Up to My Level', 'ready' },
+        { 'BLUPrints', 'bluprints' },
+        { 'BLUPrint-View', 'view' },
+    }) do
+        if imgui.Checkbox(item[1] .. '##azure_visible_tab_' .. item[2], state.visible_tabs[item[2]]) then
+            state.settings_dirty = true;
+        end
+    end
+    imgui.Spacing();
+    imgui.TextColored(MUTED, 'Hiding a tab does not close its current page.');
+    imgui.TextColored(MUTED, 'The Spells navigation and Config remain accessible.');
+end
+
 local function draw_behavior_tab()
     section_title('FILTER / SEARCH');
 
@@ -2868,7 +2911,7 @@ local function draw_behavior_tab()
 
     imgui.TextColored(MUTED, 'Choose how the Learned From information opens.');
 
-    if draw_toggle_button('Click', 'location_mode_click', state.location_interaction == 'click')
+    if ac_helpers.draw_toggle_button('Click', 'location_mode_click', state.location_interaction == 'click')
         and state.location_interaction ~= 'click' then
         state.location_interaction = 'click';
         state.settings_dirty = true;
@@ -2876,7 +2919,7 @@ local function draw_behavior_tab()
 
     imgui.SameLine();
 
-    if draw_toggle_button('Hover', 'location_mode_hover', state.location_interaction == 'hover')
+    if ac_helpers.draw_toggle_button('Hover', 'location_mode_hover', state.location_interaction == 'hover')
         and state.location_interaction ~= 'hover' then
         state.location_interaction = 'hover';
         state.location_open[1] = false;
@@ -2926,7 +2969,7 @@ local function get_build_points_used()
     local total = 0;
     local count = 0;
     for _, spell in ipairs(spells) do
-        if state.build_selected[normalize_name(spell.name)] == true then
+        if state.build_selected[ac_helpers.normalize_name(spell.name)] == true then
             total = total + (tonumber(spell.points) or 0);
             count = count + 1;
         end
@@ -2971,7 +3014,7 @@ local function equip_spell_list(selected, used, selected_count, source_label)
     selected_count = tonumber(selected_count) or #selected;
     used = tonumber(used) or 0;
 
-    local point_cap, slot_cap = get_build_caps();
+    local point_cap, slot_cap = ac_helpers.get_build_caps();
 
     if selected_count == 0 then
         log_message('No spells selected for the build.');
@@ -3046,7 +3089,7 @@ local function equip_selected_build()
     local selected = {};
 
     for _, spell in ipairs(spells) do
-        if state.build_selected[normalize_name(spell.name)] == true then
+        if state.build_selected[ac_helpers.normalize_name(spell.name)] == true then
             selected[#selected + 1] = spell;
         end
     end
@@ -3082,7 +3125,7 @@ local function get_current_equipped_spell_names()
         blu_buffer = ashita.memory.read_uint32(blu_buffer);
         if blu_buffer == 0 then return {}; end
 
-        local is_blu_main = safe_blu_level() ~= nil;
+        local is_blu_main = ac_helpers.safe_blu_level() ~= nil;
         local base = blu_buffer + offset[0] + (is_blu_main and 0x04 or 0xA0);
         local ids = ashita.memory.read_array(base, 0x14);
         local names = {};
@@ -3112,7 +3155,7 @@ end
 local function get_equipped_spells()
     local lookup = {};
     for _, name in ipairs(get_current_equipped_spell_names()) do
-        lookup[normalize_name(name)] = true;
+        lookup[ac_helpers.normalize_name(name)] = true;
     end
     local list = {};
     local points = 0;
@@ -3156,7 +3199,7 @@ end
 
 local function save_build_to_file()
     local used, selected_count = get_build_points_used()
-    local point_cap, slot_cap = get_build_caps()
+    local point_cap, slot_cap = ac_helpers.get_build_caps()
 
     if selected_count == 0 then
         log_message('No spells selected. Nothing to save.')
@@ -3194,7 +3237,7 @@ local function save_build_to_file()
 
     local index = 0
     for _, spell in ipairs(spells) do
-        if state.build_selected[normalize_name(spell.name)] == true then
+        if state.build_selected[ac_helpers.normalize_name(spell.name)] == true then
             index = index + 1
             file:write(string.format('%d. %s - Lv %s - %s pt\n',
                 index, tostring(spell.name), tostring(spell.level), tostring(spell.points)))
@@ -3260,18 +3303,18 @@ local function load_saved_build_file(filename, equip_in_game)
     for line in file:lines() do
         local name = line:match('^%s*%d+%.%s*(.-)%s+%- %s*Lv%s+%d+%s+%-%s+%d+%s+pt%s*$')
         if name ~= nil then
-            loaded[normalize_name(name)] = true
+            loaded[ac_helpers.normalize_name(name)] = true
         end
     end
     file:close()
 
-    local point_cap, slot_cap = get_build_caps()
+    local point_cap, slot_cap = ac_helpers.get_build_caps()
     local selected = {}
     local used = 0
     local count = 0
 
     for _, spell in ipairs(spells) do
-        local key = normalize_name(spell.name)
+        local key = ac_helpers.normalize_name(spell.name)
         local cost = tonumber(spell.points) or 0
         if loaded[key] and count < slot_cap and (used + cost) <= point_cap then
             selected[#selected + 1] = spell
@@ -3293,7 +3336,7 @@ local function load_saved_build_file(filename, equip_in_game)
     -- Calculator loading mode remains available for the loader window.
     state.build_selected = {}
     for _, spell in ipairs(selected) do
-        state.build_selected[normalize_name(spell.name)] = true
+        state.build_selected[ac_helpers.normalize_name(spell.name)] = true
     end
 
     state.build_load_open[1] = false
@@ -3316,7 +3359,7 @@ local function draw_saved_build_loader()
             imgui.TextColored(MUTED, 'No saved builds found in BLUPrints.')
         else
             for _, filename in ipairs(state.build_load_files) do
-                if imgui.Button(filename .. '##saved_build_' .. normalize_name(filename)) then
+                if imgui.Button(filename .. '##saved_build_' .. ac_helpers.normalize_name(filename)) then
                     load_saved_build_file(filename)
                     break
                 end
@@ -3337,7 +3380,7 @@ local function draw_trait_list(traits, id_prefix, bar_width)
 
     for index, entry in ipairs(traits) do
         local color = entry.tier > 0 and state.known_color or partial_color();
-        imgui.TextColored(color, trait_label(entry));
+        imgui.TextColored(color, ac_helpers.trait_label(entry));
         imgui.SameLine();
         if entry.maxed then
             imgui.TextColored(MUTED, ('%d pts  MAX'):fmt(entry.points));
@@ -3395,16 +3438,16 @@ end
 local function plan_next_tier(trait_key, current_weight, next_need)
     local candidates = {};
     for _, spell in ipairs(spells) do
-        if state.build_selected[spell._key] ~= true and is_known(spell.name) then
-            local trait_name = get_spell_trait_name(spell);
-            if trait_name ~= nil and normalize_name(trait_name) == trait_key then
+        if state.build_selected[spell._key] ~= true and ac_helpers.is_known(spell.name) then
+            local trait_name = ac_helpers.get_spell_trait_name(spell);
+            if trait_name ~= nil and ac_helpers.normalize_name(trait_name) == trait_key then
                 candidates[#candidates + 1] = spell;
             end
         end
     end
     table.sort(candidates, function(a, b)
-        local ar = (tonumber(a.points) or 0) / get_trait_weight(a);
-        local br = (tonumber(b.points) or 0) / get_trait_weight(b);
+        local ar = (tonumber(a.points) or 0) / ac_helpers.get_trait_weight(a);
+        local br = (tonumber(b.points) or 0) / ac_helpers.get_trait_weight(b);
         if ar ~= br then return ar < br; end
         return (tonumber(a.points) or 0) < (tonumber(b.points) or 0);
     end);
@@ -3415,7 +3458,7 @@ local function plan_next_tier(trait_key, current_weight, next_need)
         if got >= needed then break; end
         picks[#picks + 1] = spell;
         cost = cost + (tonumber(spell.points) or 0);
-        got = got + get_trait_weight(spell);
+        got = got + ac_helpers.get_trait_weight(spell);
     end
     return picks, cost, got >= needed;
 end
@@ -3452,12 +3495,12 @@ local function draw_trait_planner(traits, used, selected_count, point_cap, slot_
     if state.planner_all[1] then
         local extra = {};
         for _, spell in ipairs(spells) do
-            local trait_name = get_spell_trait_name(spell);
+            local trait_name = ac_helpers.get_spell_trait_name(spell);
             if trait_name ~= nil then
-                local key = normalize_name(trait_name);
-                if not seen[key] and is_known(spell.name) then
+                local key = ac_helpers.normalize_name(trait_name);
+                if not seen[key] and ac_helpers.is_known(spell.name) then
                     seen[key] = true;
-                    local tiers = trait_tiers_for(trait_name);
+                    local tiers = ac_helpers.trait_tiers_for(trait_name);
                     extra[#extra + 1] = {
                         name = trait_name, key = key, weight = 0, tier = 0,
                         max_tier = #tiers, maxed = false, points = 0,
@@ -3576,16 +3619,16 @@ local function bp_primary_button(label, id, enabled)
 end
 
 local function draw_spell_build_tab()
-    local point_cap, slot_cap = get_build_caps();
+    local point_cap, slot_cap = ac_helpers.get_build_caps();
     local used, selected_count = enforce_build_cap(point_cap, slot_cap);
 
     -- ===== Toolbar: loadout + save =====
     state.spellsets_files = get_saved_build_files();
-    align_label();
+    ac_helpers.align_label();
     imgui.TextColored(MUTED, 'Loadout');
     imgui.SameLine();
     if #state.spellsets_files == 0 then
-        align_label();
+        ac_helpers.align_label();
         imgui.TextColored(MUTED, '(no saved sets)');
     else
         local selected_name = tostring(state.spellset_selected[1] or '');
@@ -3630,7 +3673,7 @@ local function draw_spell_build_tab()
         imgui.SetCursorPosX(imgui.GetCursorPosX() + row_w - name_w - save_w - 8);
     end
     imgui.PushItemWidth(name_w);
-    input_text_no_tab('##blu_build_name', state.build_name, 128);
+    ac_helpers.input_text_no_tab('##blu_build_name', state.build_name, 128);
     imgui.PopItemWidth();
     if imgui.IsItemHovered() and not imgui.IsItemActive() then
         imgui.SetTooltip('Name for this build (saved to the BLUPrints folder)');
@@ -3663,7 +3706,7 @@ local function draw_spell_build_tab()
     bp_budget('Points', ('%d / %d'):fmt(used, point_cap), point_cap > 0 and used / point_cap or 0, bud_w);
     imgui.SameLine();
     imgui.SetCursorPosX(bx + (bud_w + 24) * 2);
-    local trait_totals, selected_spells = get_trait_totals();
+    local trait_totals, selected_spells = ac_helpers.get_trait_totals();
     if #selected_spells > 0 then
         local adds, removes = equipped_diff(selected_spells);
         if #adds == 0 and #removes == 0 then
@@ -3687,8 +3730,8 @@ local function draw_spell_build_tab()
     -- Click one to filter Known Spells to that trait.
     local trait_set, trait_list = {}, {};
     for _, spell in ipairs(spells) do
-        if is_known(spell.name) then
-            local t = get_spell_trait_name(spell);
+        if ac_helpers.is_known(spell.name) then
+            local t = ac_helpers.get_spell_trait_name(spell);
             if t ~= nil and not trait_set[t] then
                 trait_set[t] = true;
                 trait_list[#trait_list + 1] = t;
@@ -3713,7 +3756,7 @@ local function draw_spell_build_tab()
     local col_w = tonumber((imgui.GetContentRegionAvail())) or left_w;
     imgui.Spacing();
     imgui.PushItemWidth(math.max(120, col_w - bp_text_w('Show unlearned') - 40));
-    input_text_no_tab('##blu_build_search', state.build_search, 128);
+    ac_helpers.input_text_no_tab('##blu_build_search', state.build_search, 128);
     imgui.PopItemWidth();
     if imgui.IsItemHovered() and not imgui.IsItemActive() then
         imgui.SetTooltip('Search spells, traits or mob families');
@@ -3741,19 +3784,19 @@ local function draw_spell_build_tab()
     local filter = state.build_trait_filter;
     local shown = 0;
     for _, spell in ipairs(spells) do
-        local known = is_known(spell.name);
-        local trait_name = get_spell_trait_name(spell);
+        local known = ac_helpers.is_known(spell.name);
+        local trait_name = ac_helpers.get_spell_trait_name(spell);
         local trait_ok = filter == nil
             or (filter == '__none' and trait_name == nil)
             or (trait_name ~= nil and trait_name == filter);
         if (known or state.build_show_unlearned[1]) and trait_ok
-            and (query == '' or spell_haystack(spell):find(query, 1, true) ~= nil) then
+            and (query == '' or ac_helpers.spell_haystack(spell):find(query, 1, true) ~= nil) then
             shown = shown + 1;
-            local key = normalize_name(spell.name);
+            local key = ac_helpers.normalize_name(spell.name);
             local checked = state.build_selected[key] == true;
             local cost = tonumber(spell.points) or 0;
             local blocked = (not checked) and (((used + cost) > point_cap) or (selected_count >= slot_cap));
-            local _, spell_color = get_spell_display_state(spell);
+            local _, spell_color = ac_helpers.get_spell_display_state(spell);
 
             local row_x = imgui.GetCursorPosX();
             imgui.PushStyleColor(ImGuiCol_Header, accent(0.16));
@@ -3785,7 +3828,7 @@ local function draw_spell_build_tab()
             imgui.SameLine(); imgui.SetCursorPosX(row_x + lv_x);
             imgui.TextColored(MUTED, tostring(spell.level or '--'));
             imgui.SameLine(); imgui.SetCursorPosX(row_x + trait_x);
-            local badge = get_spell_trait_badge(spell);
+            local badge = ac_helpers.get_spell_trait_badge(spell);
             if badge == nil or tostring(badge):lower() == 'none' then
                 imgui.TextColored(MUTED, '--');
             else
@@ -3817,7 +3860,7 @@ local function draw_spell_build_tab()
         imgui.SameLine();
         imgui.SetCursorPosX(row_x + num_w);
         if spell ~= nil then
-            local key = normalize_name(spell.name);
+            local key = ac_helpers.normalize_name(spell.name);
             imgui.PushStyleColor(ImGuiCol_Header, accent(0.16));
             imgui.PushStyleColor(ImGuiCol_HeaderHovered, { 0.55, 0.15, 0.15, 0.55 });
             imgui.PushStyleColor(ImGuiCol_HeaderActive, { 0.65, 0.18, 0.18, 0.70 });
@@ -3831,7 +3874,7 @@ local function draw_spell_build_tab()
             imgui.SameLine();
             imgui.SetCursorPosX(math.max(name_end, pts_xr));
             imgui.TextColored(state.header_color, tostring(tonumber(spell.points) or 0));
-            local badge = get_spell_trait_badge(spell);
+            local badge = ac_helpers.get_spell_trait_badge(spell);
             if badge ~= nil and tostring(badge):lower() ~= 'none' then
                 imgui.SameLine();
                 imgui.SetCursorPosX(math.max(name_end, pts_xr) + spt_w + 6);
@@ -3856,10 +3899,10 @@ local function draw_spell_build_tab()
         local equipped = get_current_equipped_spell_names();
         local equipped_lookup = {};
         for _, name in ipairs(equipped) do
-            equipped_lookup[normalize_name(name)] = true;
+            equipped_lookup[ac_helpers.normalize_name(name)] = true;
         end
         for _, spell in ipairs(spells) do
-            local key = normalize_name(spell.name);
+            local key = ac_helpers.normalize_name(spell.name);
             local cost = tonumber(spell.points) or 0;
             if equipped_lookup[key] and selected_count < slot_cap and (used + cost) <= point_cap then
                 state.build_selected[key] = true;
@@ -3942,9 +3985,9 @@ local function draw_bluprints_companion_window()
         local requested_size = base_font_size * state.font_scale[1];
         imgui.PushFont(nil, requested_size);
 
-        local point_cap, slot_cap, cap_estimated = get_build_caps();
+        local point_cap, slot_cap, cap_estimated = ac_helpers.get_build_caps();
         local used, selected_count = enforce_build_cap(point_cap, slot_cap);
-        local trait_totals, selected_spells = get_trait_totals();
+        local trait_totals, selected_spells = ac_helpers.get_trait_totals();
 
         -- The build's slots are in the main window; this panel shows the
         -- totals, VS Equipped, the Trait Calculator and the Trait Planner.
@@ -3976,7 +4019,7 @@ local function draw_bluprints_companion_window()
             imgui.PushTextWrapPos(420);
             imgui.TextUnformatted('HorizonXI / LandSandBoat 75-era rules: each spell gives 4 points to its trait (some give more: '
                 .. 'Self-Destruct, Frightful Roar, Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge, '
-                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh needs 32; Resist Gravity '
+                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh and Conserve MP unlock at 8 points and have only Tier I; Resist Gravity '
                 .. 'tiers are 8 / 12 / 16. Each trait has its own maximum tier.');
             imgui.PopTextWrapPos();
             imgui.EndTooltip();
@@ -4037,7 +4080,7 @@ local function draw_location_window()
     -- Keep one stable ImGui window identity for every spell so position/size are shared.
     -- The text before ### may change; the ID after ### remains constant.
     local title = 'Azure Codex - Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
-    window_drag_apply('locations');
+    ac_helpers.window_drag_apply('locations');
     if imgui.Begin(title, state.location_open, location_flags) then
         local base_font_size = imgui.GetFontSize();
         local requested_size = base_font_size * state.font_scale[1];
@@ -4051,13 +4094,13 @@ local function draw_location_window()
         do
             local frame_h = imgui.GetFrameHeight();
             local start_x = imgui.GetCursorPosX();
-            align_label();
+            ac_helpers.align_label();
             imgui.TextColored(state.header_color, tostring(spell.name));
             imgui.SameLine(0, 16);
-            align_label();
+            ac_helpers.align_label();
             imgui.TextColored(MUTED, 'Mob Family:');
             imgui.SameLine();
-            align_label();
+            ac_helpers.align_label();
             imgui.Text(tostring(spell.mob_family or '--'));
             if not state.title_bar[1] then
                 imgui.SameLine();
@@ -4125,7 +4168,7 @@ local function draw_location_window()
 
         imgui.EndChild();
 
-        window_drag('locations', state.location_locked[1]);
+        ac_helpers.window_drag('locations', state.location_locked[1]);
 
         imgui.PopFont();
     end
@@ -4147,7 +4190,7 @@ local function draw_zone_info_window()
         state.zone_apply_saved_geometry = false;
     end
 
-    local zone_id = safe_current_zone_id();
+    local zone_id = ac_helpers.safe_current_zone_id();
 
     if zone_id ~= state.zone_last_id then
         state.zone_last_id = zone_id;
@@ -4155,7 +4198,7 @@ local function draw_zone_info_window()
     end
 
     local zone_name = zone_id and locations.get_zone_name(zone_id) or 'Unknown Zone';
-    local known_count, total_count, rows = get_zone_progress(zone_id);
+    local known_count, total_count, rows = ac_helpers.get_zone_progress(zone_id);
 
     local zone_flags = ImGuiWindowFlags_NoNav;
     if state.zone_locked[1] then
@@ -4184,7 +4227,7 @@ local function draw_zone_info_window()
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
 
     local title = 'Azure Codex - Zone Info - ' .. tostring(zone_name) .. '###bluspells_zone_info';
-    window_drag_apply('zone');
+    ac_helpers.window_drag_apply('zone');
     if imgui.Begin(title, state.zone_info_open, zone_flags) then
         local base_font_size = imgui.GetFontSize();
         local requested_size = base_font_size * state.font_scale[1];
@@ -4263,10 +4306,10 @@ local function draw_zone_info_window()
                 imgui.TextColored(MUTED, 'No missing Blue Magic spells are tracked in this zone.');
             else
                 for row_index, row in ipairs(visible_rows) do
-                    local display_state, spell_color = get_spell_display_state(row.spell);
+                    local display_state, spell_color = ac_helpers.get_spell_display_state(row.spell);
                     local status_text = display_state == 'known' and 'Known'
                         or (display_state == 'learnable' and 'Learnable' or 'Unlearnable');
-                    local learn_skill = blue_magic_learn_skill(row.spell);
+                    local learn_skill = ac_helpers.blue_magic_learn_skill(row.spell);
                     local spell_label = ('%s (BLU:%d)'):fmt(
                         tostring(row.spell.name), learn_skill
                     );
@@ -4302,7 +4345,7 @@ local function draw_zone_info_window()
 
         imgui.EndChild();
 
-        window_drag('zone', state.zone_locked[1]);
+        ac_helpers.window_drag('zone', state.zone_locked[1]);
 
         if not state.zone_locked[1] then
             capture_zone_geometry();
@@ -4323,8 +4366,8 @@ end
 local learning_index = { key = nil, zones = {}, ranked = {}, by_mob = {} };
 
 local function get_learning_index()
-    refresh_known_cache(false);
-    local skill = safe_blue_magic_skill();
+    ac_helpers.refresh_known_cache(false);
+    local skill = ac_helpers.safe_blue_magic_skill();
     local cache_key = tostring(known_cache.version) .. '|' .. tostring(skill);
     if learning_index.key == cache_key then
         return learning_index;
@@ -4334,8 +4377,8 @@ local function get_learning_index()
     local by_mob = {};
 
     for _, spell in ipairs(spells) do
-        if not is_known(spell.name) then
-            local display_state = get_spell_display_state(spell);
+        if not ac_helpers.is_known(spell.name) then
+            local display_state = ac_helpers.get_spell_display_state(spell);
             local learnable = display_state == 'learnable';
             for _, entry in ipairs(locations.get(spell.name) or {}) do
                 local zone_id = tonumber(entry.zone);
@@ -4415,7 +4458,7 @@ local function draw_farm_window()
         draw_close_button('azure_farm_close', state.farm_open);
 
         local index = get_learning_index();
-        local current_zone = safe_current_zone_id();
+        local current_zone = ac_helpers.safe_current_zone_id();
 
         imgui.TextColored(state.header_color, 'BEST ZONES TO FARM');
         imgui.SameLine();
@@ -4444,7 +4487,7 @@ local function draw_farm_window()
                 if expanded then
                     for _, row in ipairs(zone.rows) do
                         if not state.farm_learnable_only[1] or row.learnable then
-                            local _, color = get_spell_display_state(row.spell);
+                            local _, color = ac_helpers.get_spell_display_state(row.spell);
                             imgui.TextColored(color, ('    %s'):fmt(tostring(row.spell.name)));
                             imgui.SameLine();
                             imgui.TextColored(MUTED, ('Lv %s  -  %s'):fmt(tostring(row.spell.level or '--'),
@@ -4639,9 +4682,9 @@ local KNOWN_TAG_HEAD = { 0.62, 0.95, 0.66, 1.00 };
 
 local function draw_target_tag()
     if not state.target_tag[1] then return; end
-    if safe_blu_level() == nil then return; end
+    if ac_helpers.safe_blu_level() == nil then return; end
 
-    local zone_id = safe_current_zone_id();
+    local zone_id = ac_helpers.safe_current_zone_id();
     if zone_id == nil then return; end
     local name = get_target_mob_name();
     if name == nil then return; end
@@ -4653,7 +4696,7 @@ local function draw_target_tag()
     -- Split into spells you are missing and spells you already know.
     local missing, known = {}, {};
     for _, spell in ipairs(list) do
-        if is_known(spell.name) then
+        if ac_helpers.is_known(spell.name) then
             known[#known + 1] = spell;
         else
             missing[#missing + 1] = spell;
@@ -4684,7 +4727,7 @@ local function draw_target_tag()
             imgui.TextColored(state.header_color, 'Teaches:');
             for _, spell in ipairs(missing) do
                 imgui.SameLine();
-                local learnable = get_spell_display_state(spell) == 'learnable';
+                local learnable = ac_helpers.get_spell_display_state(spell) == 'learnable';
                 local color = learnable and state.learnable_color or state.unknown_color;
                 imgui.TextColored(color, tostring(spell.name));
             end
@@ -4771,7 +4814,7 @@ local function get_saved_build_spells_for_view(filename)
     for line in file:lines() do
         local name = line:match('^%s*%d+%.%s*(.-)%s+%- %s*Lv%s+%d+%s+%-%s+%d+%s+pt%s*$');
         if name ~= nil then
-            loaded[normalize_name(name)] = true;
+            loaded[ac_helpers.normalize_name(name)] = true;
         end
     end
     file:close();
@@ -4780,7 +4823,7 @@ local function get_saved_build_spells_for_view(filename)
     local used = 0;
     local count = 0;
     for _, spell in ipairs(spells) do
-        if loaded[normalize_name(spell.name)] then
+        if loaded[ac_helpers.normalize_name(spell.name)] then
             selected[#selected + 1] = spell;
             used = used + (tonumber(spell.points) or 0);
             count = count + 1;
@@ -4841,7 +4884,7 @@ local function draw_bluprint_view_page()
     local used = state.view_cache.used;
     local count = state.view_cache.count;
     state.bluprint_view_spells = selected_spells;
-    local view_point_cap, view_slot_cap = get_build_caps();
+    local view_point_cap, view_slot_cap = ac_helpers.get_build_caps();
 
     imgui.Spacing();
     imgui.TextColored(state.header_color, selected_name);
@@ -4861,7 +4904,7 @@ local function draw_bluprint_view_page()
         if imgui.Button('Import to BLUPrints##azure_bluprint_view_import') then
             state.build_selected = {};
             for _, spell in ipairs(selected_spells) do
-                state.build_selected[normalize_name(spell.name)] = true;
+                state.build_selected[ac_helpers.normalize_name(spell.name)] = true;
             end
             state.build_page[1] = true;
             state.bluprint_view_page[1] = false;
@@ -4908,7 +4951,7 @@ local function draw_bluprint_view_page()
 
     imgui.Separator();
 
-    local trait_totals = compute_traits(selected_spells);
+    local trait_totals = ac_helpers.compute_traits(selected_spells);
 
     imgui.TextColored(state.header_color, 'SPELLS');
     imgui.Spacing();
@@ -4916,7 +4959,7 @@ local function draw_bluprint_view_page()
         imgui.TextColored(MUTED, 'No valid spells found in this BLUPrint.');
     else
         for index, spell in ipairs(selected_spells) do
-            local trait_text = get_spell_trait_badge(spell);
+            local trait_text = ac_helpers.get_spell_trait_badge(spell);
             imgui.TextColored(state.header_color, ('%02d'):fmt(index));
             imgui.SameLine();
             imgui.Text(tostring(spell.name));
@@ -4953,7 +4996,7 @@ local function draw_spellsets_page()
         imgui.TextColored(MUTED, 'No saved sets found in BLUPrints.');
     else
         for _, filename in ipairs(state.spellsets_files) do
-            if imgui.Button('Equip ' .. filename .. '##main_spellset_' .. normalize_name(filename)) then
+            if imgui.Button('Equip ' .. filename .. '##main_spellset_' .. ac_helpers.normalize_name(filename)) then
                 load_saved_build_file(filename, true);
             end
         end
@@ -4979,6 +5022,7 @@ local function draw_config_window()
             { label = 'Window', id = 'cfg_tab_window', draw = draw_window_tab },
             { label = 'Font & Colors', id = 'cfg_tab_font_colors', draw = draw_font_colors_tab },
             { label = 'Display', id = 'cfg_tab_display', draw = draw_display_tab },
+            { label = 'Tabs', id = 'cfg_tab_tabs', draw = draw_tabs_config_tab },
             { label = 'Behavior', id = 'cfg_tab_behavior', draw = draw_behavior_tab },
             { label = 'About', id = 'cfg_tab_about', draw = draw_about_tab },
         };
@@ -4994,7 +5038,7 @@ local function draw_config_window()
             if index > 1 then
                 imgui.SameLine(0, 4);
             end
-            if draw_styled_tab(tab.label, tab.id, index == selected_tab) then
+            if ac_helpers.draw_styled_tab(tab.label, tab.id, index == selected_tab) then
                 selected_tab = index;
             end
         end
@@ -5019,14 +5063,14 @@ end
 
 local function draw_filter_button(label, mode, enabled)
     if enabled == false then
-        draw_toggle_button(label, 'filter_' .. mode, false, true);
+        ac_helpers.draw_toggle_button(label, 'filter_' .. mode, false, true);
         return;
     end
 
     local selected = state.filter_mode == mode and not state.build_page[1]
         and not state.spellsets_page[1] and not state.bluprint_view_page[1];
-    if draw_toggle_button(label, 'filter_' .. mode, selected) then
-        set_filter(mode);
+    if ac_helpers.draw_toggle_button(label, 'filter_' .. mode, selected) then
+        ac_helpers.set_filter(mode);
     end
 end
 
@@ -5055,8 +5099,8 @@ local function draw_main_table(filtered, first, last)
         if ImGuiTableFlags_BordersInnerH ~= nil then flags = bit.bor(flags, ImGuiTableFlags_BordersInnerH); end
 
         -- New table id so widths saved by the old (all equal) layout are not reused.
-        if imgui.BeginTable('##bluspells_spell_table_v2', active_column_count(), flags) then
-            setup_table_columns();
+        if imgui.BeginTable('##bluspells_spell_table_v2', ac_helpers.active_column_count(), flags) then
+            ac_helpers.setup_table_columns();
             draw_table_headers();
 
             for i = first, last do
@@ -5178,7 +5222,7 @@ local SET_SPELL_WAIT = 60;
 local setcd = { sig = nil, checked_at = 0, added_at = {}, total = 0, remaining = 0, cooling = {}, placed = false };
 
 local function spell_recast_seconds(spell)
-    local id = state.resource_ids[spell._key or normalize_name(spell.name)];
+    local id = state.resource_ids[spell._key or ac_helpers.normalize_name(spell.name)];
     if id == nil then return 0; end
     local ok, value = pcall(function()
         return AshitaCore:GetMemoryManager():GetRecast():GetSpellTimer(id);
@@ -5191,7 +5235,7 @@ local function update_set_cooldown()
     local now = os.clock();
     if now - setcd.checked_at < 0.25 then return; end
     setcd.checked_at = now;
-    build_resource_cache();
+    ac_helpers.build_resource_cache();
 
     local list = get_equipped_spells();
     local keys, present = {}, {};
@@ -5260,7 +5304,7 @@ local function draw_set_cooldown_window()
         imgui.SetNextWindowPos({ state.target_tag_x, state.target_tag_y + math.floor(38 * scale) }, { 0, 0 });
         setcd.placed = true;
     end
-    window_drag_apply('setcd');
+    ac_helpers.window_drag_apply('setcd');
 
     push_theme();
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
@@ -5282,7 +5326,7 @@ local function draw_set_cooldown_window()
         dl:AddRectFilled({ sx, sy + 2 }, { sx + math.max(3, bar_w * frac), sy + 6 }, imgui.GetColorU32(accent()), 2.0);
         imgui.Dummy({ bar_w, 8 });
 
-        window_drag('setcd', false);
+        ac_helpers.window_drag('setcd', false);
         imgui.PopFont();
     end
     imgui.End();
@@ -5295,8 +5339,8 @@ local function draw_sidebar(blu_level, list_page)
     imgui.Spacing();
 
     -- Blue Magic skill.
-    local blu_skill = safe_blue_magic_skill();
-    local skill_cap = blu_level and blue_magic_cap_for_level(blu_level) or nil;
+    local blu_skill = ac_helpers.safe_blue_magic_skill();
+    local skill_cap = blu_level and ac_helpers.blue_magic_cap_for_level(blu_level) or nil;
     if blu_skill ~= nil and skill_cap ~= nil then
         sidebar_stat('BLU Skill', ('%d / %d'):fmt(math.floor(blu_skill), math.floor(skill_cap)),
             skill_cap > 0 and (blu_skill / skill_cap) or 0);
@@ -5308,9 +5352,9 @@ local function draw_sidebar(blu_level, list_page)
 
     -- Set points (live when the client reports them, else equipped vs the
     -- HorizonXI level limit) and spell slots.
-    local blu_spent, blu_max = get_blu_points();
+    local blu_spent, blu_max = ac_helpers.get_blu_points();
     if blu_level ~= nil then
-        local cap_points, cap_slots = horizon_blu_caps(blu_level);
+        local cap_points, cap_slots = ac_helpers.horizon_blu_caps(blu_level);
         local equipped_list, equipped_points = get_equipped_spells();
         local spent, max_points = equipped_points, cap_points;
         if blu_spent ~= nil and blu_max ~= nil then
@@ -5330,15 +5374,15 @@ local function draw_sidebar(blu_level, list_page)
     end
 
     -- Overall progress.
-    local learned_count = get_learned_count();
+    local learned_count = ac_helpers.get_learned_count();
     local missing_count = math.max(0, #spells - learned_count);
     sidebar_stat('Learned', ('%d / %d'):fmt(learned_count, #spells),
         #spells > 0 and (learned_count / #spells) or 0,
         ('%.1f%%  |  %d missing'):fmt(#spells > 0 and (learned_count / #spells * 100.0) or 0, missing_count));
 
     -- Current zone.
-    local zone_id = safe_current_zone_id();
-    local zone_known, zone_total = get_zone_progress(zone_id);
+    local zone_id = ac_helpers.safe_current_zone_id();
+    local zone_known, zone_total = ac_helpers.get_zone_progress(zone_id);
     local zone_name = zone_id and locations.get_zone_name(zone_id) or 'This zone';
     sidebar_stat(tostring(zone_name), ('%d / %d'):fmt(zone_known, zone_total),
         zone_total > 0 and (zone_known / zone_total) or 0);
@@ -5350,12 +5394,12 @@ local function draw_sidebar(blu_level, list_page)
         state.spellsets_page[1] = false;
         state.bluprint_view_page[1] = false;
     end
-    if sidebar_nav('BLUPrints', 'ac_nav_build', state.build_page[1] == true) then
+    if state.visible_tabs.bluprints[1] and sidebar_nav('BLUPrints', 'ac_nav_build', state.build_page[1] == true) then
         state.build_page[1] = true;
         state.spellsets_page[1] = false;
         state.bluprint_view_page[1] = false;
     end
-    if sidebar_nav('BLUPrint-View', 'ac_nav_view', state.bluprint_view_page[1] == true) then
+    if state.visible_tabs.view[1] and sidebar_nav('BLUPrint-View', 'ac_nav_view', state.bluprint_view_page[1] == true) then
         state.bluprint_view_page[1] = true;
         state.build_page[1] = false;
         state.spellsets_page[1] = false;
@@ -5455,13 +5499,13 @@ local function draw_window()
     end
 
     if imgui.Begin('Azure Codex##bluspells', state.open, flags) then
-        build_resource_cache();
-        update_known_snapshot();
+        ac_helpers.build_resource_cache();
+        ac_helpers.update_known_snapshot();
 
         local base_font_size = imgui.GetFontSize();
         imgui.PushFont(nil, base_font_size * state.font_scale[1]);
 
-        local blu_level = safe_blu_level();
+        local blu_level = ac_helpers.safe_blu_level();
         local list_page = not state.build_page[1] and not state.bluprint_view_page[1]
             and not state.spellsets_page[1];
         local child_flags = ImGuiWindowFlags_NoNav or 0;
@@ -5492,7 +5536,7 @@ local function draw_window()
         local row_w = tonumber((imgui.GetContentRegionAvail())) or 500;
 
         imgui.PushItemWidth(math.max(120, row_w - clear_w - close_w - 10));
-        input_text_no_tab('##bluspells_search', state.search, 128);
+        ac_helpers.input_text_no_tab('##bluspells_search', state.search, 128);
         imgui.PopItemWidth();
         if imgui.IsItemHovered() and not imgui.IsItemActive() then
             imgui.SetTooltip('Search every column. Use | for OR, e.g. refresh|regen|goblin');
@@ -5501,14 +5545,14 @@ local function draw_window()
         local current_search = tostring(state.search[1] or '');
         if current_search ~= state.last_search then
             state.last_search = current_search;
-            mark_ui_state_changed(true);
+            ac_helpers.mark_ui_state_changed(true);
         end
 
         imgui.SameLine();
         if imgui.Button('Clear##bluspells_search_clear') then
             state.search[1] = '';
             state.last_search = '';
-            mark_ui_state_changed(true);
+            ac_helpers.mark_ui_state_changed(true);
         end
 
         if not state.title_bar[1] then
@@ -5519,18 +5563,20 @@ local function draw_window()
             end
         end
 
-        -- Filters (clicking one also returns to the spell list).
-        draw_filter_button('All', 'all', true);
-        imgui.SameLine(0, 4);
-        draw_filter_button('Known', 'known', true);
-        imgui.SameLine(0, 4);
-        draw_filter_button('Missing', 'missing', true);
-        imgui.SameLine(0, 4);
-        draw_filter_button(
-            blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
-            'ready',
-            blu_level ~= nil
-        );
+        -- Individual filter visibility, with no leading/trailing SameLine.
+        local vt = state.visible_tabs;
+        local first_filter = true;
+        local function visible_filter(key, label, mode, enabled)
+            if not vt[key][1] then return; end
+            if not first_filter then imgui.SameLine(0, 4); end
+            first_filter = false;
+            draw_filter_button(label, mode, enabled);
+        end
+        visible_filter('all', 'All', 'all', true);
+        visible_filter('known', 'Known', 'known', true);
+        visible_filter('missing', 'Missing', 'missing', true);
+        visible_filter('ready', blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
+            'ready', blu_level ~= nil);
 
         imgui.Spacing();
 
@@ -5541,10 +5587,10 @@ local function draw_window()
         else
             calculate_per_page();
 
-            local filtered = get_filtered_spells();
-            maybe_jump_to_selected(filtered);
+            local filtered = ac_helpers.get_filtered_spells();
+            ac_helpers.maybe_jump_to_selected(filtered);
 
-            local pages = clamp_page(#filtered);
+            local pages = ac_helpers.clamp_page(#filtered);
             local first = ((state.page - 1) * state.per_page) + 1;
             local last = math.min(first + state.per_page - 1, #filtered);
 
@@ -5583,7 +5629,7 @@ local function draw_window()
             end
 
             imgui.SameLine();
-            align_label();
+            ac_helpers.align_label();
             imgui.Text(('%d / %d'):fmt(state.page, pages));
             imgui.SameLine();
 
@@ -5598,7 +5644,7 @@ local function draw_window()
             imgui.PopStyleColor(3);
 
             imgui.SameLine(0, 16);
-            align_label();
+            ac_helpers.align_label();
             imgui.TextColored(MUTED, ('%d of %d spells'):fmt(#filtered, #spells));
             imgui.SameLine(0, 16);
             legend_item(state.known_color, 'Known');
@@ -5776,7 +5822,7 @@ ashita.events.register('d3d_present', 'bluspells_present_cb', function()
     -- Runs every frame (cheap unless a spell was just learned) so the
     -- Learned Log records the right time / zone / mob even with the main
     -- window closed.
-    update_known_snapshot();
+    ac_helpers.update_known_snapshot();
     update_set_cooldown();
     draw_window();
     draw_set_cooldown_window();
@@ -5804,6 +5850,6 @@ ashita.events.register('packet_in', 'azurecodex_packet_in_cb', function(e)
         return entity:GetName(target_index);
     end);
     if ok_name and name ~= nil and tostring(name) ~= '' then
-        state.last_defeat = { name = tostring(name), time = os.time(), zone = safe_current_zone_id() };
+        state.last_defeat = { name = tostring(name), time = os.time(), zone = ac_helpers.safe_current_zone_id() };
     end
 end);
