@@ -8,9 +8,10 @@
 -- Small tag for the current target: "Teaches: <spell>" for spells you are
 -- missing and "Already Know: <spell>" (green) for spells you have learned.
 -- Reads only your target and the static location data; BLU main only.
--- Returns the target's name and server id (nil when it is not a mob).
+-- Returns the target's name, server id and target index (nil when it is
+-- not a mob).
 function get_target_mob_name()
-    local ok, name, server_id = pcall(function()
+    local ok, name, server_id, target_index = pcall(function()
         local mm = AshitaCore:GetMemoryManager();
         local target = mm:GetTarget();
         local index = 0;
@@ -24,10 +25,10 @@ function get_target_mob_name()
         local entity = mm:GetEntity();
         local flags = tonumber(entity:GetSpawnFlags(index)) or 0;
         if bit.band(flags, 0x10) == 0 then return nil; end
-        return entity:GetName(index), tonumber(entity:GetServerId(index)) or 0;
+        return entity:GetName(index), tonumber(entity:GetServerId(index)) or 0, index;
     end);
     if not ok or name == nil or tostring(name) == '' then return nil; end
-    return tostring(name), server_id;
+    return tostring(name), server_id, target_index;
 end
 
 -- ----------------------------------------------------------------------------
@@ -84,6 +85,26 @@ function note_mob_ability(e)
     used[key] = true;
 end
 
+-- A mob that dies respawns with the same server id, so its record is
+-- dropped when it is defeated (0x029) ...
+function mob_used_forget(server_id)
+    server_id = tonumber(server_id);
+    if server_id ~= nil then mob_used.by_mob[server_id] = nil; end
+end
+
+-- ... and whenever it is targeted unclaimed at full HP (a fresh spawn, for
+-- example one killed by someone outside your party).
+local function mob_used_check_fresh(server_id, target_index)
+    if server_id == nil or server_id == 0 or mob_used.by_mob[server_id] == nil then return; end
+    local ok, fresh = pcall(function()
+        local entity = AshitaCore:GetMemoryManager():GetEntity();
+        local hpp = tonumber(entity:GetHPPercent(target_index)) or 0;
+        local claim = tonumber(entity:GetClaimStatus(target_index)) or 0;
+        return hpp >= 100 and claim == 0;
+    end);
+    if ok and fresh then mob_used.by_mob[server_id] = nil; end
+end
+
 local function mob_has_used(server_id, spell)
     if server_id == nil or server_id == 0 then return false; end
     mob_used_reset_if_zoned();
@@ -133,8 +154,9 @@ function draw_target_tag()
 
     local zone_id = safe_current_zone_id();
     if zone_id == nil then return; end
-    local name, server_id = get_target_mob_name();
+    local name, server_id, target_index = get_target_mob_name();
     if name == nil then return; end
+    mob_used_check_fresh(server_id, target_index);
 
     local zone_mobs = get_teach_index()[zone_id];
     local list = zone_mobs and zone_mobs[name:lower()] or nil;

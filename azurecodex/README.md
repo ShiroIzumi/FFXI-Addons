@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.19.1  
+**Version:** 1.19.2  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -69,7 +69,7 @@ All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**.
    /ac
    ```
 
-The folder contains `azurecodex.lua` (loads everything), the `ac` folder (the addon's code, split by feature), `spells.lua`, `locations.lua`, a `BLUPrints` folder (saved builds) and `Screenshots`.
+The folder contains `azurecodex.lua` (loads everything), the `ac` folder (the addon's code, split by feature), `spells.lua`, `locations.lua`, a `BLUPrints` folder (saved builds) and `Screenshots`. Your saved builds in `BLUPrints` are kept out of the GitHub repository by `.gitignore`.
 
 ---
 
@@ -175,7 +175,7 @@ While Blue Mage is your main job, a small tag appears whenever your current targ
 
 - **"Teaches:"** lists the spells you are still missing, in your Learnable or Unlearnable color.
 - **"Already Know:"** lists the spells you have already learned, on a green background. If the mob only teaches spells you know, the whole tag turns green.
-- Once the targeted mob has **actually used** one of its spells, that spell gets **"and has been used!"**, on the Teaches line and on the Already Know line (handy when you are helping a friend farm it). It never changes while the mob is only readying the move. The list resets when you change zones.
+- Once the targeted mob has **actually used** one of its spells, that spell gets **"and has been used!"**, on the Teaches line and on the Already Know line (handy when you are helping a friend farm it). It never changes while the mob is only readying the move. It is cleared when that mob is defeated (it respawns with the same ID), when you target it again unclaimed at full HP, and when you change zones.
 
 - Drag the tag anywhere you like.
 - Lock it, or turn it off, in Config → Behavior.
@@ -255,6 +255,10 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.19.2
+- Fixed "and has been used!" carrying over to a freshly respawned mob: the record is cleared when the mob is defeated or when you target it unclaimed at full HP.
+- `.gitignore` keeps your `BLUPrints` (saved builds) out of the repository.
 
 ### 1.19.1
 - "and has been used!" also shows on the Already Know line, so you know when to kill the mob while helping someone else learn the spell.

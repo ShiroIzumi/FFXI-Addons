@@ -95,6 +95,10 @@ ashita.events.register('packet_in', 'azurecodex_packet_in_cb', function(e)
     message = bit.band(tonumber(message) or 0, 0x7FFF);
     if message ~= 6 and message ~= 20 then return; end
 
+    -- The defeated mob (0x08 = target id): forget the moves it used, since it
+    -- respawns with the same id.
+    pcall(function() mob_used_forget(struct.unpack('I', e.data_modified, 0x08 + 1)); end);
+
     local ok_name, name = pcall(function()
         local entity = AshitaCore:GetMemoryManager():GetEntity();
         local flags = tonumber(entity:GetSpawnFlags(target_index)) or 0;
