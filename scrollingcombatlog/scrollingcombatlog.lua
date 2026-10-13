@@ -1,6 +1,6 @@
 addon.name    = 'scrollingcombatlog';
 addon.author  = 'Izumi (ShiroIzumi)';
-addon.version = '1.3.0';
+addon.version = '1.3.2';
 addon.desc    = 'Self-only packet-driven Ashita v4 scrolling combat text inspired by MSBT. Shows completed actions only.';
 addon.link    = '';
 

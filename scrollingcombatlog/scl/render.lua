@@ -594,6 +594,23 @@ local function draw_scrolling_event_performance(ev, age, x, y, alpha_mul, align)
     -- Keep a popping crit centered on its row.
     y = y - (font_size - normal_size) / 2;
 
+    -- Line made of differently colored parts (for example the Regen part in
+    -- the Regen color and the Refresh part in the Refresh color).
+    if ev.segments ~= nil and #ev.segments > 0 then
+        local scale = (base_size > 0) and (font_size / base_size) or 1.0;
+        local total_w = measured_w or ((tonumber((imgui.CalcTextSize(display_text))) or 0) * scale);
+        local font = imgui.GetFont();
+        local cx = x;
+        for i, seg in ipairs(ev.segments) do
+            local seg_text = display_case(tostring(seg.text or ''));
+            local seg_color = event_color({ event_type = seg.event_type, kind = ev.kind, direction = ev.direction });
+            -- The backing plate is drawn once, under the whole line.
+            draw_fx_text(draw_list, font, font_size, cx, y, seg_color, alpha_mul, seg_text, (i == 1) and total_w or nil);
+            cx = cx + (tonumber((imgui.CalcTextSize(seg_text))) or 0) * scale;
+        end
+        return;
+    end
+
     draw_fx_text(draw_list, imgui.GetFont(), font_size, x, y, color, alpha_mul, display_text, measured_w);
 end
 

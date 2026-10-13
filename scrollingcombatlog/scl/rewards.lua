@@ -755,8 +755,18 @@ local REGEN_PERIOD = 3.0;
 local REGEN_SLACK = 0.45;
 local REGEN_MAX_AMOUNT = 50;
 
+-- Regen / Refresh status effects (a spell or ability on you). Without one,
+-- a regen tick comes from a trait (BLU Auto Regen / Auto Refresh), gear or
+-- food, and is labeled AUTO.
+local REGEN_BUFF = 42;
+local REFRESH_BUFF = 43;
+-- HP and MP from the same tick can arrive a moment apart; collect them this
+-- long and show one line.
+local TICK_SETTLE = 0.30;
+
 local rest_watch = {
     active = false, hp = 0, mp = 0, tp = 0, pending = nil, last_check = 0,
+    ticks = nil,               -- { hp, mp, at } collected regen / refresh tick
     regen = { stat = 'HP' },   -- amount, last_tick, cand_value, cand_time
     refresh = { stat = 'MP' },
 };
@@ -824,11 +834,102 @@ local function expire_regen(w, now, current, maximum)
         and (now - w.last_tick) > (REGEN_PERIOD * 2 + REGEN_SLACK * 2) then
         w.amount = nil;
         w.last_tick = nil;
+        w.auto = nil;
     end
+end
+
+local function has_buff(buff_id)
+    local ok, found = pcall(function()
+        local buffs = AshitaCore:GetMemoryManager():GetPlayer():GetBuffs();
+        for _, id in pairs(buffs or {}) do
+            if tonumber(id) == buff_id then return true; end
+        end
+        return false;
+    end);
+    return ok and found == true;
+end
+
+-- Splits one stat's tick into (cast part, auto part).
+--   * No Regen / Refresh effect on you: all of it is AUTO (trait, gear,
+--     food), and a full tick teaches the auto amount (w.auto).
+--   * Effect on you and an auto amount is known: the auto amount is split
+--     off, the rest is the cast Regen / Refresh (a tick no bigger than the
+--     auto amount is all AUTO).
+--   * Effect on you, no auto amount known: all of it is the cast effect.
+local function split_tick(w, amount, buff_id)
+    if amount <= 0 then return 0, 0; end
+    if not has_buff(buff_id) then
+        if w.amount ~= nil and amount == w.amount then w.auto = amount; end
+        return 0, amount;
+    end
+    local auto = tonumber(w.auto) or 0;
+    if auto > 0 then
+        if amount > auto then return amount - auto, auto; end
+        -- Not more than the auto amount: the cast effect's amount is not
+        -- learned yet (its first tick), so this is the auto part.
+        return 0, amount;
+    end
+    return amount, 0;
+end
+
+-- Regen / Refresh tick text, colored per part (Performance renderer):
+--   "[REGEN] +24 HP / [AUTO REFRESH] +1 MP"   (one line)
+-- When a cast Regen / Refresh and the matching AUTO one tick together, the
+-- cast part gets a line of its own and the AUTO parts share the next one:
+--   "[REGEN] +23 HP"
+--   "[AUTO REGEN] +1 HP / [AUTO REFRESH] +1 MP"
+local function emit_parts(parts)
+    if #parts == 0 then return; end
+    local texts, segments = {}, {};
+    for i, p in ipairs(parts) do
+        if i > 1 then
+            segments[#segments + 1] = { text = ' / ', event_type = parts[i - 1].event_type };
+        end
+        texts[#texts + 1] = p.text;
+        segments[#segments + 1] = { text = p.text, event_type = p.event_type };
+    end
+    add_event('incoming', 'heal', table.concat(texts, ' / '), parts[1].event_type, { segments = segments });
+end
+
+local function emit_tick_line(ticks)
+    local show_hp = ticks.hp > 0 and events_mod.event_visible('regen_ticks');
+    local show_mp = ticks.mp > 0 and events_mod.event_visible('refresh_ticks');
+    local hp_cast, hp_auto = 0, 0;
+    local mp_cast, mp_auto = 0, 0;
+    if show_hp then hp_cast, hp_auto = split_tick(rest_watch.regen, ticks.hp, REGEN_BUFF); end
+    if show_mp then mp_cast, mp_auto = split_tick(rest_watch.refresh, ticks.mp, REFRESH_BUFF); end
+
+    local cast, auto = {}, {};
+    if hp_cast > 0 then cast[#cast + 1] = { text = ('[REGEN] +%d HP'):fmt(hp_cast), event_type = 'regen_ticks' }; end
+    if mp_cast > 0 then cast[#cast + 1] = { text = ('[REFRESH] +%d MP'):fmt(mp_cast), event_type = 'refresh_ticks' }; end
+    if hp_auto > 0 then auto[#auto + 1] = { text = ('[AUTO REGEN] +%d HP'):fmt(hp_auto), event_type = 'regen_ticks' }; end
+    if mp_auto > 0 then auto[#auto + 1] = { text = ('[AUTO REFRESH] +%d MP'):fmt(mp_auto), event_type = 'refresh_ticks' }; end
+
+    local overlap = (hp_cast > 0 and hp_auto > 0) or (mp_cast > 0 and mp_auto > 0);
+    if overlap then
+        emit_parts(cast);
+        emit_parts(auto);
+        return;
+    end
+
+    -- No overlap: one line, HP part first.
+    local all = {};
+    for _, list in ipairs({ cast, auto }) do
+        for _, p in ipairs(list) do all[#all + 1] = p; end
+    end
+    table.sort(all, function(a, b) return (a.event_type == 'regen_ticks') and b.event_type ~= 'regen_ticks'; end);
+    emit_parts(all);
 end
 
 local function update_rest_watch()
     local now = os.clock();
+
+    -- Emit a collected Regen / Refresh tick once both halves are in.
+    local ticks = rest_watch.ticks;
+    if ticks and (now - ticks.at) >= TICK_SETTLE then
+        rest_watch.ticks = nil;
+        emit_tick_line(ticks);
+    end
 
     -- Emit a collected rest tick once it has settled.
     local pending = rest_watch.pending;
@@ -868,11 +969,13 @@ local function update_rest_watch()
     if dmp > 0 then refresh_mp, rest_mp = split_regen(rest_watch.refresh, dmp, now, mp, mpmax); end
 
     -- Regen / Refresh ticks show at all times, whenever they restored 1+.
-    if regen_hp > 0 then
-        add_event('incoming', 'heal', ('[REGEN] +%d HP'):fmt(regen_hp), 'regen_ticks');
-    end
-    if refresh_mp > 0 then
-        add_event('incoming', 'heal', ('[REFRESH] +%d MP'):fmt(refresh_mp), 'refresh_ticks');
+    -- HP and MP of the same tick are collected into one line (see above).
+    if regen_hp > 0 or refresh_mp > 0 then
+        if rest_watch.ticks == nil then
+            rest_watch.ticks = { hp = 0, mp = 0, at = now };
+        end
+        rest_watch.ticks.hp = rest_watch.ticks.hp + regen_hp;
+        rest_watch.ticks.mp = rest_watch.ticks.mp + refresh_mp;
     end
 
     if not resting then

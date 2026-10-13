@@ -255,6 +255,9 @@ local function add_event(direction, kind, text, event_type, opts)
         event_type = event_type,
         text = text,
         symbol = opts and opts.symbol or nil,
+        -- Optional colored parts: { { text, event_type }, ... } (Performance
+        -- renderer; Custom Font shows the whole line in the first color).
+        segments = opts and opts.segments or nil,
         element = opts and opts.element or nil,
         created = now,
     };

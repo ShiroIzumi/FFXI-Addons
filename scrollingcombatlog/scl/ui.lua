@@ -456,8 +456,9 @@ local function add_test_events()
     add_event('incoming', 'heal', '+93 HP  <-  Pollen', 'healing_received');
     add_event('incoming', 'heal', '+24 MP  <-  Magic Hammer', 'mp_recovery');
     add_event('incoming', 'heal', '[REST] +20 HP / +15 MP / -100 TP', 'resting');
-    add_event('incoming', 'heal', '[REGEN] +1 HP', 'regen_ticks');
-    add_event('incoming', 'heal', '[REFRESH] +1 MP', 'refresh_ticks');
+    add_event('incoming', 'heal', '[REGEN] +24 HP / [AUTO REFRESH] +1 MP', 'regen_ticks', { segments = {
+        { text = '[REGEN] +24 HP', event_type = 'regen_ticks' }, { text = ' / ', event_type = 'regen_ticks' },
+        { text = '[AUTO REFRESH] +1 MP', event_type = 'refresh_ticks' } } });
     add_event('incoming', 'xp', '+189 EXP', 'exp');
     add_event('incoming', 'gil', '+9 gil', 'gil');
     add_event('incoming', 'xp', 'Sword +0.3', 'skill_ups');

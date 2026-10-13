@@ -1,6 +1,6 @@
 # ScrollingCombatLog
 
-**Version:** 1.3.0  
+**Version:** 1.3.2  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -540,6 +540,18 @@ HorizonXI-specific messages.
 - Critical Pop: crits briefly grow then settle (Performance renderer).
 - Element Colors: spells and additional effects use their element's color.
 - Combine AoE Hits: one line such as `Firaga III  1840 (4 targets)`.
+
+## Changes in 1.3.2
+
+- The combined tick line is colored per part: the Regen part in the Regen Ticks color, the Refresh part in the Refresh Ticks color (Performance renderer; Custom Font shows the line in one color).
+- Cast Regen / Refresh and Auto Regen / Auto Refresh at the same time: once SCL has seen your AUTO amount (a tick without the effect on you), it splits it off. The cast part shows on its own line, the AUTO parts on the next:
+  `[REGEN] +23 HP`
+  `[AUTO REGEN] +1 HP / [AUTO REFRESH] +1 MP`
+
+## Changes in 1.3.1
+
+- Regen and Refresh ticks that land together show on **one line**: `[REGEN] +24 HP / [REFRESH] +1 MP`.
+- Ticks from a Regen / Refresh **effect on you** (a spell or ability) show as `[REGEN]` / `[REFRESH]`; ticks with no such effect (BLU Auto Regen / Auto Refresh, gear, food) show as `[AUTO REGEN]` / `[AUTO REFRESH]`. If both are active at once the game sends one combined amount, so it is labeled by the effect.
 
 ## Changes in 1.3.0 - More combat results
 
