@@ -2,7 +2,7 @@
     Azure Codex - ac/targettag.lua
 
     Target Tag: "Teaches:" / "Already Know:" for the targeted mob, and
-    "... and has been used!" once that mob has used the spell.
+    "... and has been used!" (on both lines) once that mob has used the spell.
 ]]
 
 -- Small tag for the current target: "Teaches: <spell>" for spells you are
@@ -193,8 +193,10 @@ function draw_target_tag()
                 local spacing = 8;
                 pcall(function() spacing = tonumber(imgui.GetStyle().ItemSpacing.x) or 8; end);
                 local width = tonumber((imgui.CalcTextSize('Already Know:'))) or 0;
+                local used_w = tonumber((imgui.CalcTextSize('and has been used!'))) or 0;
                 for _, spell in ipairs(known) do
                     width = width + spacing + (tonumber((imgui.CalcTextSize(tostring(spell.name)))) or 0);
+                    if mob_has_used(server_id, spell) then width = width + spacing + used_w; end
                 end
                 imgui.GetWindowDrawList():AddRectFilled({ sx - 4, sy - 1 }, { sx + width + 4, sy + line_h + 1 },
                     imgui.GetColorU32(KNOWN_TAG_BG), 3.0);
@@ -203,6 +205,11 @@ function draw_target_tag()
             for _, spell in ipairs(known) do
                 imgui.SameLine();
                 imgui.TextColored(KNOWN_TAG_TEXT, tostring(spell.name));
+                -- Helping someone farm it: shows once this mob has used it.
+                if mob_has_used(server_id, spell) then
+                    imgui.SameLine();
+                    imgui.TextColored(USED_COLOR, 'and has been used!');
+                end
             end
         end
 
