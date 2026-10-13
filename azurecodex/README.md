@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.18.0  
+**Version:** 1.19.0  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -69,7 +69,7 @@ All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**.
    /ac
    ```
 
-The folder contains `azurecodex.lua`, `spells.lua`, `locations.lua`, a `BLUPrints` folder (saved builds) and `Screenshots`.
+The folder contains `azurecodex.lua` (loads everything), the `ac` folder (the addon's code, split by feature), `spells.lua`, `locations.lua`, a `BLUPrints` folder (saved builds) and `Screenshots`.
 
 ---
 
@@ -175,10 +175,11 @@ While Blue Mage is your main job, a small tag appears whenever your current targ
 
 - **"Teaches:"** lists the spells you are still missing, in your Learnable or Unlearnable color.
 - **"Already Know:"** lists the spells you have already learned, on a green background. If the mob only teaches spells you know, the whole tag turns green.
+- Once the targeted mob has **actually used** a spell you are missing, it reads **"Teaches: *spell* and has been used!"**. It never changes while the mob is only readying the move. The list resets when you change zones.
 
 - Drag the tag anywhere you like.
 - Lock it, or turn it off, in Config → Behavior.
-- It only reads your target and the addon's own location data.
+- It only reads your target, the addon's own location data and the mob's finished moves.
 
 ---
 
@@ -229,7 +230,7 @@ Search boxes are skipped by the Tab key, so pressing Tab in game to target never
 
 - Each set spell gives **4 trait points** to its trait. The in-game description shows this as e.g. "Job Trait: Auto Refresh (4)".
 - Most traits gain a tier every **8 points**.
-- **Auto Refresh** needs **32 points**. **Resist Gravity** tiers are 8 / 12 / 16.
+- **Auto Refresh**, **Auto Regen** and **Conserve MP** stop at **Tier I** (8 points), the ToAU-era cap. **Resist Gravity** tiers are 8 / 12 / 16.
 - Spells that count extra: Self-Destruct, Frightful Roar, Light of Penance **x2** · Voracious Trunk **x3** · Actinic Burst, Plasma Charge, Winds of Promyvion **x4**.
 - Each trait has its own maximum tier.
 
@@ -254,6 +255,14 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.19.0
+- Target Tag: **"Teaches: *spell* and has been used!"** once the targeted mob has actually used that spell (finished moves only, never on "readies").
+- Auto Regen capped at Tier I (8 points), like Auto Refresh and Conserve MP.
+- Code cleanup: the single 5,800-line `azurecodex.lua` is now split by feature into the `ac` folder (core, pointer, theme, data, spell table, config, BLUPrints, zones, target tag, pages, set cooldown, main window, events). This also removes LuaJIT's 200-local limit problem.
+
+### 1.18.2
+- Tab visibility options; Auto Refresh and Conserve MP capped at Tier I (Kyrias).
 
 ### 1.18.0
 - Visible **mouse pointer** over every Azure Codex window, dropdown and popup (FFXI hides the Windows one). Default: fuchsia, 1.4x. Size, fill color, outline, shadow and on / off in Config → Window.
