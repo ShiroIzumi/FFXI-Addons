@@ -118,6 +118,7 @@ local function keybinds(ctx)
     for _, env in ipairs(ctx.modules) do
         local info = env.module_info;
         local bind = G.keys[info.key];
+        if bind ~= nil then
         local en = { bind.enabled ~= false };
         if imgui.Checkbox('##ms_key_en_' .. info.key, en) then bind.enabled = en[1]; ctx.dirty(); end
         tip(('Turn the %s key on / off.'):fmt(info.label));
@@ -137,6 +138,7 @@ local function keybinds(ctx)
             ctx.dirty();
         end
         tip('No key for this window (the command still works).');
+        end
     end
     imgui.Spacing();
     imgui.TextDisabled('Defaults: Character C, Inventory B, Actions P.');
@@ -150,11 +152,15 @@ end
 
 local function windows(ctx)
     section_header('Windows');
-    for i, env in ipairs(ctx.modules) do
+    local first = true;
+    for _, env in ipairs(ctx.modules) do
         local info = env.module_info;
-        if i > 1 then imgui.SameLine(0, 6); end
-        if theme.color_tab(info.label, 'ms_open_' .. info.key, false, info.color, 'Open / close the ' .. info.label .. ' window') then
-            env.module_toggle();
+        if not info.no_window then
+            if not first then imgui.SameLine(0, 6); end
+            first = false;
+            if theme.color_tab(info.label, 'ms_open_' .. info.key, false, info.color, 'Open / close the ' .. info.label .. ' window') then
+                env.module_toggle();
+            end
         end
     end
 
@@ -199,6 +205,7 @@ local function about(ctx)
         { '/ms inv', 'Open / close the Inventory window' },
         { '/ms act', 'Open / close the Actions window' },
         { '/ms reset', 'Move every window back to its default place' },
+        { '/ms test trade', 'Show a test request popup (party / alliance / trade)' },
         { '/ms help', 'List the commands in chat' },
     };
     for _, c in ipairs(cmds) do

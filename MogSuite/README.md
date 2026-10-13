@@ -7,8 +7,9 @@
 | **Character** | `C` | Equipment, attributes, resistances, haste, jobs, skills, currencies and gear stats |
 | **Inventory** | `B` | Every bag in tabs, key items, item values, a loot log and your other characters' bags |
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
+| **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -45,6 +46,7 @@ To load it every time, add `/addon load mogsuite` to your Ashita startup script 
 | `/ms inv` | Open / close the Inventory window |
 | `/ms act` | Open / close the Actions window |
 | `/ms reset` | Move every window back to its default place |
+| `/ms test party` | Show a test request popup (`party`, `alliance` or `trade`) |
 | `/ms help` | List the commands in chat |
 
 The open keys do nothing while the chat box is open or you are typing in a text box. Change them in **Settings > Global > Keybinds**.
@@ -117,6 +119,14 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
   </tr>
 </table>
 
+## Requests
+
+- **Party and alliance invites:** "*Name* is inviting you to join the party." (or *the alliance*) with **Join** and **Decline** buttons. They send `/join` and `/decline`, the same as typing them.
+- **Trade requests:** "*Name* wants to trade with you." with **Accept Trade** (opens the trade window) and **Decline**.
+- Nothing is answered for you: only your click sends anything.
+- The popup closes by itself when you answer from the game's own menu or chat, when the trade window opens, and after 60 seconds without an answer (you can change or turn that off). It shows how long it has left.
+- The first time, it shows in the middle of your screen; after that it stays where you put it. Use `/ms test party`, `/ms test alliance` or `/ms test trade` (or the Test buttons in Settings) to place and size it. Test popups only close when you click their buttons.
+
 ---
 
 ## Settings (`/ms`)
@@ -128,6 +138,7 @@ One window with a tab for each part of the suite:
 | **Character** | Window (lock, border, title bar, UI scale), Tabs (which skills to show, zero stats, zero currencies), Colors |
 | **Inventory** | Window and layout, Items (quantity format, favorites, warnings, new items), Colors, Value (price list, learned prices), Categories (section order), Bags (hide tabs) |
 | **Actions** | Window and layout, Colors, Lists (support abilities, relic / mythic weapon skills, spells, sorting) |
+| **Requests** | Which popups to show, auto-close time, size, lock, title bar, border, center on screen, test popups |
 | **Global** | Appearance (theme, background, opacity), Text effect, Keybinds, Windows (lock all, reset all), About |
 
 <table>
@@ -154,6 +165,7 @@ MogSuite/
   modules/character/    the Character window
   modules/inventory/    the Inventory window
   modules/actions/      the Actions window
+  modules/requests/     the party / alliance invite and trade request popup
   data/                 shared data (bags, learned prices, key item marks, built-in price list)
   screenshots/          the pictures in this README
 ```
@@ -166,6 +178,9 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.1.0
+- New **Requests** popup (was the separate Accept addon): party and alliance invites and trade requests, with the inviter's name, Join / Accept and Decline buttons, auto-close, and a Requests tab in Settings.
 
 ### 1.0.0
 - First release: Character, Inventory and Actions in one suite, with one settings window, six themes, colored tabs and an open key for each window.

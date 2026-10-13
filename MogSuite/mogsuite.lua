@@ -5,6 +5,7 @@
       Character  (C)  stats, resistances, jobs, skills, currencies, gear stats
       Inventory  (B)  every bag, key items, item values, your other characters
       Actions    (P)  abilities, weapon skills, magic, pets and blood pacts
+      Requests        popups for party / alliance invites and trade requests
 
     Commands: /ms (also /mog, /mogsuite)
       /ms             open / close the settings window
@@ -12,6 +13,7 @@
       /ms inv         open / close the Inventory window
       /ms act         open / close the Actions window
       /ms reset       move every window back to its default place
+      /ms test party | alliance | trade   show a test request popup
       /ms help        list the commands
 
     Nothing is ever done for you: items, abilities and spells are only used
@@ -25,7 +27,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.0.0';
+addon.version = '1.1.0';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -68,6 +70,7 @@ local defaults = T{
     character = loader.read('modules\\character\\defaults.lua'),
     inventory = loader.read('modules\\inventory\\defaults.lua'),
     actions   = loader.read('modules\\actions\\defaults.lua'),
+    requests  = loader.read('modules\\requests\\defaults.lua'),
 };
 
 local function is_list(t)
@@ -155,6 +158,7 @@ local modules = {
     loader.load_module('character', { 'state', 'stats', 'layout', 'overview', 'skills', 'gearstats', 'currencies', 'window', 'config', 'init' }, character_inject),
     loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'keyitems', 'window', 'lootlog', 'config', 'init' }, inject('inventory')),
     loader.load_module('actions', { 'state', 'data', 'player', 'lists', 'pets', 'use', 'draw', 'rows', 'window', 'config', 'init' }, inject('actions')),
+    loader.load_module('requests', { 'state', 'popup', 'config', 'init' }, inject('requests')),
 };
 local by_key = {};
 for _, env in ipairs(modules) do by_key[env.module_info.key] = env; end
@@ -209,6 +213,7 @@ local function print_help()
     print('[MogSuite] /ms inv - Inventory window    (key: ' .. keys.text(cfg.global.keys.inventory) .. ')');
     print('[MogSuite] /ms act - Actions window      (key: ' .. keys.text(cfg.global.keys.actions) .. ')');
     print('[MogSuite] /ms reset - move every window back to its default place');
+    print('[MogSuite] /ms test party | alliance | trade - show a test request popup');
     print('[MogSuite] /mog and /mogsuite work the same as /ms.');
 end
 
@@ -227,6 +232,10 @@ ashita.events.register('command', 'mogsuite_command_cb', function(e)
         call(by_key.inventory, 'module_toggle');
     elseif sub == 'act' or sub == 'actions' or sub == 'a' or sub == 'p' then
         call(by_key.actions, 'module_toggle');
+    elseif sub == 'test' then
+        local kind = args[3] and tostring(args[3]):lower() or 'party';
+        if kind ~= 'alliance' and kind ~= 'trade' then kind = 'party'; end
+        if by_key.requests ~= nil then call(by_key.requests, 'show_test', kind); end
     elseif sub == 'reset' then
         for _, env in ipairs(modules) do call(env, 'module_reset_position'); end
         print('[MogSuite] Every window was moved back to its default place.');
@@ -262,6 +271,11 @@ end);
 ashita.events.register('packet_in', 'mogsuite_packet_in_cb', function(e)
     if e == nil then return; end
     for _, env in ipairs(modules) do call(env, 'module_packet_in', e); end
+end);
+
+ashita.events.register('packet_out', 'mogsuite_packet_out_cb', function(e)
+    if e == nil then return; end
+    for _, env in ipairs(modules) do call(env, 'module_packet_out', e); end
 end);
 
 ashita.events.register('text_in', 'mogsuite_text_in_cb', function(e)
