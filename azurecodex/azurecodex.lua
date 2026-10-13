@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.17.0
+    Version 1.18.0
 
     Commands:
       /azurecodex
@@ -27,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.17.0';
+addon.version   = '1.18.0';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -40,6 +40,37 @@ if not ok_chat then chat = nil; end
 
 local imgui = require 'imgui';
 local settings = require 'settings';
+
+-- ----------------------------------------------------------------------------
+-- Visible mouse pointer. FFXI hides the Windows pointer, so one is drawn while
+-- the mouse is over any Azure Codex window, dropdown or popup. imgui.Begin /
+-- popups / combos are wrapped (only inside Azure Codex's own Lua state) so
+-- each window checks whether the mouse is over it; the pointer is drawn last
+-- each frame on ImGui's foreground layer.
+-- ----------------------------------------------------------------------------
+local mouse_pointer = { hovered = false, shown_last = false };
+
+do
+    local unpack_fn = unpack or table.unpack;
+    local function check_hover()
+        local flags = bit.bor(ImGuiHoveredFlags_RootAndChildWindows or 3,
+            ImGuiHoveredFlags_AllowWhenBlockedByPopup or 32,
+            ImGuiHoveredFlags_AllowWhenBlockedByActiveItem or 128);
+        local ok, over = pcall(imgui.IsWindowHovered, flags);
+        if ok and over then mouse_pointer.hovered = true; end
+    end
+    for _, name in ipairs({ 'Begin', 'BeginPopup', 'BeginPopupModal', 'BeginPopupContextItem',
+        'BeginPopupContextWindow', 'BeginPopupContextVoid', 'BeginCombo' }) do
+        local real = imgui[name];
+        if type(real) == 'function' then
+            imgui[name] = function(...)
+                local results = { real(...) };
+                if results[1] then check_hover(); end
+                return unpack_fn(results);
+            end
+        end
+    end
+end
 local spells = require 'spells';
 local locations = require 'locations';
 
@@ -271,6 +302,15 @@ local defaults = T{
     },
 
     target_tag_window = T{ x = 900, y = 260 },
+
+    -- Visible mouse pointer over Azure Codex windows. Default: fuchsia, 1.4x.
+    cursor = T{
+        enabled = true,
+        size = 1.4,
+        color = T{ 1.00, 0.10, 0.75, 1.00 },
+        outline = T{ 0.05, 0.00, 0.05, 1.00 },
+        shadow = true,
+    },
     farm_window = T{ x = 1040, y = 160, width = 520, height = 560 },
     log_window = T{ x = 1060, y = 180, width = 560, height = 460 },
 
@@ -362,6 +402,15 @@ local function ensure_tables()
     fill_color(config.appearance.unknown_color, defaults.appearance.unknown_color);
     fill_color(config.appearance.header_color, defaults.appearance.header_color);
     fill_color(config.appearance.paging_color, defaults.appearance.paging_color);
+
+    if config.cursor == nil then config.cursor = T{}; end
+    if config.cursor.enabled == nil then config.cursor.enabled = true; end
+    if config.cursor.size == nil then config.cursor.size = defaults.cursor.size; end
+    if config.cursor.shadow == nil then config.cursor.shadow = true; end
+    if config.cursor.color == nil then config.cursor.color = T{}; end
+    if config.cursor.outline == nil then config.cursor.outline = T{}; end
+    fill_color(config.cursor.color, defaults.cursor.color);
+    fill_color(config.cursor.outline, defaults.cursor.outline);
 
     local uses_legacy_background = false;
     for _, legacy in ipairs(LEGACY_BACKGROUNDS) do
@@ -2509,9 +2558,21 @@ local function reset_window()
     state.geometry_dirty = true;
 end
 
+local function reset_cursor()
+    config.cursor = T{
+        enabled = true,
+        size = defaults.cursor.size,
+        color = T{ defaults.cursor.color[1], defaults.cursor.color[2], defaults.cursor.color[3], defaults.cursor.color[4] },
+        outline = T{ defaults.cursor.outline[1], defaults.cursor.outline[2], defaults.cursor.outline[3], defaults.cursor.outline[4] },
+        shadow = true,
+    };
+    state.settings_dirty = true;
+end
+
 local function reset_all()
     reset_appearance();
     reset_window();
+    reset_cursor();
 
     state.row_spacing = defaults.display.row_spacing;
     state.rows_mode = defaults.display.rows_mode;
@@ -2615,6 +2676,43 @@ local function draw_window_tab()
     imgui.Spacing();
     if imgui.Button('Reset Window Position / Size') then
         reset_window();
+    end
+
+    imgui.Spacing();
+    section_title('MOUSE POINTER');
+
+    local cur = config.cursor;
+    local enabled = { cur.enabled ~= false };
+    if imgui.Checkbox('Show a mouse pointer over Azure Codex windows', enabled) then
+        cur.enabled = enabled[1];
+        state.settings_dirty = true;
+    end
+    imgui.TextColored(MUTED, 'FFXI hides the Windows pointer. Turn this off if you already use a pointer tool (such as YoloMouse).');
+
+    if cur.enabled ~= false then
+        imgui.PushItemWidth(260);
+        local size = { tonumber(cur.size) or defaults.cursor.size };
+        if imgui.SliderFloat('Pointer Size##azure_cursor_size', size, 0.60, 3.00, '%.2fx') then
+            cur.size = size[1];
+            state.settings_dirty = true;
+        end
+        if imgui.ColorEdit4('Pointer Color##azure_cursor_color', cur.color) then
+            state.settings_dirty = true;
+        end
+        if imgui.ColorEdit4('Pointer Outline##azure_cursor_outline', cur.outline) then
+            state.settings_dirty = true;
+        end
+        imgui.PopItemWidth();
+
+        local shadow = { cur.shadow ~= false };
+        if imgui.Checkbox('Drop Shadow##azure_cursor_shadow', shadow) then
+            cur.shadow = shadow[1];
+            state.settings_dirty = true;
+        end
+        imgui.SameLine();
+        if imgui.Button('Default Pointer##azure_cursor_reset') then
+            reset_cursor();
+        end
     end
 end
 
@@ -5608,6 +5706,72 @@ ashita.events.register('unload', 'bluspells_unload_cb', function()
     save_config();
 end);
 
+-- Arrow shape in pixels at size 1.0 (tip at 0, 0) and its fill triangles.
+local POINTER_OUTLINE = {
+    { 0, 0 }, { 0, 17 }, { 4, 13 }, { 7, 20 }, { 10, 19 }, { 7, 12 }, { 12, 12 },
+};
+local POINTER_FILL = {
+    { 1, 2, 3 }, { 1, 3, 6 }, { 1, 6, 7 }, { 3, 4, 5 }, { 3, 5, 6 },
+};
+
+local function pointer_color(t, def)
+    if type(t) ~= 'table' then return def; end
+    return { tonumber(t[1]) or def[1], tonumber(t[2]) or def[2], tonumber(t[3]) or def[3], tonumber(t[4]) or def[4] };
+end
+
+-- Drawn last each frame, above every window.
+local function draw_mouse_pointer()
+    local show = mouse_pointer.hovered;
+    mouse_pointer.hovered = false;
+
+    -- Popups ImGui opens on its own (the color picker) are not wrapped, so
+    -- keep the pointer while one is open and the mouse is still over ImGui.
+    if not show and mouse_pointer.shown_last then
+        pcall(function()
+            local popup = imgui.IsPopupOpen('', ImGuiPopupFlags_AnyPopup or 3072);
+            local io = imgui.GetIO();
+            if popup and io ~= nil and io.WantCaptureMouse then show = true; end
+        end);
+    end
+    mouse_pointer.shown_last = show;
+
+    local cur = config.cursor;
+    if not show or cur == nil or cur.enabled == false then return; end
+
+    pcall(function()
+        local x, y = imgui.GetMousePos();
+        x, y = tonumber(x), tonumber(y);
+        if x == nil or y == nil then return; end
+        local dl = imgui.GetForegroundDrawList();
+        if dl == nil then return; end
+
+        local s = tonumber(cur.size) or defaults.cursor.size;
+        local pts = {};
+        for i, p in ipairs(POINTER_OUTLINE) do
+            pts[i] = { x + p[1] * s, y + p[2] * s };
+        end
+
+        local fill = imgui.GetColorU32(pointer_color(cur.color, defaults.cursor.color));
+        local edge = imgui.GetColorU32(pointer_color(cur.outline, defaults.cursor.outline));
+        local shadow = imgui.GetColorU32({ 0.0, 0.0, 0.0, 0.40 });
+
+        if cur.shadow ~= false then
+            local off = 1.5 * s;
+            for _, t in ipairs(POINTER_FILL) do
+                local a, b, c = pts[t[1]], pts[t[2]], pts[t[3]];
+                dl:AddTriangleFilled({ a[1] + off, a[2] + off }, { b[1] + off, b[2] + off }, { c[1] + off, c[2] + off }, shadow);
+            end
+        end
+        for _, t in ipairs(POINTER_FILL) do
+            dl:AddTriangleFilled(pts[t[1]], pts[t[2]], pts[t[3]], fill);
+        end
+        local thickness = math.max(1.0, 1.2 * s);
+        for i = 1, #pts do
+            dl:AddLine(pts[i], pts[(i % #pts) + 1], edge, thickness);
+        end
+    end);
+end
+
 ashita.events.register('d3d_present', 'bluspells_present_cb', function()
     -- Runs every frame (cheap unless a spell was just learned) so the
     -- Learned Log records the right time / zone / mob even with the main
@@ -5619,6 +5783,7 @@ ashita.events.register('d3d_present', 'bluspells_present_cb', function()
     draw_farm_window();
     draw_log_window();
     draw_target_tag();
+    draw_mouse_pointer();
 end);
 
 -- Remember the last mob you (or your party) defeated, so the Learned Log

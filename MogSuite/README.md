@@ -9,7 +9,7 @@
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
 | **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
 
-**Version:** 1.1.0
+**Version:** 1.2.0
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -139,7 +139,7 @@ One window with a tab for each part of the suite:
 | **Inventory** | Window and layout, Items (quantity format, favorites, warnings, new items), Colors, Value (price list, learned prices), Categories (section order), Bags (hide tabs) |
 | **Actions** | Window and layout, Colors, Lists (support abilities, relic / mythic weapon skills, spells, sorting) |
 | **Requests** | Which popups to show, auto-close time, size, lock, title bar, border, center on screen, test popups |
-| **Global** | Appearance (theme, background, opacity), Text effect, Keybinds, Windows (lock all, reset all), About |
+| **Global** | Appearance (theme, background, opacity, config window size, mouse pointer), Text effect, Keybinds, Windows (lock all, reset all), About |
 
 <table>
   <tr>
@@ -154,6 +154,8 @@ One window with a tab for each part of the suite:
 
 Themes: **Copper**, **Garnet**, **Silver** (default), **Amethyst**, **Emerald** and **Midnight**.
 
+**Mouse pointer:** FFXI hides the Windows mouse pointer, so MogSuite draws its own while the mouse is over any MogSuite window (including dropdowns and popups). By default it is a bright fuchsia arrow at 1.4x size. Change the size, fill color, outline color and shadow, or turn it off (for example if you use YoloMouse), in **Settings > Global > Appearance > Mouse pointer**.
+
 Settings are saved per character. Your characters' bags, learned vendor prices and key item marks are shared by all your characters, in `addons\MogSuite\data\`.
 
 ## Files
@@ -161,7 +163,7 @@ Settings are saved per character. Your characters' bags, learned vendor prices a
 ```
 MogSuite/
   mogsuite.lua          entry point: settings, commands, keys, events
-  core/                 theme, keys, module loader, the settings window
+  core/                 theme, keys, module loader, the settings window, the mouse pointer
   modules/character/    the Character window
   modules/inventory/    the Inventory window
   modules/actions/      the Actions window
@@ -178,6 +180,9 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.2.0
+- Visible **mouse pointer** over every MogSuite window, dropdown and popup (FFXI hides the Windows one). Default: fuchsia, 1.4x. Size, colors, shadow and on / off in Settings > Global > Appearance.
 
 ### 1.1.0
 - New **Requests** popup (was the separate Accept addon): party and alliance invites and trade requests, with the inviter's name, Join / Accept and Decline buttons, auto-close, and a Requests tab in Settings.

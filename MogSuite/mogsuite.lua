@@ -20,14 +20,14 @@
     when you click them.
 
     Layout:
-      core/       theme, keys, module loader, the config window
+      core/       theme, keys, module loader, the config window, mouse pointer
       modules/    character, inventory, actions (one folder each)
       data/       shared data (your characters' bags, prices, key item marks)
 ]]
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.1.0';
+addon.version = '1.2.0';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -42,6 +42,11 @@ local theme        = require('core.theme');
 local keys         = require('core.keys');
 local loader       = require('core.loader');
 local configwindow = require('core.configwindow');
+local cursor       = require('core.cursor');
+
+-- Wrap imgui.Begin / popups before any window is drawn so the visible mouse
+-- pointer knows when the mouse is over a MogSuite window.
+cursor.install();
 
 -- ============================================================================
 -- Settings (saved per character): Global + one table per module
@@ -61,6 +66,13 @@ local defaults = T{
         config_tab = 'character',
         config_section = T{},
         config_window = T{ x = 180, y = 140, w = 640, h = 620 },
+        -- Visible mouse pointer over MogSuite windows (FFXI hides the
+        -- Windows one).
+        mouse_cursor = true,
+        mouse_cursor_size = 1.4,
+        mouse_cursor_color = T{ 1.00, 0.10, 0.75, 1.00 },
+        mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 },
+        mouse_cursor_shadow = true,
         keys = T{
             character = T{ enabled = true, key = 0x43, ctrl = false, alt = false, shift = false }, -- C
             inventory = T{ enabled = true, key = 0x42, ctrl = false, alt = false, shift = false }, -- B
@@ -286,6 +298,9 @@ end);
 ashita.events.register('d3d_present', 'mogsuite_present_cb', function()
     for _, env in ipairs(modules) do call(env, 'module_present'); end
     configwindow.draw(config_ctx());
+
+    -- Last, so it sits above every MogSuite window.
+    cursor.draw(cfg.global);
 
     if suite.dirty and (os.clock() - suite.last_save) > 0.6 and not imgui.IsAnyItemActive() then
         suite.dirty = false;

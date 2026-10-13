@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.17.0  
+**Version:** 1.18.0  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -49,6 +49,7 @@ All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**.
 | **Target Tag** | Shows "Teaches: …" when your target teaches a blue spell you are missing, and a green "Already Know: …" for spells you have learned. |
 | **Learned Log** | A per-character history of every spell you learn: when, where, and from which mob. |
 | **Themes** | Midnight, Abyss, Twilight, Golden, Garnet and Silver, all fully customizable. |
+| **Mouse pointer** | A visible pointer over every Azure Codex window (FFXI hides the Windows one). Fuchsia and 1.4x by default; size, colors and shadow are adjustable. |
 
 ---
 
@@ -193,7 +194,7 @@ Open **Config** from the bottom of the sidebar or with `/ac config`.
 
 | Tab | Options |
 |---|---|
-| **Window** | Lock each window, title bar, border, window color and opacity, reset position |
+| **Window** | Lock each window, title bar, border, window color and opacity, reset position, **mouse pointer** (on / off, size, color, outline, shadow) |
 | **Font & Colors** | **Theme**, font scale, and colors for Known / Learnable / Unlearnable, Header / Accent and the paging buttons |
 | **Display** | Compact or normal rows, automatic or fixed rows per page, visible columns |
 | **Behavior** | Remember search / filter / sort, highlight new spells, click or hover for locations, **Assimilation merits**, **Target Tag**, reset all settings |
@@ -202,6 +203,8 @@ Open **Config** from the bottom of the sidebar or with `/ac config`.
 **Themes:** Midnight (default) · Abyss · Twilight · Golden · Garnet · Silver. Picking a theme sets the window surfaces, the window color and the accent color. You can still adjust any of them afterwards. In Garnet, trait names in Your Build and the Trait Planner are sand-colored and unreached traits are amber, so they stand apart from the red accent.
 
 ![Theme selection in Config](Screenshots/theme.png)
+
+**Mouse pointer:** FFXI hides the Windows mouse pointer, so Azure Codex draws its own while the mouse is over any of its windows, dropdowns or popups. By default it is a bright fuchsia arrow at 1.4x size. Turn it off in Config → Window if you already use a pointer tool such as YoloMouse.
 
 Search boxes are skipped by the Tab key, so pressing Tab in game to target never jumps into Azure Codex. Click a box to type in it.
 
@@ -251,6 +254,9 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.18.0
+- Visible **mouse pointer** over every Azure Codex window, dropdown and popup (FFXI hides the Windows one). Default: fuchsia, 1.4x. Size, fill color, outline, shadow and on / off in Config → Window.
 
 ### 1.17.0
 - Target Tag now shows on every mob that teaches a blue spell. Spells you already know are listed as "Already Know:" on green; if you know everything that mob teaches, the whole tag is green.

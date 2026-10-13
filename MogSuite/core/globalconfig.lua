@@ -75,6 +75,38 @@ local function appearance(ctx)
     if imgui.SliderFloat('Size##ms_cfgscale', cs, 0.80, 2.00, '%.2fx', ImGuiSliderFlags_AlwaysClamp) then G.config_scale = cs[1]; ctx.dirty(); end
     tip('Text size of this config window.');
     imgui.PopItemWidth();
+
+    imgui.Spacing();
+    section_header('Mouse pointer');
+    local mc = { G.mouse_cursor ~= false };
+    if imgui.Checkbox('Show a mouse pointer over MogSuite windows##ms_cursor', mc) then G.mouse_cursor = mc[1]; ctx.dirty(); end
+    tip('FFXI hides the Windows mouse pointer. This draws one while the mouse is over any MogSuite window. Turn it off if you already use a pointer tool (such as YoloMouse).');
+    if G.mouse_cursor ~= false then
+        imgui.PushItemWidth(220);
+        local ms = { tonumber(G.mouse_cursor_size) or 1.4 };
+        if imgui.SliderFloat('Pointer size##ms_cursor_size', ms, 0.60, 3.00, '%.2fx', ImGuiSliderFlags_AlwaysClamp) then G.mouse_cursor_size = ms[1]; ctx.dirty(); end
+        tip('How big the pointer is (1.00 is about the size of the Windows pointer).');
+        imgui.PopItemWidth();
+        G.mouse_cursor_color = G.mouse_cursor_color or T{ 1.00, 0.10, 0.75, 1.00 };
+        G.mouse_cursor_outline = G.mouse_cursor_outline or T{ 0.05, 0.00, 0.05, 1.00 };
+        if theme.color_edit('Pointer color##ms_cursor_color', G.mouse_cursor_color, true) then ctx.dirty(); end
+        tip('Fill color of the pointer (with transparency).');
+        imgui.SameLine(0, 18);
+        if theme.color_edit('Outline##ms_cursor_outline', G.mouse_cursor_outline, true) then ctx.dirty(); end
+        tip('Edge color of the pointer.');
+        local sh = { G.mouse_cursor_shadow ~= false };
+        if imgui.Checkbox('Drop shadow##ms_cursor_shadow', sh) then G.mouse_cursor_shadow = sh[1]; ctx.dirty(); end
+        tip('A soft shadow under the pointer so it stands out on bright backgrounds.');
+        imgui.SameLine(0, 18);
+        if imgui.Button('Default pointer##ms_cursor_reset') then
+            G.mouse_cursor_size = 1.4;
+            G.mouse_cursor_color = T{ 1.00, 0.10, 0.75, 1.00 };
+            G.mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 };
+            G.mouse_cursor_shadow = true;
+            ctx.dirty();
+        end
+        tip('Back to the fuchsia pointer at 1.40x.');
+    end
 end
 
 local function text(ctx)
