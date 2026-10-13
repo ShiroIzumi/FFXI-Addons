@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.16.1
+    Version 1.17.0
 
     Commands:
       /azurecodex
@@ -27,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.16.1';
+addon.version   = '1.17.0';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -263,8 +263,8 @@ local defaults = T{
         remember_filters = true,
         auto_highlight_learned = true,
         location_interaction = 'click',
-        -- "Teaches:" tag for a targeted mob that teaches a spell you are
-        -- missing (current zone, BLU main only).
+        -- "Teaches:" / "Already Know:" tag for a targeted mob that teaches a
+        -- blue spell (current zone, BLU main only).
         target_tag = true,
         target_tag_locked = false,
         assimilation = 0,
@@ -2814,7 +2814,7 @@ local function draw_behavior_tab()
         state.target_tag_locked[1] = tag_locked[1];
         state.settings_dirty = true;
     end
-    imgui.TextColored(MUTED, 'While BLU is your main job: a small tag shows when your target teaches a spell you are missing in this zone.');
+    imgui.TextColored(MUTED, 'While BLU is your main job: a small tag shows when your target teaches a blue spell in this zone. Spells you already know show as "Already Know:" on green.');
 
     imgui.Spacing();
     section_title('RESET');
@@ -4479,8 +4479,9 @@ local function draw_log_window()
     pop_theme();
 end
 
--- Small tag for the current target: "Teaches: <missing spell>". Reads only
--- your target and the static location data; BLU main only.
+-- Small tag for the current target: "Teaches: <spell>" for spells you are
+-- missing and "Already Know: <spell>" (green) for spells you have learned.
+-- Reads only your target and the static location data; BLU main only.
 local function get_target_mob_name()
     local ok, name = pcall(function()
         local mm = AshitaCore:GetMemoryManager();
@@ -4502,6 +4503,42 @@ local function get_target_mob_name()
     return tostring(name);
 end
 
+-- Every spell each mob teaches, by zone, known or not. The location data is
+-- static, so this is built once; known / missing is checked when drawn.
+local teach_index = nil;
+
+local function get_teach_index()
+    if teach_index ~= nil then return teach_index; end
+    local by_mob = {};
+    for _, spell in ipairs(spells) do
+        for _, entry in ipairs(locations.get(spell.name) or {}) do
+            local zone_id = tonumber(entry.zone);
+            if zone_id ~= nil then
+                by_mob[zone_id] = by_mob[zone_id] or {};
+                for _, mob in ipairs(entry.mobs or {}) do
+                    local mob_key = tostring(mob):lower();
+                    local list = by_mob[zone_id][mob_key];
+                    if list == nil then
+                        list = {};
+                        by_mob[zone_id][mob_key] = list;
+                    end
+                    local dup = false;
+                    for _, existing in ipairs(list) do
+                        if existing == spell then dup = true; break; end
+                    end
+                    if not dup then list[#list + 1] = spell; end
+                end
+            end
+        end
+    end
+    teach_index = by_mob;
+    return teach_index;
+end
+
+local KNOWN_TAG_BG   = { 0.10, 0.40, 0.18, 0.94 };
+local KNOWN_TAG_TEXT = { 0.86, 1.00, 0.88, 1.00 };
+local KNOWN_TAG_HEAD = { 0.62, 0.95, 0.66, 1.00 };
+
 local function draw_target_tag()
     if not state.target_tag[1] then return; end
     if safe_blu_level() == nil then return; end
@@ -4511,10 +4548,19 @@ local function draw_target_tag()
     local name = get_target_mob_name();
     if name == nil then return; end
 
-    local index = get_learning_index();
-    local zone_mobs = index.by_mob[zone_id];
+    local zone_mobs = get_teach_index()[zone_id];
     local list = zone_mobs and zone_mobs[name:lower()] or nil;
     if list == nil or #list == 0 then return; end
+
+    -- Split into spells you are missing and spells you already know.
+    local missing, known = {}, {};
+    for _, spell in ipairs(list) do
+        if is_known(spell.name) then
+            known[#known + 1] = spell;
+        else
+            missing[#missing + 1] = spell;
+        end
+    end
 
     if state.target_tag_apply_pos then
         imgui.SetNextWindowPos({ state.target_tag_x, state.target_tag_y });
@@ -4527,16 +4573,46 @@ local function draw_target_tag()
         flags = bit.bor(flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoInputs or 0);
     end
 
+    -- Everything already known: the whole tag turns green.
+    local all_known = #missing == 0;
+
     push_theme();
+    if all_known then imgui.PushStyleColor(ImGuiCol_WindowBg, KNOWN_TAG_BG); end
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
     if imgui.Begin('Azure Codex - Target Tag###azure_target_tag', nil, flags) then
         imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
-        imgui.TextColored(state.header_color, 'Teaches:');
-        for _, item in ipairs(list) do
-            imgui.SameLine();
-            local color = item.learnable and state.learnable_color or state.unknown_color;
-            imgui.TextColored(color, tostring(item.spell.name));
+
+        if #missing > 0 then
+            imgui.TextColored(state.header_color, 'Teaches:');
+            for _, spell in ipairs(missing) do
+                imgui.SameLine();
+                local learnable = get_spell_display_state(spell) == 'learnable';
+                local color = learnable and state.learnable_color or state.unknown_color;
+                imgui.TextColored(color, tostring(spell.name));
+            end
         end
+
+        if #known > 0 then
+            if not all_known then
+                -- Some missing, some known: a green strip behind this line.
+                local sx, sy = imgui.GetCursorScreenPos();
+                local line_h = imgui.GetTextLineHeight();
+                local spacing = 8;
+                pcall(function() spacing = tonumber(imgui.GetStyle().ItemSpacing.x) or 8; end);
+                local width = tonumber((imgui.CalcTextSize('Already Know:'))) or 0;
+                for _, spell in ipairs(known) do
+                    width = width + spacing + (tonumber((imgui.CalcTextSize(tostring(spell.name)))) or 0);
+                end
+                imgui.GetWindowDrawList():AddRectFilled({ sx - 4, sy - 1 }, { sx + width + 4, sy + line_h + 1 },
+                    imgui.GetColorU32(KNOWN_TAG_BG), 3.0);
+            end
+            imgui.TextColored(KNOWN_TAG_HEAD, 'Already Know:');
+            for _, spell in ipairs(known) do
+                imgui.SameLine();
+                imgui.TextColored(KNOWN_TAG_TEXT, tostring(spell.name));
+            end
+        end
+
         imgui.PopFont();
 
         local x, y = imgui.GetWindowPos();
@@ -4548,6 +4624,7 @@ local function draw_target_tag()
     end
     imgui.End();
     imgui.PopStyleVar(1);
+    if all_known then imgui.PopStyleColor(1); end
     pop_theme();
 end
 

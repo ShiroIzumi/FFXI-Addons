@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.16.1  
+**Version:** 1.17.0  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -46,7 +46,7 @@ All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**.
 | **BLUPrints** | Plan a spell set within your real point and slot limits, then save it or equip it in game. |
 | **Trait Calculator** | Trait tiers for a build, following HorizonXI's 75-era rules. |
 | **Trait Planner** | The cheapest spells you know that reach each trait's next tier. |
-| **Target Tag** | Shows "Teaches: …" when your target teaches a spell you are missing. |
+| **Target Tag** | Shows "Teaches: …" when your target teaches a blue spell you are missing, and a green "Already Know: …" for spells you have learned. |
 | **Learned Log** | A per-character history of every spell you learn: when, where, and from which mob. |
 | **Themes** | Midnight, Abyss, Twilight, Golden, Garnet and Silver, all fully customizable. |
 
@@ -170,7 +170,10 @@ Spells that count extra toward their trait show the multiplier, e.g. *Auto Refre
 
 ## Target Tag
 
-While Blue Mage is your main job, a small **"Teaches:"** tag appears when your current target teaches a spell you are still missing in this zone. The spell name uses your Learnable or Unlearnable color.
+While Blue Mage is your main job, a small tag appears whenever your current target teaches a blue spell in this zone:
+
+- **"Teaches:"** lists the spells you are still missing, in your Learnable or Unlearnable color.
+- **"Already Know:"** lists the spells you have already learned, on a green background. If the mob only teaches spells you know, the whole tag turns green.
 
 - Drag the tag anywhere you like.
 - Lock it, or turn it off, in Config → Behavior.
@@ -248,6 +251,9 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.17.0
+- Target Tag now shows on every mob that teaches a blue spell. Spells you already know are listed as "Already Know:" on green; if you know everything that mob teaches, the whole tag is green.
 
 ### 1.16.1
 - The spell set cooldown tag only appears for the 60-second wait after setting new spells, not when you cast a Blue Magic spell. It shows just the time and the bar (no spell names).
