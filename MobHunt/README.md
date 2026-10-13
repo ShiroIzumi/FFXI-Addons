@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.0.13  
+**Version:** 1.5.3  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -13,7 +13,7 @@ MobHunt tracks monster hunting statistics by **Zone + Mob Name** and displays th
 - Added **Mini Target Window** mode.
 - Full and Mini layouts keep their own saved positions and sizes.
 - Added a **Mini** button to the Full window and a **Full** button to the Mini window.
-- Added `/mh mini`.
+- Added `/mhunt mini`.
 - Added a Mini-mode toggle to Config -> Window.
 
 
@@ -24,7 +24,7 @@ MobHunt tracks monster hunting statistics by **Zone + Mob Name** and displays th
 - Treasure now prefers the already-known encounter / recent-death record instead of re-validating the corpse as a live monster.
 - Increased recent-death association window to 30 seconds (runtime cleanup at 35 seconds).
 - Added diagnostics for **Treasure packets seen**, **Drops counted**, and **Drops ignored/unassociated**.
-- `/mh debug` now prints the parsed treasure packet and whether it was recorded or could not be associated.
+- `/mhunt debug` now prints the parsed treasure packet and whether it was recorded or could not be associated.
 - Item id `65535` is labeled **Gil**.
 
 ## Features
@@ -61,7 +61,7 @@ Players, party members, alliance members, trusts, and normal NPCs are not valid 
 Toggle Mini mode with:
 
 ```text
-/mh mini
+/mhunt mini
 ```
 
 or use **Config -> Window -> Mini Target Window**.
@@ -82,13 +82,14 @@ Full and Mini modes remember separate position/size settings.
 | Command | Description |
 |---|---|
 | `/mobhunt` | Toggle target window |
-| `/mh` | Short alias |
-| `/mh mini` | Toggle Full / Mini target view |
-| `/mh history` | Toggle searchable History |
-| `/mh config` | Toggle Config |
-| `/mh session` | Reset current-session statistics |
-| `/mh debug` | Toggle debug/tracking messages |
-| `/mh help` | Show commands |
+| `/mhunt` | Short alias |
+| `/mhunt mini` | Toggle Full / Mini target view |
+| `/mhunt history` | Toggle searchable History |
+| `/mhunt config` | Toggle Config |
+| `/mhunt timers` | Toggle the last-kill Timers window for the current zone |
+| `/mhunt session` | Reset current-session statistics |
+| `/mhunt debug` | Toggle debug/tracking messages |
+| `/mhunt help` | Show commands |
 
 ## Version 1.0.4 Drop Tracking Fix
 
@@ -123,7 +124,7 @@ If replacing v1.0.0, replace `mobhunt.lua` and reload the addon.
 2. Target a party member. The MobHunt target window should hide when Target Only is enabled; no fight record should be created.
 3. Target and engage an actual monster. The target window should appear and the fight counter should increment once.
 4. Participate in the fight and let a party member finish the monster. The kill should still count.
-5. Use `/mh mini`, move/resize Mini mode, switch back to Full, and verify both layouts remember their own geometry.
+5. Use `/mhunt mini`, move/resize Mini mode, switch back to Full, and verify both layouts remember their own geometry.
 
 
 ## v1.0.3
@@ -257,12 +258,12 @@ The selected width is retained, while height is calculated every frame from the 
 
 Manual height resizing is no longer required.
 
-### `/mh`
+### `/mhunt`
 
 Bare:
 
 ```text
-/mh
+/mhunt
 ```
 
 or:
@@ -273,7 +274,7 @@ or:
 
 now opens both the **History** and **Config** windows together.
 
-Existing subcommands such as `/mh history`, `/mh config`, `/mh mini`, `/mh session`, and `/mh debug` remain available.
+Existing subcommands such as `/mhunt history`, `/mhunt config`, `/mhunt mini`, `/mhunt session`, and `/mhunt debug` remain available.
 
 
 ## v1.0.11 Drop Table Spacing
@@ -302,3 +303,76 @@ Added a dedicated **Opacity** slider under **Config -> Window -> Background / Op
 - Updates the MobHunt window background live while dragging
 - Saves with the existing appearance settings
 - Continues to use the existing RGB background controls independently
+
+
+## v1.5.3 Drop Tracking: Find Lines
+- Drops are now also read from the "You find <item> on the <mob>." chat line, which appears after the drop for every item. The treasure-pool scan could miss an item when it landed in a pool slot that last held the same item (for example a second Beehive Chip).
+- The chat line, the treasure pool and the inventory are cross-checked per kill, so one drop is never counted twice.
+- Only kills you are credited for count (the mob name in the line must match a recent kill).
+- The first time an item can't be matched from the treasure pool, MobHunt builds an item-name index once (a brief pause).
+
+## v1.5.2 Target Window Toggle
+- Closing the target window with X used to hide it for good (there was no way to bring it back). Now:
+  - Config > Window has **Show Target Window**.
+  - `/mhunt target` toggles it.
+  - Bare `/mhunt` turns it back on along with History and Config.
+
+## v1.5.1 Data Tab
+- Config has a new **Data** tab: how many records, kills and drop entries are saved, and where (`Game\config\addons\MobHunt\<Character>_<id>\settings.lua`, one file per character).
+- **Purge drop data only** clears every drop table and keeps fights / kills / deaths.
+- **Purge all mob data** clears every mob record and the current session for a fresh start.
+- Both are red two-click buttons: click once, then click again within 3 seconds to confirm. Settings and window positions are kept.
+
+## v1.5.0 Mob Details, Item Search and Drop Fix
+- **Drop tracking fixes.** A new drop of the same item into a reused treasure-pool slot was invisible (only the item id was compared); slots now also compare the drop time. Your own killing blow can no longer be mistaken for a party member's kill, which made MobHunt skip the drops of your kill.
+- **Mob detail window.** Click a mob in History to open a window docked beside it: lifetime stats, times, this session, per-job stats and the full drop table. Click the mob again or the X to close it.
+- **Drop table:** drops, rate with a small bar, quantity, **kills since that item last dropped**, last seen and this session's count. "Since" starts counting from the next drop for items recorded before 1.5.0.
+- **Item search.** Typing an item name in the History search (e.g. `Honey`) lists every mob that dropped it, with an extra column showing the item and its drop rate (sortable).
+- **History cleanup:** Current Zone / All Zones tabs, a summary line (mobs, kills, deaths), measured right-aligned number columns, clickable headers (Win % is now sortable), and a header row that stays put while the list scrolls.
+- Fixed: with an empty search, Current Zone also listed mobs from other zones that had drops.
+- Delete Record moved to the detail window, with a two-click confirm.
+
+## v1.4.1 Timers Window Auto-Size
+
+- The Timers window now sizes itself to the list (it stayed at its widest size before). Its close button sits right after the title when the title bar is hidden.
+
+## v1.4.0 Per-Job Stats and Most Dangerous
+
+- **Per-job stats:** every fight, kill, death, EXP and fight time is also filed under the main job you were on when the fight started. History detail shows a **By Job** table (fights, kills, deaths, win %, avg EXP, avg fight). The target window adds an "As BLU: ..." line once a mob has been fought on two or more jobs. Toggle: Config -> **Show Per-Job Stats**. Starts from this version (older fights have no job).
+- **Most Dangerous:** History has a **Death %** column (deaths per fight) and a **Most Dangerous** button that sorts by it, highest first.
+
+## v1.3.1 Timers Window Width Fix
+
+- The Timers window no longer widens on its own (the close button sat past the window's content edge and the table stretched to the window width).
+
+## v1.3.0 Timers, EXP per Kill, Fight Time
+
+- Drawing your weapon no longer adds a fight. The mob is marked pending and the fight counts at the first real action between it and you / your party. If someone outside your party claims it first, nothing is counted.
+- Each mob now shows **Avg EXP / Kill** (from the EXP you receive for its kills), **Avg Fight** (first action to kill) and **Last Kill** (time since). The session block also shows EXP earned from that mob.
+- New **Timers** window (`/mhunt timers`, or the Timers button): time since the last kill of every mob in the current zone, most recent first, for placeholder / NM camps. Your current target is highlighted.
+- EXP and fight-time averages start from this version; older kills have no data, so the averages show `--` until new kills are recorded.
+
+## v1.2.0 Multi-Mob and Party Kill Fixes
+
+- Fighting several mobs: a mob you stop hitting for a while (slept, bound, or waiting while you kill another) no longer times out while it is alive and claimed by you or your party. Before, its kill counted as a brand-new fight and the first fight was left unfinished.
+- Party kills you never touched are now credited as a fight and a kill, with their drops. Applies when you get EXP for the kill, or when a party / alliance member gets the kill (or your party holds the claim). Turn it off with **Count party kills you did not join** in Config.
+
+## v1.1.1 Target Window Width Fix
+
+- Fixed the target / mini window widening forever while a mob was targeted. The auto-sized width was being saved back and fed into the next frame.
+- Widths saved while the bug was active are reset to the default (410 full, 260 mini).
+
+## v1.1.0 Suite Styling and Tracking Fixes
+
+### Styling
+
+- Same black-base styling as the rest of the addon suite, with a **Theme** dropdown (Config -> Display): **Forest** (default), **Rust**, **Bone**.
+- Config uses flat styled tabs; History scope and window buttons show their on/off state.
+- Kill / death / muted colors stay configurable. The old Accent color is now set by the theme.
+
+### Tracking fixes
+
+- **Party drops:** when a party / alliance member kills a different mob after your kill, new treasure-pool items are no longer credited to your mob (prevents wrong drop rates in groups). Shown in diagnostics as ignored/unassociated.
+- **Long party fights:** an open fight now stays alive while the mob is still in combat with anyone, so support jobs keep kill credit even if they only heal / buff for a while.
+- **Saving:** lifetime statistics are written at most every 10 seconds during play (and on zoning / unload) instead of every 0.75 seconds, avoiding hitches as History grows. Window / option changes still save immediately.
+- Target and zone-name lookups are done once per frame instead of repeatedly.

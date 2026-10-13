@@ -1,6 +1,6 @@
 --[[
     IzClock - Ashita v4 / HorizonXI
-    Version 2.9.0
+    Version 2.9.5
 
     Commands:
       /ic
@@ -20,7 +20,7 @@
 
 addon.name      = 'izclock';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '2.9.4';
+addon.version   = '2.9.5';
 addon.desc      = 'Displays Vana\'diel time, day rotation, moon phase, and local time.';
 addon.link      = '';
 
@@ -38,6 +38,7 @@ local defaults = T{
     hide_title_bar = false,
     hide_border = false,
     show_local_time = false,
+    show_jp_time = false,
     local_time_24h = false,
     show_local_seconds = false,
     show_moon_phase = false,
@@ -65,6 +66,7 @@ local state = T{
     hide_title_bar = { config.hide_title_bar == true },
     hide_border = { config.hide_border == true },
     show_local_time = { config.show_local_time == true },
+    show_jp_time = { config.show_jp_time == true },
     local_time_24h = { config.local_time_24h == true },
     show_local_seconds = { config.show_local_seconds == true },
     show_moon_phase = { config.show_moon_phase == true },
@@ -348,7 +350,7 @@ local function draw_compact_separator()
     imgui.SameLine();
 end
 
-local function draw_compact_line(local_time_str, vana_time_str, day_index, next_day_index, countdown_str, moon_name, moon_percent)
+local function draw_compact_line(local_time_str, vana_time_str, jp_time_str, day_index, next_day_index, countdown_str, moon_name, moon_percent)
     local parts_width = 0;
     local separators = 0;
 
@@ -359,6 +361,11 @@ local function draw_compact_line(local_time_str, vana_time_str, day_index, next_
 
     parts_width = parts_width + compact_part_width('VANA', vana_time_str);
     separators = separators + 1;
+
+    if state.show_jp_time[1] then
+        parts_width = parts_width + compact_part_width('JP', jp_time_str or '--:--');
+        separators = separators + 1;
+    end
 
     parts_width = parts_width + day_value_width(day_index) + text_width(' > ') + day_value_width(next_day_index);
     separators = separators + 1;
@@ -384,6 +391,13 @@ local function draw_compact_line(local_time_str, vana_time_str, day_index, next_
     imgui.SameLine();
     imgui.TextColored(UI_ACCENT, vana_time_str);
     draw_compact_separator();
+
+    if state.show_jp_time[1] then
+        imgui.TextColored(UI_MUTED, 'JP');
+        imgui.SameLine();
+        imgui.TextColored(UI_TEXT, jp_time_str or '--:--');
+        draw_compact_separator();
+    end
 
     draw_day_value(day_index);
     local hover_current_day = imgui.IsItemHovered();
@@ -448,6 +462,7 @@ local function save_config()
     config.hide_title_bar = state.hide_title_bar[1];
     config.hide_border = state.hide_border[1];
     config.show_local_time = state.show_local_time[1];
+    config.show_jp_time = state.show_jp_time[1];
     config.local_time_24h = state.local_time_24h[1];
     config.show_local_seconds = state.show_local_seconds[1];
     config.show_moon_phase = state.show_moon_phase[1];
@@ -551,6 +566,7 @@ settings.register('settings', 'izclock_settings_update', function(s)
     state.hide_title_bar[1] = config.hide_title_bar == true;
     state.hide_border[1] = config.hide_border == true;
     state.show_local_time[1] = config.show_local_time == true;
+    state.show_jp_time[1] = config.show_jp_time == true;
     state.local_time_24h[1] = config.local_time_24h == true;
     state.show_local_seconds[1] = config.show_local_seconds == true;
     state.show_moon_phase[1] = config.show_moon_phase == true;
@@ -591,6 +607,41 @@ settings.register('settings', 'izclock_settings_update', function(s)
     state.open[1] = true;
 end);
 
+local function format_utc_time(timestamp)
+    local fmt;
+    if state.local_time_24h[1] then
+        fmt = state.show_local_seconds[1] and '!%H:%M:%S' or '!%H:%M';
+    else
+        fmt = state.show_local_seconds[1] and '!%I:%M:%S %p' or '!%I:%M %p';
+    end
+
+    local value = os.date(fmt, timestamp);
+    if value ~= nil and not state.local_time_24h[1] and value:sub(1, 1) == '0' then
+        value = value:sub(2);
+    end
+    return value;
+end
+
+local function get_local_time_string()
+    local fmt;
+    if state.local_time_24h[1] then
+        fmt = state.show_local_seconds[1] and '%H:%M:%S' or '%H:%M';
+    else
+        fmt = state.show_local_seconds[1] and '%I:%M:%S %p' or '%I:%M %p';
+    end
+
+    local value = os.date(fmt);
+    if value ~= nil and not state.local_time_24h[1] and value:sub(1, 1) == '0' then
+        value = value:sub(2);
+    end
+    return value;
+end
+
+local function get_jp_time_string()
+    -- Japan Standard Time is always UTC+9 and does not observe DST.
+    return format_utc_time(os.time() + (9 * 60 * 60));
+end
+
 ashita.events.register('d3d_present', 'izclock_present_cb', function()
     if not state.open[1] then
         return;
@@ -608,16 +659,10 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
     local countdown_str = format_countdown(seconds_to_next_day);
     local moon_name, moon_percent = get_moon_info(total_days);
 
-    -- Uses the computer's local timezone, including DST as handled by Windows.
-    local local_time_str = nil;
-    if state.local_time_24h[1] then
-        local_time_str = os.date(state.show_local_seconds[1] and '%H:%M:%S' or '%H:%M');
-    else
-        local_time_str = os.date(state.show_local_seconds[1] and '%I:%M:%S %p' or '%I:%M %p');
-        if local_time_str ~= nil and local_time_str:sub(1, 1) == '0' then
-            local_time_str = local_time_str:sub(2);
-        end
-    end
+    -- Local time follows the computer's timezone/DST.
+    -- JP time is derived from UTC at JST (UTC+9), which has no DST.
+    local local_time_str = get_local_time_string();
+    local jp_time_str = get_jp_time_string();
 
     -- Local theme only: this removes the default gray/red appearance without
     -- changing the user's global Ashita / ImGui theme.
@@ -655,6 +700,7 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
             draw_compact_line(
                 local_time_str,
                 time_str,
+                jp_time_str,
                 day_index,
                 next_day_index,
                 countdown_str,
@@ -667,6 +713,10 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
             end
 
             draw_label_value('VANA\'DIEL TIME', time_str, UI_ACCENT);
+
+            if state.show_jp_time[1] then
+                draw_label_value('JP TIME', jp_time_str or '--:--', UI_TEXT);
+            end
 
             if state.mini_mode[1] then
                 local combined_width = text_width('CURRENT DAY') + text_width(' ') + day_value_width(day_index);
@@ -815,6 +865,11 @@ local function render_config_window()
         end
 
         imgui.SameLine();
+        if imgui.Checkbox('Show JP Time', state.show_jp_time) then
+            config.show_jp_time = state.show_jp_time[1];
+            settings.save();
+        end
+
         if imgui.Checkbox('24hr Format', state.local_time_24h) then
             config.local_time_24h = state.local_time_24h[1];
             settings.save();

@@ -1,0 +1,5 @@
+# Personal data written by MogSuite while you play (your characters, learned prices, key item marks).
+# Keep it out of the repository; the built-in price list (item_prices.lua) is shipped.
+data/characters.lua
+data/prices_learned.lua
+data/key_items_temp.lua

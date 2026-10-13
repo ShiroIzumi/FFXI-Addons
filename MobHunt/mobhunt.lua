@@ -1,10 +1,10 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.0.4
+    Version 1.5.3
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
-      * Kills (party/alliance kill credit after personal participation)
+      * Kills (your kills, plus party/alliance kills near you; optional)
       * Deaths to the mob
       * Lifetime and current-session statistics
       * Treasure-pool drops, quantities, and observed drop percentages
@@ -12,23 +12,29 @@
 
     Commands:
       /mobhunt
-      /mh
-      /mh history
-      /mh config
-      /mh session
-      /mh debug
+      /mhunt
+      /mhunt history
+      /mhunt config
+      /mhunt timers
+      /mhunt session
+      /mhunt debug
 
     Notes:
       * Merely targeting a monster never increments a fight.
-      * An encounter starts when the player engages / acts on a monster,
-        or when that monster acts on the player.
-      * Drops are tied to packet 0x0D2's Dropper id/index when possible.
+      * Drawing your weapon does not start a fight. An encounter starts at
+        the first real action: you acting on the monster, the monster acting
+        on you, or (for a monster you engaged) a party member acting on it /
+        it acting on a party member. If someone outside your party claims it
+        first, nothing is counted.
+      * Treasure-pool drops are read from Ashita's treasure-pool memory and
+        credited to your most recent kill, unless a party member killed a
+        different mob more recently (then the drop is not credited).
       * The addon uses per-character Ashita settings for persistent lifetime data.
 ]]--
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.0.13';
+addon.version   = '1.5.3';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -37,10 +43,326 @@ require 'common';
 local imgui    = require 'imgui';
 local settings = require 'settings';
 
+-- ============================================================================
+-- UI theme (black base + accent), shared look with ScrollingCombatLog
+-- ============================================================================
+
+local UI_TITLE          = { 0.020, 0.020, 0.022, 1.00 };
+local UI_TITLE_ACTIVE   = { 0.080, 0.080, 0.090, 1.00 };
+local UI_POPUP          = { 0.050, 0.050, 0.056, 0.98 };
+local UI_BORDER         = { 0.250, 0.250, 0.280, 0.90 };
+local UI_CONTROL        = { 0.100, 0.100, 0.110, 1.00 };
+local UI_CONTROL_HOVER  = { 0.160, 0.160, 0.180, 1.00 };
+local UI_CONTROL_ACTIVE = { 0.220, 0.220, 0.250, 1.00 };
+local UI_TEXT           = { 0.93, 0.93, 0.95, 1.00 };
+local UI_MUTED          = { 0.62, 0.62, 0.66, 1.00 };
+local UI_ACCENT         = { 0.50, 0.50, 0.50, 1.00 };
+local UI_ACCENT_TEXT    = { 0.70, 0.70, 0.70, 1.00 };
+local UI_TRANSPARENT    = { 0.00, 0.00, 0.00, 0.00 };
+local UI_WHITE          = { 1.00, 1.00, 1.00, 1.00 };
+
+-- Values are 0-255 RGB.
+--   accent      : fills, underlines, checkmarks, slider grabs
+--   text        : headers and selected-tab text
+--   title_active: focused title bar
+--   border      : window / separator border
+local UI_THEMES = {
+    forest = {
+        label = 'Forest',
+        accent = { 111, 175, 79 }, text = { 164, 212, 136 },
+        title_active = { 20, 32, 18 }, border = { 44, 68, 38 },
+    },
+    rust = {
+        label = 'Rust',
+        accent = { 181, 82, 59 }, text = { 226, 140, 118 },
+        title_active = { 34, 20, 16 }, border = { 72, 40, 32 },
+    },
+    bone = {
+        label = 'Bone',
+        accent = { 207, 198, 176 }, text = { 232, 226, 210 },
+        title_active = { 28, 27, 25 }, border = { 64, 62, 56 },
+    },
+};
+
+local UI_THEME_ORDER = { 'forest', 'rust', 'bone' };
+local UI_THEME_DEFAULT = 'forest';
+local applied_ui_theme = nil;
+
+local function ui_set_rgb(dst, rgb)
+    dst[1] = rgb[1] / 255;
+    dst[2] = rgb[2] / 255;
+    dst[3] = rgb[3] / 255;
+end
+
+local function normalize_theme_key(key)
+    key = tostring(key or UI_THEME_DEFAULT):lower();
+    if UI_THEMES[key] == nil then
+        key = UI_THEME_DEFAULT;
+    end
+    return key;
+end
+
+-- Updates the shared UI color tables in place for the selected theme.
+local function apply_ui_theme(key)
+    key = normalize_theme_key(key);
+    if applied_ui_theme == key then
+        return;
+    end
+
+    local theme = UI_THEMES[key];
+    ui_set_rgb(UI_ACCENT, theme.accent);
+    ui_set_rgb(UI_ACCENT_TEXT, theme.text);
+    ui_set_rgb(UI_TITLE_ACTIVE, theme.title_active);
+    ui_set_rgb(UI_BORDER, theme.border);
+    applied_ui_theme = key;
+end
+
+local function ui_accent(alpha_mul)
+    return { UI_ACCENT[1], UI_ACCENT[2], UI_ACCENT[3], UI_ACCENT[4] * (alpha_mul or 1.0) };
+end
+
+-- Each push records how many colors / vars were pushed so the matching pop
+-- stays balanced even if a constant is missing on an older Ashita build.
+local ui_theme_stack = {};
+
+-- bg: window background color { r, g, b, a } (the user's configured color).
+-- theme_key: selected theme. scale: optional spacing multiplier.
+local function push_theme(bg, theme_key, scale)
+    apply_ui_theme(theme_key);
+    scale = tonumber(scale) or 1.0;
+
+    local color_count = 0;
+    local var_count = 0;
+
+    local function color(index, value)
+        if index ~= nil then
+            imgui.PushStyleColor(index, value);
+            color_count = color_count + 1;
+        end
+    end
+
+    local function var(index, value)
+        if index ~= nil then
+            imgui.PushStyleVar(index, value);
+            var_count = var_count + 1;
+        end
+    end
+
+    color(ImGuiCol_WindowBg, { bg[1], bg[2], bg[3], bg[4] });
+    color(ImGuiCol_ChildBg, UI_TRANSPARENT);
+    color(ImGuiCol_PopupBg, UI_POPUP);
+    color(ImGuiCol_TitleBg, UI_TITLE);
+    color(ImGuiCol_TitleBgActive, UI_TITLE_ACTIVE);
+    color(ImGuiCol_TitleBgCollapsed, UI_TITLE);
+    color(ImGuiCol_Border, UI_BORDER);
+    color(ImGuiCol_BorderShadow, UI_TRANSPARENT);
+
+    color(ImGuiCol_Text, UI_TEXT);
+    color(ImGuiCol_TextDisabled, UI_MUTED);
+    color(ImGuiCol_TextSelectedBg, ui_accent(0.35));
+
+    color(ImGuiCol_FrameBg, UI_CONTROL);
+    color(ImGuiCol_FrameBgHovered, UI_CONTROL_HOVER);
+    color(ImGuiCol_FrameBgActive, UI_CONTROL_ACTIVE);
+    color(ImGuiCol_CheckMark, UI_ACCENT);
+    color(ImGuiCol_SliderGrab, ui_accent(0.80));
+    color(ImGuiCol_SliderGrabActive, UI_ACCENT);
+
+    color(ImGuiCol_Button, UI_CONTROL);
+    color(ImGuiCol_ButtonHovered, UI_CONTROL_HOVER);
+    color(ImGuiCol_ButtonActive, UI_CONTROL_ACTIVE);
+
+    color(ImGuiCol_Header, ui_accent(0.22));
+    color(ImGuiCol_HeaderHovered, ui_accent(0.30));
+    color(ImGuiCol_HeaderActive, ui_accent(0.40));
+
+    color(ImGuiCol_Separator, UI_BORDER);
+    color(ImGuiCol_SeparatorHovered, ui_accent(0.60));
+    color(ImGuiCol_SeparatorActive, UI_ACCENT);
+
+    color(ImGuiCol_ScrollbarBg, { 0.00, 0.00, 0.00, 0.20 });
+    color(ImGuiCol_ScrollbarGrab, UI_CONTROL_HOVER);
+    color(ImGuiCol_ScrollbarGrabHovered, UI_CONTROL_ACTIVE);
+    color(ImGuiCol_ScrollbarGrabActive, ui_accent(0.80));
+
+    color(ImGuiCol_ResizeGrip, ui_accent(0.20));
+    color(ImGuiCol_ResizeGripHovered, ui_accent(0.45));
+    color(ImGuiCol_ResizeGripActive, ui_accent(0.70));
+
+    color(ImGuiCol_Tab, UI_CONTROL);
+    color(ImGuiCol_TabHovered, UI_CONTROL_HOVER);
+    color(ImGuiCol_TabActive, ui_accent(0.35));
+
+    color(ImGuiCol_TableHeaderBg, { UI_CONTROL[1], UI_CONTROL[2], UI_CONTROL[3], 1.0 });
+    color(ImGuiCol_TableBorderStrong, UI_BORDER);
+    color(ImGuiCol_TableBorderLight, { UI_BORDER[1], UI_BORDER[2], UI_BORDER[3], 0.45 });
+    color(ImGuiCol_TableRowBg, UI_TRANSPARENT);
+    color(ImGuiCol_TableRowBgAlt, { 1.00, 1.00, 1.00, 0.035 });
+
+    color(ImGuiCol_PlotHistogram, UI_ACCENT);
+
+    var(ImGuiStyleVar_WindowRounding, 6.0);
+    var(ImGuiStyleVar_ChildRounding, 4.0);
+    var(ImGuiStyleVar_FrameRounding, 4.0);
+    var(ImGuiStyleVar_PopupRounding, 4.0);
+    var(ImGuiStyleVar_ScrollbarRounding, 6.0);
+    var(ImGuiStyleVar_GrabRounding, 4.0);
+    var(ImGuiStyleVar_ScrollbarSize, 11.0);
+    var(ImGuiStyleVar_WindowPadding, { 12 * scale, 10 * scale });
+    var(ImGuiStyleVar_FramePadding, { 8 * scale, 4 * scale });
+    var(ImGuiStyleVar_ItemSpacing, { 8 * scale, 5 * scale });
+    var(ImGuiStyleVar_ItemInnerSpacing, { 6 * scale, 4 * scale });
+
+    ui_theme_stack[#ui_theme_stack + 1] = { color_count, var_count };
+end
+
+local function pop_theme()
+    local entry = table.remove(ui_theme_stack);
+    if entry == nil then return; end
+    if entry[2] > 0 then imgui.PopStyleVar(entry[2]); end
+    if entry[1] > 0 then imgui.PopStyleColor(entry[1]); end
+end
+
+-- Short accent bar along the bottom edge of the last drawn item.
+local function draw_item_underline()
+    if imgui.GetItemRectMin == nil or imgui.GetItemRectMax == nil then return; end
+
+    local min_x = imgui.GetItemRectMin();
+    local max_x, max_y = imgui.GetItemRectMax();
+    min_x = tonumber(min_x); max_x = tonumber(max_x); max_y = tonumber(max_y);
+    if min_x == nil or max_x == nil or max_y == nil then return; end
+
+    local draw_list = imgui.GetWindowDrawList();
+    if draw_list == nil then return; end
+
+    draw_list:AddRectFilled({ min_x + 4, max_y - 2 }, { max_x - 4, max_y }, imgui.GetColorU32(UI_ACCENT), 1.0);
+end
+
+-- On/off button: accent-tinted fill and underline when selected.
+local function draw_toggle_button(label, id, selected, size)
+    if selected then
+        imgui.PushStyleColor(ImGuiCol_Button, ui_accent(0.30));
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, ui_accent(0.36));
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, ui_accent(0.44));
+        imgui.PushStyleColor(ImGuiCol_Text, UI_WHITE);
+    else
+        imgui.PushStyleColor(ImGuiCol_Button, UI_CONTROL);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, UI_CONTROL_HOVER);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, UI_CONTROL_ACTIVE);
+        imgui.PushStyleColor(ImGuiCol_Text, UI_TEXT);
+    end
+
+    local clicked;
+    if size then
+        clicked = imgui.Button(label .. '##' .. id, size);
+    else
+        clicked = imgui.Button(label .. '##' .. id);
+    end
+
+    if selected then
+        draw_item_underline();
+    end
+
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+-- Flat tab button: accent text + underline when selected.
+local function draw_styled_tab(label, id, selected)
+    if selected then
+        imgui.PushStyleColor(ImGuiCol_Button, ui_accent(0.14));
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, ui_accent(0.18));
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, ui_accent(0.22));
+        imgui.PushStyleColor(ImGuiCol_Text, UI_ACCENT_TEXT);
+    else
+        imgui.PushStyleColor(ImGuiCol_Button, { UI_CONTROL[1], UI_CONTROL[2], UI_CONTROL[3], 0.55 });
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, UI_CONTROL_HOVER);
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, UI_CONTROL_ACTIVE);
+        imgui.PushStyleColor(ImGuiCol_Text, UI_MUTED);
+    end
+
+    local clicked = imgui.Button(label .. '##' .. id);
+    if selected then
+        draw_item_underline();
+    end
+
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+-- Draws a row of styled tabs; returns the selected index.
+local function draw_tab_row(tabs, selected, id_prefix)
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 12, 6 });
+    for index, label in ipairs(tabs) do
+        if index > 1 then
+            imgui.SameLine(0, 4);
+        end
+        if draw_styled_tab(label, id_prefix .. tostring(index), index == selected) then
+            selected = index;
+        end
+    end
+    imgui.PopStyleVar(1);
+    imgui.Spacing();
+    imgui.Separator();
+    imgui.Spacing();
+    return selected;
+end
+
+local function section_header(title)
+    imgui.TextColored(UI_ACCENT_TEXT, title);
+    imgui.PushStyleColor(ImGuiCol_Separator, ui_accent(0.35));
+    imgui.Separator();
+    imgui.PopStyleColor(1);
+    imgui.Spacing();
+end
+
+local function align_label()
+    if imgui.AlignTextToFramePadding ~= nil then
+        imgui.AlignTextToFramePadding();
+    end
+end
+
+local function help_marker(text_value)
+    imgui.SameLine();
+    imgui.TextDisabled('(?)');
+    if imgui.IsItemHovered() then
+        imgui.BeginTooltip();
+        imgui.PushTextWrapPos(420);
+        imgui.TextUnformatted(text_value);
+        imgui.PopTextWrapPos();
+        imgui.EndTooltip();
+    end
+end
+
+-- Theme dropdown. Returns the newly chosen key, or nil when unchanged.
+local function draw_theme_combo(current_key, id)
+    current_key = normalize_theme_key(current_key);
+    local index = 0;
+    local labels = {};
+    for i, key in ipairs(UI_THEME_ORDER) do
+        labels[#labels + 1] = UI_THEMES[key].label;
+        if key == current_key then
+            index = i - 1;
+        end
+    end
+
+    local value = { index };
+    if imgui.Combo('Theme##' .. tostring(id or 'theme'), value, table.concat(labels, '\0') .. '\0\0') then
+        local chosen = UI_THEME_ORDER[(tonumber(value[1]) or 0) + 1];
+        if chosen and chosen ~= current_key then
+            return chosen;
+        end
+    end
+    return nil;
+end
+
+-- ============================================================================
+
 local defaults = T{
     visible = true,
     history_visible = false,
     config_visible = false,
+    timers_visible = false,
 
     font_scale = 1.00,
 
@@ -52,6 +374,7 @@ local defaults = T{
         muted = T{ 0.68, 0.70, 0.74, 1.00 },
         border = true,
         title_bar = true,
+        theme = 'forest',
     },
 
     behavior = T{
@@ -61,9 +384,11 @@ local defaults = T{
         show_session = true,
         show_drops = true,
         show_kills_per_hour = true,
+        show_by_job = true,
         include_zero_drop_rows = false,
         debug = false,
         encounter_timeout = 120,
+        credit_party_kills = true,
     },
 
     locks = T{
@@ -100,6 +425,13 @@ local defaults = T{
         height = 590,
     },
 
+    timers_window = T{
+        x = 650,
+        y = 150,
+        width = 330,
+        height = 200,
+    },
+
     records = T{},
 
     -- Lightweight reload-safe markers. These do NOT add statistics themselves;
@@ -114,6 +446,12 @@ local state = T{
     visible = { config.visible ~= false },
     history_visible = { config.history_visible == true },
     config_visible = { config.config_visible == true },
+    timers_visible = { config.timers_visible == true },
+    timers_apply_geometry = true,
+    timers_geom = {
+        tonumber(config.timers_window and config.timers_window.x) or 650,
+        tonumber(config.timers_window and config.timers_window.y) or 150,
+    },
 
     font_scale = { tonumber(config.font_scale) or 1.00 },
 
@@ -148,6 +486,7 @@ local state = T{
         tonumber(config.appearance and config.appearance.muted and config.appearance.muted[4]) or defaults.appearance.muted[4],
     },
 
+    theme = tostring(config.appearance and config.appearance.theme or 'forest'),
     border = { not (config.appearance and config.appearance.border == false) },
     title_bar = { not (config.appearance and config.appearance.title_bar == false) },
 
@@ -157,8 +496,10 @@ local state = T{
     show_session = { not (config.behavior and config.behavior.show_session == false) },
     show_drops = { not (config.behavior and config.behavior.show_drops == false) },
     show_kills_per_hour = { not (config.behavior and config.behavior.show_kills_per_hour == false) },
+    show_by_job = { not (config.behavior and config.behavior.show_by_job == false) },
     debug = { config.behavior and config.behavior.debug == true },
     encounter_timeout = { tonumber(config.behavior and config.behavior.encounter_timeout) or 120 },
+    credit_party_kills = { not (config.behavior and config.behavior.credit_party_kills == false) },
 
     lock_target = { config.locks and config.locks.target == true },
     lock_history = { config.locks and config.locks.history == true },
@@ -198,6 +539,16 @@ local state = T{
     settings_dirty = false,
     data_dirty = false,
     last_save = 0,
+    last_data_save = 0,
+    config_tab = 1,
+
+    -- Mobs a party / alliance member killed that were not your tracked kill.
+    -- Used so their treasure is not credited to your mob.
+    recent_party_kills = T{},   -- [mob_server_id] = os.clock()
+    -- Mobs you drew your weapon on. A fight only counts once a real action
+    -- happens between that mob and you / your party.
+    pending_engage = T{},       -- [mob_server_id] = { info = ..., time = os.clock() }
+    zone_name_cache = T{},      -- [zone_id] = name
 
     session_start = os.time(),
     session = T{},
@@ -222,6 +573,10 @@ local state = T{
     history_sort = 'kills',
     history_sort_desc = true,
     history_delete_key = nil,
+    detail_open = false,      -- Mob detail window (docked beside History)
+    detail_delete_at = nil,   -- os.clock() of the first Delete click (two-click confirm)
+    purge_armed = nil,        -- { id = 'all' | 'drops', at = os.clock() } for Config > Data
+    history_frame = nil,      -- { x, y, w, h } of History this frame, for docking
 
     debug_counters = T{
         actions = 0,
@@ -259,6 +614,7 @@ local function ensure_config_tables()
     if config.mini_window == nil then config.mini_window = T{}; end
     if config.history_window == nil then config.history_window = T{}; end
     if config.config_window == nil then config.config_window = T{}; end
+    if config.timers_window == nil then config.timers_window = T{}; end
     if config.records == nil then config.records = T{}; end
     if config.active_encounters == nil then config.active_encounters = T{}; end
 
@@ -292,6 +648,9 @@ local function record_key(zone_id, name)
 end
 
 local function safe_zone_name(zone_id)
+    local cached = state.zone_name_cache[tonumber(zone_id) or 0];
+    if cached ~= nil then return cached; end
+
     local rm = AshitaCore:GetResourceManager();
     if rm == nil then return ('Zone %d'):fmt(tonumber(zone_id) or 0); end
 
@@ -300,10 +659,85 @@ local function safe_zone_name(zone_id)
     end);
 
     if ok and value ~= nil and tostring(value) ~= '' then
+        state.zone_name_cache[tonumber(zone_id) or 0] = tostring(value);
         return tostring(value);
     end
 
     return ('Zone %d'):fmt(tonumber(zone_id) or 0);
+end
+
+-- True when the server id belongs to the player's party / alliance.
+local function is_party_member(server_id)
+    server_id = tonumber(server_id);
+    if not server_id or server_id == 0 then return false; end
+
+    local found = false;
+    pcall(function()
+        local party = AshitaCore:GetMemoryManager():GetParty();
+        for slot = 0, 17 do
+            if party:GetMemberServerId(slot) == server_id then
+                found = true;
+                return;
+            end
+        end
+    end);
+    return found;
+end
+
+-- True when the claim id (low 16 bits, as the client stores it) belongs to
+-- you or a party / alliance member.
+local function claimed_by_party(claim)
+    claim = tonumber(claim) or 0;
+    local low = bit.band(claim, 0xFFFF);
+    if low == 0 then return false; end
+
+    local found = false;
+    pcall(function()
+        local party = AshitaCore:GetMemoryManager():GetParty();
+        for slot = 0, 17 do
+            local sid = tonumber(party:GetMemberServerId(slot)) or 0;
+            if sid ~= 0 and (sid == claim or bit.band(sid, 0xFFFF) == low) then
+                found = true;
+                return;
+            end
+        end
+    end);
+    return found;
+end
+
+-- Live check on a mob: still the same entity, still alive, and claimed by
+-- you or your party. Used to keep encounters open while you fight other
+-- mobs (slept / bound / waiting adds) and to credit party kills.
+local function mob_alive_and_party_claimed(mob_id, index)
+    mob_id = tonumber(mob_id) or 0;
+    index = tonumber(index) or 0;
+    if mob_id == 0 or index <= 0 then return false; end
+
+    local ok, alive, claimed = pcall(function()
+        local em = AshitaCore:GetMemoryManager():GetEntity();
+        if em == nil then return false, false; end
+        if tonumber(em:GetServerId(index)) ~= mob_id then return false, false; end
+        local hpp = tonumber(em:GetHPPercent(index)) or 0;
+        return hpp > 0, claimed_by_party(em:GetClaimStatus(index));
+    end);
+
+    if not ok then return false; end
+    return alive == true and claimed == true;
+end
+
+local function mob_party_claimed(mob_id, index)
+    mob_id = tonumber(mob_id) or 0;
+    index = tonumber(index) or 0;
+    if mob_id == 0 or index <= 0 then return false; end
+
+    local ok, claimed = pcall(function()
+        local em = AshitaCore:GetMemoryManager():GetEntity();
+        if em == nil then return false; end
+        if tonumber(em:GetServerId(index)) ~= mob_id then return false; end
+        return claimed_by_party(em:GetClaimStatus(index));
+    end);
+
+    return ok and claimed == true;
 end
 
 local function get_zone_id()
@@ -537,9 +971,39 @@ local function can_resume_persisted_encounter(info, key, marker)
     return true;
 end
 
+-- ----------------------------------------------------------------------------
+-- Per-job statistics: every fight / kill / death / EXP / fight time is also
+-- filed under the main job you were on when the fight started.
+-- ----------------------------------------------------------------------------
+local JOB_NAMES = {
+    'WAR', 'MNK', 'WHM', 'BLM', 'RDM', 'THF', 'PLD', 'DRK', 'BST',
+    'BRD', 'RNG', 'SAM', 'NIN', 'DRG', 'SMN', 'BLU', 'COR', 'PUP',
+};
+
+local function current_job_name()
+    local ok, id = pcall(function()
+        return AshitaCore:GetMemoryManager():GetPlayer():GetMainJob();
+    end);
+    if not ok then return nil; end
+    return JOB_NAMES[tonumber(id) or 0];
+end
+
+local function job_stats(rec, job)
+    if rec == nil or job == nil then return nil; end
+    if rec.by_job == nil then rec.by_job = T{}; end
+    local j = rec.by_job[job];
+    if j == nil then
+        j = T{ fights = 0, kills = 0, deaths = 0, exp_total = 0, exp_kills = 0, fight_seconds = 0, timed_kills = 0 };
+        rec.by_job[job] = j;
+    end
+    return j;
+end
+
 local function start_encounter(info, reason)
     if state.player_dead == true then return; end
     if info == nil or info.id == nil or info.name == nil or info.name == '' or info.is_mob ~= true then return; end
+
+    state.pending_engage[info.id] = nil;
 
     local existing = state.encounters[info.id];
     if existing ~= nil then
@@ -571,6 +1035,7 @@ local function start_encounter(info, reason)
             started_wall = tonumber(marker.started_wall) or os.time(),
             last_activity_wall = os.time(),
             resumed = true,
+            job = current_job_name(),
         };
 
         -- Session statistics intentionally restart when the addon reloads.
@@ -596,6 +1061,10 @@ local function start_encounter(info, reason)
     rec.fights = (tonumber(rec.fights) or 0) + 1;
     rec.last_seen = os.time();
 
+    local job = current_job_name();
+    local js = job_stats(rec, job);
+    if js then js.fights = (tonumber(js.fights) or 0) + 1; end
+
     local s = get_session_record(key);
     s.fights = (tonumber(s.fights) or 0) + 1;
     if tonumber(s.first_fight) == 0 then s.first_fight = os.time(); end
@@ -612,6 +1081,8 @@ local function start_encounter(info, reason)
         started_wall = os.time(),
         last_activity_wall = os.time(),
         resumed = false,
+        reason = tostring(reason or ''),
+        job = job,
     };
 
     persist_encounter(state.encounters[info.id]);
@@ -637,13 +1108,13 @@ local function count_kill(mob_id, hinted_index, source)
 
     local last = state.recent_kills[mob_id];
     if last ~= nil and (os.clock() - last) < 2.0 then
-        return;
+        return true;
     end
 
     local enc = state.encounters[mob_id];
     if enc == nil then
         -- MobHunt only credits kills after the player participated.
-        return;
+        return false;
     end
 
     local info = resolve_entity(mob_id, hinted_index) or T{
@@ -656,9 +1127,26 @@ local function count_kill(mob_id, hinted_index, source)
     };
 
     local rec, key = get_or_create_record(info);
-    if rec == nil then return; end
+    if rec == nil then return false; end
 
     rec.kills = (tonumber(rec.kills) or 0) + 1;
+    local js = job_stats(rec, enc.job or current_job_name());
+    if js then js.kills = (tonumber(js.kills) or 0) + 1; end
+
+    -- Fight length (wall clock from the first real action to the kill).
+    -- Party kills you never joined have no real length and are skipped.
+    if enc.reason ~= 'party_kill' then
+        local seconds = os.time() - (tonumber(enc.started_wall) or os.time());
+        if seconds >= 1 and seconds <= 3600 then
+            rec.fight_seconds = (tonumber(rec.fight_seconds) or 0) + seconds;
+            rec.timed_kills = (tonumber(rec.timed_kills) or 0) + 1;
+            if js then
+                js.fight_seconds = (tonumber(js.fight_seconds) or 0) + seconds;
+                js.timed_kills = (tonumber(js.timed_kills) or 0) + 1;
+            end
+        end
+    end
+
     rec.last_kill = os.time();
     rec.last_seen = os.time();
     rec.current_streak = (tonumber(rec.current_streak) or 0) + 1;
@@ -670,6 +1158,7 @@ local function count_kill(mob_id, hinted_index, source)
     state.recent_kills[mob_id] = os.clock();
     state.recent_dead[mob_id] = T{
         key = key,
+        job = enc.job or current_job_name(),
         time = os.clock(),
         info = info,
         treasure_seen = false,
@@ -681,6 +1170,89 @@ local function count_kill(mob_id, hinted_index, source)
     state.debug_counters.kills = (tonumber(state.debug_counters.kills) or 0) + 1;
     state.data_dirty = true;
     dbg(('Kill: %s (%s), source=%s'):fmt(info.name, info.zone_name, tostring(source)));
+    return true;
+end
+
+-- A mob death that was not one of your tracked kills. When a party member
+-- made it, remember it so its treasure is not credited to your last kill.
+local function note_party_kill(mob_id, killer_id)
+    mob_id = tonumber(mob_id);
+    if mob_id == nil or mob_id == 0 then return; end
+    if state.recent_dead[mob_id] ~= nil then return; end
+    -- Your own killing blow is never a "party kill": marking it as one made
+    -- the treasure check refuse the drops of your own kill.
+    if killer_id ~= nil and tonumber(killer_id) == tonumber(get_player_id()) then return; end
+    if killer_id ~= nil and not is_party_member(killer_id) then return; end
+    state.recent_party_kills[mob_id] = os.clock();
+end
+
+-- EXP from a kill you were credited for (0x02D addressed to you).
+local EXP_MESSAGES = T{ 8, 105, 253 };
+
+local function credit_kill_exp(mob_id, amount)
+    mob_id = tonumber(mob_id) or 0;
+    amount = tonumber(amount) or 0;
+    if mob_id == 0 or amount <= 0 then return; end
+
+    local dead = state.recent_dead[mob_id];
+    if dead == nil or dead.exp_credited then return; end
+
+    local rec = config.records[dead.key];
+    if rec == nil then return; end
+
+    rec.exp_total = (tonumber(rec.exp_total) or 0) + amount;
+    rec.exp_kills = (tonumber(rec.exp_kills) or 0) + 1;
+
+    local js = job_stats(rec, dead.job);
+    if js then
+        js.exp_total = (tonumber(js.exp_total) or 0) + amount;
+        js.exp_kills = (tonumber(js.exp_kills) or 0) + 1;
+    end
+
+    local s = get_session_record(dead.key);
+    s.exp_total = (tonumber(s.exp_total) or 0) + amount;
+
+    dead.exp_credited = true;
+    state.data_dirty = true;
+    dbg(('EXP: %d from %s'):fmt(amount, tostring(rec.name)));
+end
+
+-- Most recent party kill time (clock) that is not one of your kills.
+local function latest_party_kill_time()
+    local latest = nil;
+    for _, t in pairs(state.recent_party_kills) do
+        t = tonumber(t);
+        if t and (latest == nil or t > latest) then
+            latest = t;
+        end
+    end
+    return latest;
+end
+
+-- A party / alliance kill of a mob you never touched. Opens the fight and
+-- counts the kill so Kills never exceed Fights; drops then credit normally.
+local function credit_party_kill(mob_id, hinted_index, killer_id, source)
+    if not state.credit_party_kills[1] then return false; end
+    if state.player_dead == true then return false; end
+
+    mob_id = tonumber(mob_id);
+    if mob_id == nil or mob_id == 0 then return false; end
+
+    local info = resolve_entity(mob_id, hinted_index);
+    if info == nil or info.is_mob ~= true then return false; end
+
+    -- 0x02D (EXP credit) is proof by itself. A death message needs a party
+    -- killer or a party claim on the mob.
+    if source ~= 'kill_packet' then
+        local by_party = killer_id ~= nil and is_party_member(killer_id);
+        if not by_party and not mob_party_claimed(mob_id, info.index) then
+            return false;
+        end
+    end
+
+    start_encounter(info, 'party_kill');
+    if state.encounters[mob_id] == nil then return false; end
+    return count_kill(mob_id, info.index, source .. '_party');
 end
 
 local function count_death(mob_id, hinted_index, source)
@@ -721,6 +1293,9 @@ local function count_death(mob_id, hinted_index, source)
     if rec == nil then return; end
 
     rec.deaths = (tonumber(rec.deaths) or 0) + 1;
+    local death_job = (enc and enc.job) or current_job_name();
+    local djs = job_stats(rec, death_job);
+    if djs then djs.deaths = (tonumber(djs.deaths) or 0) + 1; end
     rec.last_death = os.time();
     rec.last_seen = os.time();
     rec.current_streak = 0;
@@ -842,6 +1417,7 @@ local function count_drop(dropper_id, dropper_index, item_id, count)
     drop.occurrences = (tonumber(drop.occurrences) or 0) + 1;
     drop.quantity = (tonumber(drop.quantity) or 0) + count;
     drop.last_seen = os.time();
+    drop.last_kill_count = tonumber(rec.kills) or 0;
 
     local srec = get_session_record(key);
     local sdrop = srec.drops[ikey];
@@ -981,6 +1557,8 @@ local function record_drop_for_dead(dead, item_id, quantity, source)
     if first_for_kill then
         drop.occurrences = (tonumber(drop.occurrences) or 0) + 1;
         dead.drop_occurrences[ikey] = true;
+        -- Kill count when it last dropped (for "kills since last drop").
+        drop.last_kill_count = tonumber(rec.kills) or 0;
     end
 
     drop.quantity = (tonumber(drop.quantity) or 0) + quantity;
@@ -1011,6 +1589,158 @@ local function record_drop_for_dead(dead, item_id, quantity, source)
     return true;
 end
 
+-- Pool slot signature: item id plus the slot's drop time when Ashita exposes
+-- it. Lets a new drop of the SAME item into a reused slot be detected (with
+-- only the item id, a second Honey replacing a Honey was invisible).
+local function treasure_signature(item, item_id)
+    local drop_time = 0;
+    pcall(function() drop_time = tonumber(item.DropTime) or 0; end);
+    return ('%d:%d'):fmt(tonumber(item_id) or 0, drop_time);
+end
+
+-- Credits an item to a kill from one source ('chat', 'pool' or 'inv').
+-- Each source keeps its own count per kill; only the amount above what has
+-- already been recorded is added, so the same drop seen by the chat line,
+-- the treasure pool and the inventory is counted once.
+local function credit_item(dead, item_id, quantity, kind, label)
+    if dead == nil then return false; end
+    item_id = tonumber(item_id) or 0;
+    quantity = math.max(1, tonumber(quantity) or 1);
+    if item_id <= 0 or item_id == 65535 then return false; end
+    if dead.src_counts == nil then dead.src_counts = T{}; end
+    if dead.recorded_counts == nil then dead.recorded_counts = T{}; end
+    local ik = tostring(item_id);
+    local sc = dead.src_counts[kind];
+    if sc == nil then sc = T{}; dead.src_counts[kind] = sc; end
+    sc[ik] = (tonumber(sc[ik]) or 0) + quantity;
+    local excess = sc[ik] - (tonumber(dead.recorded_counts[ik]) or 0);
+    if excess <= 0 then return false; end
+    dead.recorded_counts[ik] = sc[ik];
+    return record_drop_for_dead(dead, item_id, excess, label);
+end
+
+-- ----------------------------------------------------------------------------
+-- "You find <item> on the <mob>." chat line: the most reliable drop signal.
+-- Shown after the drop happens (allowed on HorizonXI). The item text is the
+-- log name ("pot of honey"), matched to an item id through the treasure pool
+-- first and a one-time item-name index as fallback.
+-- ----------------------------------------------------------------------------
+local item_text_cache = T{};          -- [lowercase log/display name] = item id
+local item_index_built = false;
+
+local function item_names_lower(item)
+    local names = {};
+    local function add(arr)
+        if arr == nil then return; end
+        local v = nil;
+        pcall(function() v = arr[1] or arr[0]; end);
+        if v ~= nil and tostring(v) ~= '' then names[#names + 1] = tostring(v):lower(); end
+    end
+    pcall(function() add(item.LogNameSingular); end);
+    pcall(function() add(item.LogNamePlural); end);
+    pcall(function() add(item.Name); end);
+    return names;
+end
+
+local function index_item(item_id, item)
+    for _, n in ipairs(item_names_lower(item)) do
+        if item_text_cache[n] == nil then item_text_cache[n] = item_id; end
+    end
+end
+
+local function resolve_item_from_text(text)
+    text = tostring(text or ''):lower();
+    if text == '' then return nil; end
+    if item_text_cache[text] ~= nil then return item_text_cache[text]; end
+
+    local rm = AshitaCore:GetResourceManager();
+    local mm = AshitaCore:GetMemoryManager();
+    if rm == nil then return nil; end
+
+    -- 1) Items currently in the treasure pool.
+    local inv = mm and mm:GetInventory() or nil;
+    if inv ~= nil then
+        for slot = 0, 9 do
+            local ok, pool = pcall(function() return inv:GetTreasurePoolItem(slot); end);
+            local id = ok and pool ~= nil and tonumber(pool.ItemId) or 0;
+            if id ~= nil and id > 0 and id ~= 65535 then
+                local ok2, item = pcall(function() return rm:GetItemById(id); end);
+                if ok2 and item ~= nil then index_item(id, item); end
+            end
+        end
+        if item_text_cache[text] ~= nil then return item_text_cache[text]; end
+    end
+
+    -- 2) One-time full index (a short pause the first time only).
+    if not item_index_built then
+        item_index_built = true;
+        for id = 1, 32000 do
+            local ok, item = pcall(function() return rm:GetItemById(id); end);
+            if ok and item ~= nil then index_item(id, item); end
+        end
+    end
+    return item_text_cache[text];
+end
+
+local function strip_chat_codes(text)
+    text = tostring(text or '');
+    text = text:gsub('[\30\31].', ''):gsub('\127.', ''):gsub('[\r\n]', '');
+    return text;
+end
+
+local function find_recent_dead_by_name(mob_name)
+    local now = os.clock();
+    local best, best_time = nil, -1;
+    local wanted = tostring(mob_name or ''):lower();
+    for _, dead in pairs(state.recent_dead) do
+        if dead ~= nil and dead.info ~= nil then
+            local t = tonumber(dead.time) or 0;
+            if (now - t) <= 30.0 and t > best_time and tostring(dead.info.name or ''):lower() == wanted then
+                best = dead;
+                best_time = t;
+            end
+        end
+    end
+    return best;
+end
+
+local function handle_find_message(message)
+    if message == nil or not message:find('find', 1, true) then return; end
+    local text = strip_chat_codes(message);
+    local item_text, mob_text = text:match('^You find (.-) on the (.-)%.%s*$');
+    if item_text == nil then
+        item_text, mob_text = text:match('^You find (.-) on (.-)%.%s*$');
+    end
+    if item_text == nil then return; end
+
+    local quantity = 1;
+    local count, rest = item_text:match('^(%d+)%s+(.+)$');
+    if count ~= nil then
+        quantity = tonumber(count) or 1;
+        item_text = rest;
+    else
+        item_text = item_text:gsub('^an? ', ''):gsub('^the ', '');
+    end
+
+    local dead = find_recent_dead_by_name(mob_text);
+    if dead == nil then
+        dbg(('Find line ignored (not one of your recent kills): %s on %s'):fmt(item_text, tostring(mob_text)));
+        return;
+    end
+
+    -- Plural log names ("3 pots of honey") resolve through LogNamePlural.
+    local item_id = resolve_item_from_text(item_text);
+    if item_id == nil then
+        dbg(('Find line: could not match item "%s"'):fmt(item_text));
+        return;
+    end
+
+    dead.treasure_seen = true;
+    if credit_item(dead, item_id, quantity, 'chat', 'chat find line') then
+        state.debug_counters.chat_drops = (tonumber(state.debug_counters.chat_drops) or 0) + 1;
+    end
+end
+
 local function initialize_treasure_cache()
     if state.treasure_cache_ready then return; end
 
@@ -1027,7 +1757,7 @@ local function initialize_treasure_cache()
         if ok and item ~= nil and item.ItemId ~= nil then
             local item_id = tonumber(item.ItemId) or 0;
             if item_id > 0 and item_id ~= 65535 then
-                state.treasure_slots[slot] = item_id;
+                state.treasure_slots[slot] = treasure_signature(item, item_id);
             else
                 state.treasure_slots[slot] = nil;
             end
@@ -1059,6 +1789,7 @@ local function scan_treasure_pool_memory()
 
     for slot = 0, 9 do
         local item_id = 0;
+        local sig = nil;
         local ok, item = pcall(function() return inventory:GetTreasurePoolItem(slot); end);
 
         if ok and item ~= nil and item.ItemId ~= nil then
@@ -1069,14 +1800,28 @@ local function scan_treasure_pool_memory()
             -- Gil is intentionally excluded from the item drop table.
             item_id = 0;
         end
+        if item_id > 0 then sig = treasure_signature(item, item_id); end
 
-        local previous = tonumber(state.treasure_slots[slot]) or 0;
+        local previous = state.treasure_slots[slot];
 
-        -- A slot either went from empty -> item, or changed directly to a new item.
-        if item_id > 0 and item_id ~= previous then
+        -- A slot went from empty -> item, changed to a new item, or got a new
+        -- drop of the same item (different drop time).
+        if item_id > 0 and sig ~= previous then
             local dead = most_recent_kill_source(12.0);
-            if dead ~= nil then
-                if record_drop_for_dead(dead, item_id, 1, ('treasure-memory slot %d'):fmt(slot)) then
+            local party_kill = latest_party_kill_time();
+            if dead ~= nil and party_kill ~= nil and party_kill > (tonumber(dead.time) or 0) then
+                -- A party member killed a different mob after your kill; this
+                -- pool item most likely came from that mob.
+                dbg(('Treasure-pool item not credited: slot=%d item=%d (%s); a party kill is more recent than yours.'):fmt(
+                    slot, item_id, item_name(item_id)));
+                state.debug_counters.ignored_drops = (tonumber(state.debug_counters.ignored_drops) or 0) + 1;
+                dead = nil;
+                party_kill = -1;
+            end
+            if party_kill == -1 then
+                -- already reported above
+            elseif dead ~= nil then
+                if credit_item(dead, item_id, 1, 'pool', ('treasure-memory slot %d'):fmt(slot)) then
                     dead.treasure_seen = true;
                     state.debug_counters.treasure_memory_drops =
                         (tonumber(state.debug_counters.treasure_memory_drops) or 0) + 1;
@@ -1088,7 +1833,7 @@ local function scan_treasure_pool_memory()
         end
 
         if item_id > 0 then
-            state.treasure_slots[slot] = item_id;
+            state.treasure_slots[slot] = sig;
         else
             state.treasure_slots[slot] = nil;
         end
@@ -1107,7 +1852,7 @@ local function record_direct_inventory_drop(item_id, quantity, source_packet)
         return false;
     end
 
-    if record_drop_for_dead(dead, item_id, quantity, source_packet) then
+    if credit_item(dead, item_id, quantity, 'inv', source_packet) then
         state.debug_counters.direct_drops = (tonumber(state.debug_counters.direct_drops) or 0) + 1;
         return true;
     end
@@ -1335,10 +2080,20 @@ local function cleanup_runtime()
     local timeout = math.max(15, tonumber(state.encounter_timeout[1]) or 120);
 
     for id, enc in pairs(state.encounters) do
-        if enc == nil or (now - (tonumber(enc.last_activity) or now)) > timeout then
+        if enc == nil then
             state.encounters[id] = nil;
-            clear_persisted_encounter(id);
-            state.data_dirty = true;
+        elseif (now - (tonumber(enc.last_activity) or now)) > timeout then
+            -- A mob you are not hitting right now (slept, bound, waiting while
+            -- you kill another) stays open while it is alive and claimed by
+            -- you or your party. Expiring it here made the later kill count
+            -- as a brand-new fight and left the first one unfinished.
+            if mob_alive_and_party_claimed(id, enc.index) then
+                touch_encounter(id);
+            else
+                state.encounters[id] = nil;
+                clear_persisted_encounter(id);
+                state.data_dirty = true;
+            end
         end
     end
 
@@ -1379,6 +2134,34 @@ local function cleanup_runtime()
         end
     end
 
+    -- Pending engages expire after 60s, or as soon as someone outside your
+    -- party holds the claim (they tagged it first).
+    for id, pending in pairs(state.pending_engage) do
+        local drop = pending == nil or (now - (tonumber(pending.time) or now)) > 60;
+        if not drop and pending.info ~= nil then
+            local idx = tonumber(pending.info.index) or 0;
+            local ok, claim = pcall(function()
+                local em = AshitaCore:GetMemoryManager():GetEntity();
+                if tonumber(em:GetServerId(idx)) ~= tonumber(id) then return -1; end
+                return tonumber(em:GetClaimStatus(idx)) or 0;
+            end);
+            if ok and claim ~= nil then
+                if claim == -1 then
+                    drop = true;
+                elseif bit.band(claim, 0xFFFF) ~= 0 and not claimed_by_party(claim) then
+                    drop = true;
+                end
+            end
+        end
+        if drop then state.pending_engage[id] = nil; end
+    end
+
+    for id, ts in pairs(state.recent_party_kills) do
+        if (now - (tonumber(ts) or now)) > 35 then
+            state.recent_party_kills[id] = nil;
+        end
+    end
+
     if state.last_hostile ~= nil
         and (now - (tonumber(state.last_hostile.time) or now)) > 15 then
         state.last_hostile = nil;
@@ -1391,6 +2174,10 @@ local function save_all()
     config.visible = state.visible[1];
     config.history_visible = state.history_visible[1];
     config.config_visible = state.config_visible[1];
+    config.timers_visible = state.timers_visible[1];
+    if config.timers_window == nil then config.timers_window = T{}; end
+    config.timers_window.x = state.timers_geom[1];
+    config.timers_window.y = state.timers_geom[2];
     config.font_scale = state.font_scale[1];
 
     local colors = {
@@ -1406,6 +2193,7 @@ local function save_all()
 
     config.appearance.border = state.border[1];
     config.appearance.title_bar = state.title_bar[1];
+    config.appearance.theme = state.theme;
 
     config.behavior.target_only = state.target_only[1];
     config.behavior.mini_mode = state.mini_mode[1];
@@ -1413,8 +2201,10 @@ local function save_all()
     config.behavior.show_session = state.show_session[1];
     config.behavior.show_drops = state.show_drops[1];
     config.behavior.show_kills_per_hour = state.show_kills_per_hour[1];
+    config.behavior.show_by_job = state.show_by_job[1];
     config.behavior.debug = state.debug[1];
     config.behavior.encounter_timeout = math.floor(math.max(15, tonumber(state.encounter_timeout[1]) or 120));
+    config.behavior.credit_party_kills = state.credit_party_kills[1] == true;
 
     config.locks.target = state.lock_target[1];
     config.locks.history = state.lock_history[1];
@@ -1432,6 +2222,20 @@ local function save_all()
     settings.save();
 end
 
+-- Position-only capture for the auto-sized target / mini window. Writing the
+-- auto-sized width back into geom fed it into the next frame's content width
+-- and made the window widen forever.
+local function capture_position(geom)
+    local x, y = imgui.GetWindowPos();
+    x = tonumber(x); y = tonumber(y);
+    if x == nil or y == nil then return; end
+
+    if math.abs(x - geom[1]) >= 1 or math.abs(y - geom[2]) >= 1 then
+        geom[1] = x; geom[2] = y;
+        state.geometry_dirty = true;
+    end
+end
+
 local function capture_geometry(geom)
     local x, y = imgui.GetWindowPos();
     local w, h = imgui.GetWindowSize();
@@ -1446,21 +2250,18 @@ local function capture_geometry(geom)
     end
 end
 
-local function push_theme()
-    imgui.PushStyleColor(ImGuiCol_WindowBg, state.background);
-    imgui.PushStyleColor(ImGuiCol_Header, { state.accent[1] * 0.32, state.accent[2] * 0.32, state.accent[3] * 0.32, 0.78 });
-    imgui.PushStyleColor(ImGuiCol_HeaderHovered, { state.accent[1] * 0.44, state.accent[2] * 0.44, state.accent[3] * 0.44, 0.88 });
-    imgui.PushStyleColor(ImGuiCol_HeaderActive, { state.accent[1] * 0.58, state.accent[2] * 0.58, state.accent[3] * 0.58, 0.96 });
-
-    -- StatusTimers-inspired presentation: rounded black panel and tight spacing.
+-- MobHunt theme: the suite theme, then MobHunt's compact StatusTimers-style
+-- spacing and the border toggle on top.
+local function push_mh_theme()
+    push_theme(state.background, state.theme);
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
     imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 7.0);
     imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4.0 * state.font_scale[1], 3.0 * state.font_scale[1] });
 end
 
-local function pop_theme()
+local function pop_mh_theme()
     imgui.PopStyleVar(3);
-    imgui.PopStyleColor(4);
+    pop_theme();
 end
 
 local function window_flags(locked, auto_resize)
@@ -1490,13 +2291,29 @@ local function custom_close(id, open_ref)
     window_w = tonumber(window_w) or 300;
     local sx, sy = imgui.GetCursorPos();
 
-    imgui.SetCursorPos({ math.max(8, window_w - 30), 6 });
+    -- Keep the button inside the 12px content padding: placing it past the
+    -- content edge made auto-sized windows (Timers) widen every frame.
+    imgui.SetCursorPos({ math.max(8, window_w - 34), 6 });
     if imgui.Button('X##' .. id, { 22, 20 }) then
         open_ref[1] = false;
         state.settings_dirty = true;
     end
 
     imgui.SetCursorPos({ sx, sy });
+end
+
+-- "45s", "12m 04s", "2h 05m".
+local function format_span(seconds)
+    seconds = math.max(0, math.floor(tonumber(seconds) or 0));
+    if seconds < 60 then return ('%ds'):fmt(seconds); end
+    if seconds < 3600 then return ('%dm %02ds'):fmt(math.floor(seconds / 60), seconds % 60); end
+    return ('%dh %02dm'):fmt(math.floor(seconds / 3600), math.floor((seconds % 3600) / 60));
+end
+
+local function format_age(timestamp)
+    timestamp = tonumber(timestamp) or 0;
+    if timestamp <= 0 then return nil; end
+    return format_span(os.time() - timestamp) .. ' ago';
 end
 
 local function pct(part, total)
@@ -1614,12 +2431,96 @@ local function draw_three_stats(id, fights, kills, deaths)
     end
 end
 
+local function job_line(job, j)
+    local fights = tonumber(j.fights) or 0;
+    local kills = tonumber(j.kills) or 0;
+    local deaths = tonumber(j.deaths) or 0;
+    local exp_kills = tonumber(j.exp_kills) or 0;
+    local timed = tonumber(j.timed_kills) or 0;
+    local exp_text = (exp_kills > 0) and ('%d'):fmt(math.floor(((tonumber(j.exp_total) or 0) / exp_kills) + 0.5)) or '--';
+    local time_text = (timed > 0) and format_span((tonumber(j.fight_seconds) or 0) / timed) or '--';
+    return fights, kills, deaths, exp_text, time_text;
+end
+
+local function sorted_jobs(rec)
+    local list = {};
+    if rec.by_job == nil then return list; end
+    for job, j in pairs(rec.by_job) do
+        if j ~= nil and (tonumber(j.fights) or 0) + (tonumber(j.kills) or 0) + (tonumber(j.deaths) or 0) > 0 then
+            list[#list + 1] = { job = job, stats = j };
+        end
+    end
+    table.sort(list, function(a, b)
+        return (tonumber(a.stats.fights) or 0) > (tonumber(b.stats.fights) or 0);
+    end);
+    return list;
+end
+
+-- Full per-job table (History detail) or just your current job (target window,
+-- only once the mob has been fought on two or more jobs).
+local function draw_job_stats(rec, full)
+    if not state.show_by_job[1] then return; end
+    local jobs = sorted_jobs(rec);
+    if #jobs == 0 then return; end
+
+    if not full then
+        if #jobs < 2 then return; end
+        local job = current_job_name();
+        local j = job and rec.by_job[job] or nil;
+        if j == nil then return; end
+        local f, k, d, exp_text, time_text = job_line(job, j);
+        imgui.TextColored(UI_ACCENT_TEXT, ('As %s:'):fmt(job));
+        imgui.SameLine();
+        imgui.Text(('F %d  K %d  D %d  Win %.0f%%  EXP %s  Fight %s'):fmt(f, k, d, pct(k, f), exp_text, time_text));
+        return;
+    end
+
+    imgui.Separator();
+    imgui.TextColored(UI_ACCENT_TEXT, 'By Job');
+
+    local function tw(text)
+        local w = imgui.CalcTextSize(tostring(text));
+        return tonumber(w) or 0;
+    end
+    local headers = { 'Job', 'Fights', 'Kills', 'Deaths', 'Win %', 'Avg EXP', 'Avg Fight' };
+    local samples = { 'WAR', '00000', '00000', '00000', '100.0%', '00000', '00m 00s' };
+    local xs = {};
+    local x = imgui.GetCursorPosX();
+    for i, h in ipairs(headers) do
+        xs[i] = x;
+        x = x + math.max(tw(h), tw(samples[i])) + 16;
+    end
+
+    for i, h in ipairs(headers) do
+        if i > 1 then imgui.SameLine(); imgui.SetCursorPosX(xs[i]); end
+        imgui.TextColored(state.muted, h);
+    end
+
+    local current = current_job_name();
+    for _, entry in ipairs(jobs) do
+        local f, k, d, exp_text, time_text = job_line(entry.job, entry.stats);
+        local cells = { entry.job, tostring(f), tostring(k), tostring(d), ('%.1f%%'):fmt(pct(k, f)), exp_text, time_text };
+        for i, c in ipairs(cells) do
+            if i > 1 then imgui.SameLine(); imgui.SetCursorPosX(xs[i]); end
+            if i == 1 and entry.job == current then
+                imgui.TextColored(UI_ACCENT_TEXT, c);
+            elseif i == 3 then
+                imgui.TextColored(state.success, c);
+            elseif i == 4 and d > 0 then
+                imgui.TextColored(state.danger, c);
+            else
+                imgui.Text(c);
+            end
+        end
+    end
+end
+
 local function draw_record_summary(rec, key, include_header)
     if rec == nil then return; end
     local s = state.session[key];
 
     if include_header then
-        imgui.TextColored(state.accent, tostring(rec.name or 'Unknown'));
+        imgui.TextColored(UI_ACCENT_TEXT, tostring(rec.name or 'Unknown'));
         imgui.TextColored(state.muted, tostring(rec.zone_name or safe_zone_name(rec.zone_id)));
         imgui.Separator();
     end
@@ -1632,9 +2533,25 @@ local function draw_record_summary(rec, key, include_header)
 
     imgui.Text(('Win Rate: %.1f%%'):fmt(pct(kills, fights)));
 
+    -- Camp comparison: average EXP per kill and average fight length.
+    local exp_kills = tonumber(rec.exp_kills) or 0;
+    local timed = tonumber(rec.timed_kills) or 0;
+    local exp_text = (exp_kills > 0)
+        and ('%d'):fmt(math.floor(((tonumber(rec.exp_total) or 0) / exp_kills) + 0.5)) or '--';
+    local time_text = (timed > 0)
+        and format_span((tonumber(rec.fight_seconds) or 0) / timed) or '--';
+    imgui.Text(('Avg EXP / Kill: %s'):fmt(exp_text));
+    imgui.SameLine(0, 18);
+    imgui.Text(('Avg Fight: %s'):fmt(time_text));
+
+    local age = format_age(rec.last_kill);
+    imgui.TextColored(state.muted, ('Last Kill: %s'):fmt(age or 'never'));
+
+    draw_job_stats(rec, include_header == true);
+
     if state.show_session[1] then
         imgui.Separator();
-        imgui.TextColored(state.accent, 'This Session');
+        imgui.TextColored(UI_ACCENT_TEXT, 'This Session');
         draw_three_stats(
             'session_' .. tostring(key),
             s and (tonumber(s.fights) or 0) or 0,
@@ -1644,11 +2561,16 @@ local function draw_record_summary(rec, key, include_header)
         if state.show_kills_per_hour[1] then
             imgui.Text(('Kills / Hour: %.1f'):fmt(session_kph(s)));
         end
+        local session_exp = s and (tonumber(s.exp_total) or 0) or 0;
+        if session_exp > 0 then
+            imgui.SameLine(0, 18);
+            imgui.Text(('EXP: %d'):fmt(session_exp));
+        end
     end
 
     if state.show_drops[1] then
         imgui.Separator();
-        imgui.TextColored(state.accent, 'Observed Drops');
+        imgui.TextColored(UI_ACCENT_TEXT, 'Observed Drops');
         draw_drop_table(rec, key, true);
     end
 end
@@ -1660,8 +2582,8 @@ local function draw_target_window()
         return;
     end
 
-    local target = get_current_target();
-    state.current_target = target;
+    -- Resolved once per frame in d3d_present.
+    local target = state.current_target;
 
     if state.target_only[1] and target == nil then
         state.target_apply_geometry = true;
@@ -1680,10 +2602,19 @@ local function draw_target_window()
     -- StatusTimers-style content-driven sizing. Preserve the selected width,
     -- but never preserve a stale height; new drop rows grow the window and
     -- shorter lists shrink it automatically.
-    local target_width = math.max(state.mini_mode[1] and 260 or 410, tonumber(geom[3]) or 0);
-    imgui.SetNextWindowContentSize({ target_width - 18, 0 });
+    local min_w = state.mini_mode[1] and 260 or 410;
+    local max_w = state.mini_mode[1] and 600 or 700;
+    local stored_w = tonumber(geom[3]) or min_w;
+    if stored_w < min_w or stored_w > max_w then
+        -- Repairs widths saved while 1.1.0's widening bug was active.
+        stored_w = min_w;
+        geom[3] = min_w;
+        state.geometry_dirty = true;
+    end
+    -- Content width = window width minus the theme's 12px side padding.
+    imgui.SetNextWindowContentSize({ stored_w - 24, 0 });
 
-    push_theme();
+    push_mh_theme();
     local title = state.mini_mode[1] and 'MobHunt Mini##target' or 'MobHunt##target';
     if imgui.Begin(title, state.visible, window_flags(state.lock_target[1], true)) then
         custom_close('mobhunt_target_close', state.visible);
@@ -1698,7 +2629,7 @@ local function draw_target_window()
             local rec = config.records[key];
             local srec = state.session[key];
 
-            imgui.TextColored(state.accent, tostring(target.name));
+            imgui.TextColored(UI_ACCENT_TEXT, tostring(target.name));
             imgui.SameLine();
             if state.encounters[target.id] ~= nil then
                 imgui.TextColored(state.success, '[In Combat]');
@@ -1715,6 +2646,10 @@ local function draw_target_window()
                         tonumber(rec.deaths) or 0,
                         pct(rec.kills, rec.fights)
                     ));
+                    local mini_age = format_age(rec.last_kill);
+                    if mini_age ~= nil then
+                        imgui.TextColored(state.muted, ('Last kill %s'):fmt(mini_age));
+                    end
                     if state.show_session[1] then
                         imgui.Text(('Session  F: %d   K: %d   D: %d'):fmt(
                             srec and (tonumber(srec.fights) or 0) or 0,
@@ -1734,13 +2669,18 @@ local function draw_target_window()
                 end
 
                 imgui.Separator();
-                if imgui.Button('History') then
+                if draw_toggle_button('History', 'mh_t_hist', state.history_visible[1] == true) then
                     state.history_visible[1] = not state.history_visible[1];
                     state.settings_dirty = true;
                 end
                 imgui.SameLine();
-                if imgui.Button('Config') then
+                if draw_toggle_button('Config', 'mh_t_cfg', state.config_visible[1] == true) then
                     state.config_visible[1] = not state.config_visible[1];
+                    state.settings_dirty = true;
+                end
+                imgui.SameLine();
+                if draw_toggle_button('Timers', 'mh_t_timers', state.timers_visible[1] == true) then
+                    state.timers_visible[1] = not state.timers_visible[1];
                     state.settings_dirty = true;
                 end
                 imgui.SameLine();
@@ -1769,23 +2709,41 @@ local function draw_target_window()
                 state.config_visible[1] = not state.config_visible[1];
                 state.settings_dirty = true;
             end
+            imgui.SameLine();
+            if imgui.SmallButton('Timers##mh_mini_timers') then
+                state.timers_visible[1] = not state.timers_visible[1];
+                state.settings_dirty = true;
+            end
         end
 
         imgui.PopFont();
         if not state.lock_target[1] then
-            local old_height = geom[4];
-            capture_geometry(geom);
-            -- Height is controlled by content / AlwaysAutoResize. Keep the
-            -- observed value only for settings visibility; it is never applied.
-            geom[4] = select(2, imgui.GetWindowSize()) or old_height;
+            capture_position(geom);
+            -- Width and height are controlled by content / AlwaysAutoResize.
+            -- The observed height is kept only for settings visibility.
+            geom[4] = tonumber(select(2, imgui.GetWindowSize())) or geom[4];
         end
     end
     imgui.End();
-    pop_theme();
+    pop_mh_theme();
+end
+
+-- Best drop match for an item search (highest rate), or nil.
+local function history_drop_match(rec, search)
+    if rec == nil or rec.drops == nil or search == '' then return nil; end
+    local best = nil;
+    for _, drop in pairs(rec.drops) do
+        if drop ~= nil and tostring(drop.name or ''):lower():find(search, 1, true) ~= nil then
+            if best == nil or (tonumber(drop.occurrences) or 0) > (tonumber(best.occurrences) or 0) then
+                best = drop;
+            end
+        end
+    end
+    return best;
 end
 
 local function filtered_history()
-    local search = tostring(state.history_search[1] or ''):lower();
+    local search = tostring(state.history_search[1] or ''):lower():gsub('^%s+', ''):gsub('%s+$', '');
     local rows = {};
     local current_zone_id = get_zone_id();
 
@@ -1793,20 +2751,21 @@ local function filtered_history()
         if rec ~= nil then
             local zone_matches = (not state.history_current_zone[1])
                 or ((tonumber(rec.zone_id) or 0) == current_zone_id);
-            local hay = (tostring(rec.name or '') .. ' ' .. tostring(rec.zone_name or '')):lower();
-            local matches = zone_matches and ((search == '') or hay:find(search, 1, true) ~= nil);
 
-            if not matches and rec.drops ~= nil then
-                for _, drop in pairs(rec.drops) do
-                    if tostring(drop.name or ''):lower():find(search, 1, true) ~= nil then
-                        matches = true;
-                        break;
-                    end
+            if zone_matches then
+                local matches = (search == '');
+                local match_drop = nil;
+                if not matches then
+                    local hay = (tostring(rec.name or '') .. ' ' .. tostring(rec.zone_name or '')):lower();
+                    matches = hay:find(search, 1, true) ~= nil;
+                    -- Item search: list every mob that dropped it.
+                    match_drop = history_drop_match(rec, search);
+                    if match_drop ~= nil then matches = true; end
                 end
-            end
 
-            if matches then
-                table.insert(rows, T{ key = key, rec = rec });
+                if matches then
+                    table.insert(rows, T{ key = key, rec = rec, drop = match_drop });
+                end
             end
         end
     end
@@ -1825,6 +2784,16 @@ local function filtered_history()
         elseif state.history_sort == 'deaths' then
             av = tonumber(a.rec.deaths) or 0;
             bv = tonumber(b.rec.deaths) or 0;
+        elseif state.history_sort == 'win' then
+            av = pct(a.rec.kills, a.rec.fights);
+            bv = pct(b.rec.kills, b.rec.fights);
+        elseif state.history_sort == 'match' then
+            av = a.drop and pct(a.drop.occurrences, a.rec.kills) or -1;
+            bv = b.drop and pct(b.drop.occurrences, b.rec.kills) or -1;
+        elseif state.history_sort == 'danger' then
+            -- Deaths per fight; deaths break ties so a 1/1 ranks above 0/0.
+            av = pct(a.rec.deaths, a.rec.fights) * 100000 + (tonumber(a.rec.deaths) or 0);
+            bv = pct(b.rec.deaths, b.rec.fights) * 100000 + (tonumber(b.rec.deaths) or 0);
         else
             av = tonumber(a.rec.kills) or 0;
             bv = tonumber(b.rec.kills) or 0;
@@ -1841,12 +2810,37 @@ local function filtered_history()
     return rows;
 end
 
-local function sort_header(label, mode)
-    local active = state.history_sort == mode;
-    local text = label;
-    if active then text = text .. (state.history_sort_desc and ' v' or ' ^'); end
+local function text_w(text)
+    return tonumber((imgui.CalcTextSize(tostring(text)))) or 0;
+end
 
-    if imgui.SmallButton(text .. '##mh_sort_' .. mode) then
+-- Text right-aligned inside the current table cell.
+local function cell_right(text, color)
+    text = tostring(text);
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 0;
+    local w = text_w(text);
+    if avail > w then imgui.SetCursorPosX(imgui.GetCursorPosX() + avail - w); end
+    if color then imgui.TextColored(color, text); else imgui.Text(text); end
+end
+
+-- Clickable column header (muted, accent when it is the active sort).
+local function sort_header(label, mode, right)
+    local active = state.history_sort == mode;
+    local text = label .. (active and (state.history_sort_desc and ' v' or ' ^') or '');
+    local w = text_w(text);
+    if right then
+        local avail = tonumber((imgui.GetContentRegionAvail())) or 0;
+        if avail > w then imgui.SetCursorPosX(imgui.GetCursorPosX() + avail - w); end
+    end
+
+    imgui.PushStyleColor(ImGuiCol_Text, active and UI_ACCENT_TEXT or UI_MUTED);
+    imgui.PushStyleColor(ImGuiCol_Header, UI_TRANSPARENT);
+    imgui.PushStyleColor(ImGuiCol_HeaderHovered, ui_accent(0.18));
+    imgui.PushStyleColor(ImGuiCol_HeaderActive, ui_accent(0.26));
+    local clicked = imgui.Selectable(text .. '##mh_sort_' .. mode, false, 0, { w, 0 });
+    imgui.PopStyleColor(4);
+
+    if clicked then
         if active then
             state.history_sort_desc = not state.history_sort_desc;
         else
@@ -1885,9 +2879,122 @@ local function delete_history_record(key)
     settings.save();
 end
 
+-- ----------------------------------------------------------------------------
+-- Timers: time since the last kill of each mob in the current zone, most
+-- recent first. Useful for placeholder / NM camps. Auto-sized; position saved.
+-- ----------------------------------------------------------------------------
+local TIMER_MAX_ROWS = 15;
+local TIMER_MAX_AGE = 3 * 3600;
+
+local function draw_timers_window()
+    if not state.timers_visible[1] then
+        state.timers_apply_geometry = true;
+        return;
+    end
+
+    if state.timers_apply_geometry then
+        imgui.SetNextWindowPos({ state.timers_geom[1], state.timers_geom[2] }, { 0, 0 });
+        state.timers_apply_geometry = false;
+    end
+
+    local zone_id = get_zone_id();
+    local now = os.time();
+    local rows = {};
+    for key, rec in pairs(config.records) do
+        if rec ~= nil and (tonumber(rec.zone_id) or -1) == zone_id then
+            local last = tonumber(rec.last_kill) or 0;
+            if last > 0 and (now - last) <= TIMER_MAX_AGE then
+                rows[#rows + 1] = { key = key, rec = rec, last = last };
+            end
+        end
+    end
+    table.sort(rows, function(a, b) return a.last > b.last; end);
+
+    push_mh_theme();
+    if imgui.Begin('MobHunt Timers##timers', state.timers_visible, window_flags(false, true)) then
+        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+
+        -- Everything here is sized from the text itself. Nothing may depend
+        -- on the window's current width (an auto-sized window would keep
+        -- whatever width it had - the old close button sat at "window width
+        -- minus 34", which pinned the window at its widest size).
+        local function tw(text)
+            local w = imgui.CalcTextSize(tostring(text));
+            return tonumber(w) or 0;
+        end
+
+        local title = ('Last Kills  -  %s'):fmt(safe_zone_name(zone_id));
+        local count = math.min(#rows, TIMER_MAX_ROWS);
+        local pad = 18;
+
+        local col1 = tw('Mob');
+        for k = 1, count do
+            col1 = math.max(col1, tw(rows[k].rec.name or '?'));
+        end
+        local col2 = math.max(tw('Last Kill'), tw('00h 00m'));
+        local col3 = tw('Kills');
+        local empty_text = 'No kills in this zone in the last 3 hours.';
+        local content_w = (count > 0) and (col1 + pad + col2 + pad + col3) or tw(empty_text);
+        content_w = math.max(content_w, tw(title));
+
+        local base_x = imgui.GetCursorPosX();
+        imgui.TextColored(UI_ACCENT_TEXT, title);
+
+        -- Close button right after the content (only when the title bar,
+        -- which has its own X, is hidden).
+        if not state.title_bar[1] then
+            imgui.SameLine();
+            imgui.SetCursorPosX(base_x + content_w + 10);
+            if imgui.SmallButton('X##mobhunt_timers_close') then
+                state.timers_visible[1] = false;
+                state.settings_dirty = true;
+            end
+        end
+        imgui.Separator();
+
+        if count == 0 then
+            imgui.TextColored(state.muted, empty_text);
+        else
+            local target = state.current_target;
+            local target_key = target and record_key(target.zone_id, target.name) or nil;
+            local x2 = base_x + col1 + pad;
+            local x3 = x2 + col2 + pad;
+
+            imgui.TextColored(state.muted, 'Mob');
+            imgui.SameLine(); imgui.SetCursorPosX(x2); imgui.TextColored(state.muted, 'Last Kill');
+            imgui.SameLine(); imgui.SetCursorPosX(x3); imgui.TextColored(state.muted, 'Kills');
+
+            for k = 1, count do
+                local row = rows[k];
+                local name = tostring(row.rec.name or '?');
+                if row.key == target_key then
+                    imgui.TextColored(UI_ACCENT_TEXT, name);
+                else
+                    imgui.Text(name);
+                end
+                imgui.SameLine(); imgui.SetCursorPosX(x2); imgui.Text(format_span(now - row.last));
+                imgui.SameLine(); imgui.SetCursorPosX(x3); imgui.Text(tostring(tonumber(row.rec.kills) or 0));
+            end
+        end
+
+        imgui.PopFont();
+
+        local x, y = imgui.GetWindowPos();
+        x = tonumber(x); y = tonumber(y);
+        if x and y and (math.abs(x - state.timers_geom[1]) >= 1 or math.abs(y - state.timers_geom[2]) >= 1) then
+            state.timers_geom[1] = x;
+            state.timers_geom[2] = y;
+            state.geometry_dirty = true;
+        end
+    end
+    imgui.End();
+    pop_mh_theme();
+end
+
 local function draw_history_window()
     if not state.history_visible[1] then
         state.history_apply_geometry = true;
+        state.history_frame = nil;
         return;
     end
 
@@ -1897,135 +3004,157 @@ local function draw_history_window()
         state.history_apply_geometry = false;
     end
 
-    push_theme();
+    push_mh_theme();
     if imgui.Begin('MobHunt History##history', state.history_visible, window_flags(state.lock_history[1])) then
+        -- Frame for the docked Mob detail window.
+        local fx, fy = imgui.GetWindowPos();
+        local fw, fh = imgui.GetWindowSize();
+        state.history_frame = { tonumber(fx) or 0, tonumber(fy) or 0, tonumber(fw) or 0, tonumber(fh) or 0 };
+
         custom_close('mobhunt_history_close', state.history_visible);
 
         imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
 
-        -- History scope: Current Zone | All
-        local zone_scope_active = state.history_current_zone[1];
-        if zone_scope_active then
-            imgui.PushStyleColor(ImGuiCol_Button, { state.accent[1] * 0.55, state.accent[2] * 0.55, state.accent[3] * 0.55, 0.95 });
-        end
-        if imgui.Button('Current Zone##mh_history_scope_zone') then
+        -- Scope: Current Zone | All  +  zone label.
+        imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 10, 4 });
+        if draw_styled_tab('Current Zone', 'mh_history_scope_zone', state.history_current_zone[1] == true) then
             state.history_current_zone[1] = true;
-            state.history_selected_key = nil;
             state.settings_dirty = true;
         end
-        if zone_scope_active then imgui.PopStyleColor(1); end
-
-        imgui.SameLine();
-
-        local all_scope_active = not state.history_current_zone[1];
-        if all_scope_active then
-            imgui.PushStyleColor(ImGuiCol_Button, { state.accent[1] * 0.55, state.accent[2] * 0.55, state.accent[3] * 0.55, 0.95 });
-        end
-        if imgui.Button('All##mh_history_scope_all') then
+        imgui.SameLine(0, 4);
+        if draw_styled_tab('All Zones', 'mh_history_scope_all', state.history_current_zone[1] ~= true) then
             state.history_current_zone[1] = false;
             state.settings_dirty = true;
         end
-        if all_scope_active then imgui.PopStyleColor(1); end
+        imgui.PopStyleVar(1);
+        imgui.SameLine(0, 12);
+        align_label();
+        imgui.TextColored(state.muted, state.history_current_zone[1] and safe_zone_name(get_zone_id()) or 'All saved zones');
 
-        imgui.SameLine();
-        if state.history_current_zone[1] then
-            imgui.TextColored(state.muted, safe_zone_name(get_zone_id()));
-        else
-            imgui.TextColored(state.muted, 'All saved zones');
-        end
+        imgui.Spacing();
 
-        imgui.Text('Search:');
-        imgui.SameLine();
-        imgui.PushItemWidth(320);
+        -- Search: mob, zone or item.
+        local clear_w = text_w('Clear') + 20;
+        local avail_w = tonumber((imgui.GetContentRegionAvail())) or 400;
+        imgui.PushItemWidth(math.max(160, math.min(420, avail_w - clear_w - 8)));
         imgui.InputText('##mobhunt_history_search', state.history_search, 128);
         imgui.PopItemWidth();
         imgui.SameLine();
-        if imgui.Button('Clear') then state.history_search[1] = ''; end
+        if imgui.Button('Clear##mh_history_clear') then state.history_search[1] = ''; end
         imgui.SameLine();
-        imgui.TextColored(state.muted, 'Search mob, zone, or drop');
+        align_label();
+        imgui.TextColored(state.muted, 'mob, zone or item');
 
         local rows = filtered_history();
-        imgui.Text(('Recorded Mob/Zone Entries: %d'):fmt(#rows));
+        local item_search = false;
+        local total_kills, total_deaths = 0, 0;
+        for _, row in ipairs(rows) do
+            total_kills = total_kills + (tonumber(row.rec.kills) or 0);
+            total_deaths = total_deaths + (tonumber(row.rec.deaths) or 0);
+            if row.drop ~= nil then item_search = true; end
+        end
+        if not item_search and state.history_sort == 'match' then state.history_sort = 'kills'; end
 
-        if imgui.BeginTable ~= nil and imgui.BeginTable('##mobhunt_history_table', 6,
-            bit.bor(ImGuiTableFlags_RowBg or 0, ImGuiTableFlags_BordersInnerH or 0, ImGuiTableFlags_Resizable or 0)) then
+        align_label();
+        imgui.TextColored(state.muted, ('%d mobs  |  %d kills  |  %d deaths'):fmt(#rows, total_kills, total_deaths));
+        imgui.SameLine(0, 18);
+        if draw_toggle_button('Most Dangerous', 'mh_sort_danger_btn', state.history_sort == 'danger') then
+            if state.history_sort == 'danger' then
+                state.history_sort = 'kills';
+            else
+                state.history_sort = 'danger';
+            end
+            state.history_sort_desc = true;
+        end
+        help_marker('Sorts by death rate (deaths per fight), highest first. Click a mob for its full details and drops.');
 
-            imgui.TableSetupColumn('Mob');
-            imgui.TableSetupColumn('Zone');
-            imgui.TableSetupColumn('Fights');
-            imgui.TableSetupColumn('Kills');
-            imgui.TableSetupColumn('Deaths');
-            imgui.TableSetupColumn('Win %');
+        imgui.Spacing();
 
-            imgui.TableNextRow();
-            imgui.TableNextColumn(); sort_header('Mob', 'name');
-            imgui.TableNextColumn(); sort_header('Zone', 'zone');
-            imgui.TableNextColumn(); sort_header('Fights', 'fights');
-            imgui.TableNextColumn(); sort_header('Kills', 'kills');
-            imgui.TableNextColumn(); sort_header('Deaths', 'deaths');
-            imgui.TableNextColumn(); imgui.TextColored(state.accent, 'Win %');
+        if imgui.BeginTable ~= nil then
+            local ncols = item_search and 8 or 7;
+            local flags = bit.bor(
+                ImGuiTableFlags_RowBg or 0,
+                ImGuiTableFlags_BordersInnerH or 0,
+                ImGuiTableFlags_ScrollY or 0,
+                ImGuiTableFlags_PadOuterX or 0);
+            local _, avail_h = imgui.GetContentRegionAvail();
+            avail_h = math.max(120, tonumber(avail_h) or 300);
 
-            for _, row in ipairs(rows) do
-                local rec = row.rec;
-                imgui.TableNextRow();
-                imgui.TableNextColumn();
+            if imgui.BeginTable('##mobhunt_history_table2', ncols, flags, { 0, avail_h }) then
+                local num_w = math.max(text_w('Deaths v'), text_w('00000')) + 10;
+                local pct_w = math.max(text_w('Death % v'), text_w('100.0%')) + 10;
+                imgui.TableSetupColumn('Mob', ImGuiTableColumnFlags_WidthStretch or 0, 1.35);
+                imgui.TableSetupColumn('Zone', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                imgui.TableSetupColumn('Fights', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
+                imgui.TableSetupColumn('Kills', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
+                imgui.TableSetupColumn('Deaths', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
+                imgui.TableSetupColumn('Win %', ImGuiTableColumnFlags_WidthFixed or 0, pct_w);
+                imgui.TableSetupColumn('Death %', ImGuiTableColumnFlags_WidthFixed or 0, pct_w);
+                if item_search then
+                    imgui.TableSetupColumn('Item', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                end
+                if imgui.TableSetupScrollFreeze ~= nil then imgui.TableSetupScrollFreeze(0, 1); end
 
-                local selected = state.history_selected_key == row.key;
-                if imgui.Selectable(tostring(rec.name or 'Unknown') .. '##mh_hist_' .. row.key, selected, ImGuiSelectableFlags_SpanAllColumns or 0) then
-                    state.history_selected_key = row.key;
+                imgui.TableNextRow(ImGuiTableRowFlags_Headers or 1);
+                imgui.TableNextColumn(); sort_header('Mob', 'name', false);
+                imgui.TableNextColumn(); sort_header('Zone', 'zone', false);
+                imgui.TableNextColumn(); sort_header('Fights', 'fights', true);
+                imgui.TableNextColumn(); sort_header('Kills', 'kills', true);
+                imgui.TableNextColumn(); sort_header('Deaths', 'deaths', true);
+                imgui.TableNextColumn(); sort_header('Win %', 'win', true);
+                imgui.TableNextColumn(); sort_header('Death %', 'danger', true);
+                if item_search then
+                    imgui.TableNextColumn(); sort_header('Item drop', 'match', false);
                 end
 
-                imgui.TableNextColumn(); imgui.Text(tostring(rec.zone_name or '--'));
-                imgui.TableNextColumn(); imgui.Text(tostring(tonumber(rec.fights) or 0));
-                imgui.TableNextColumn(); imgui.TextColored(state.success, tostring(tonumber(rec.kills) or 0));
-                imgui.TableNextColumn(); imgui.TextColored(state.danger, tostring(tonumber(rec.deaths) or 0));
-                imgui.TableNextColumn(); imgui.Text(('%.1f%%'):fmt(pct(rec.kills, rec.fights)));
+                for _, row in ipairs(rows) do
+                    local rec = row.rec;
+                    imgui.TableNextRow();
+                    imgui.TableNextColumn();
+
+                    local selected = state.detail_open and state.history_selected_key == row.key;
+                    if imgui.Selectable(tostring(rec.name or 'Unknown') .. '##mh_hist_' .. row.key, selected,
+                        ImGuiSelectableFlags_SpanAllColumns or 0) then
+                        if selected then
+                            state.detail_open = false;
+                        else
+                            state.history_selected_key = row.key;
+                            state.detail_open = true;
+                            state.detail_delete_at = nil;
+                        end
+                    end
+
+                    imgui.TableNextColumn(); imgui.TextColored(state.muted, tostring(rec.zone_name or '--'));
+                    imgui.TableNextColumn(); cell_right(tonumber(rec.fights) or 0);
+                    imgui.TableNextColumn(); cell_right(tonumber(rec.kills) or 0, state.success);
+                    imgui.TableNextColumn();
+                    local deaths = tonumber(rec.deaths) or 0;
+                    cell_right(deaths, deaths > 0 and state.danger or state.muted);
+                    imgui.TableNextColumn(); cell_right(('%.1f%%'):fmt(pct(rec.kills, rec.fights)));
+                    imgui.TableNextColumn();
+                    local death_rate = pct(rec.deaths, rec.fights);
+                    cell_right(('%.1f%%'):fmt(death_rate), death_rate > 0 and state.danger or state.muted);
+                    if item_search then
+                        imgui.TableNextColumn();
+                        if row.drop ~= nil then
+                            imgui.Text(tostring(row.drop.name or '?'));
+                            imgui.SameLine();
+                            imgui.TextColored(UI_ACCENT_TEXT, ('%.1f%%'):fmt(pct(row.drop.occurrences, rec.kills)));
+                        else
+                            imgui.TextColored(state.muted, '--');
+                        end
+                    end
+                end
+                imgui.EndTable();
             end
-            imgui.EndTable();
         else
             for _, row in ipairs(rows) do
                 local rec = row.rec;
                 if imgui.Selectable(('%s - %s##fallback_%s'):fmt(rec.name or 'Unknown', rec.zone_name or '--', row.key),
                     state.history_selected_key == row.key) then
                     state.history_selected_key = row.key;
+                    state.detail_open = true;
                 end
-            end
-        end
-
-        local selected = state.history_selected_key and config.records[state.history_selected_key] or nil;
-        if selected ~= nil then
-            imgui.Separator();
-            draw_record_summary(selected, state.history_selected_key, true);
-
-            imgui.Separator();
-            imgui.TextColored(state.accent, 'Lifetime Details');
-            imgui.Text(('First Seen: %s'):fmt(fmt_time(selected.first_seen)));
-            imgui.Text(('Last Kill: %s'):fmt(fmt_time(selected.last_kill)));
-            imgui.Text(('Last Death: %s'):fmt(fmt_time(selected.last_death)));
-
-            imgui.Separator();
-            if state.history_delete_key ~= state.history_selected_key then
-                if imgui.Button('Delete Record##mh_delete_record') then
-                    state.history_delete_key = state.history_selected_key;
-                end
-                imgui.SameLine();
-                imgui.TextColored(state.muted, 'Deletes this mob + zone lifetime record and its drops.');
-            else
-                imgui.TextColored(state.danger, 'Delete this record permanently?');
-                if imgui.Button('Confirm Delete##mh_confirm_delete') then
-                    delete_history_record(state.history_selected_key);
-                    selected = nil;
-                end
-                imgui.SameLine();
-                if imgui.Button('Cancel##mh_cancel_delete') then
-                    state.history_delete_key = nil;
-                end
-            end
-
-            if selected ~= nil and selected.drops ~= nil and next(selected.drops) ~= nil then
-                imgui.Separator();
-                imgui.TextColored(state.accent, 'Full Drop History');
-                draw_drop_table(selected, state.history_selected_key, false);
             end
         end
 
@@ -2034,7 +3163,339 @@ local function draw_history_window()
         if not state.lock_history[1] then capture_geometry(state.history_geom); end
     end
     imgui.End();
-    pop_theme();
+    pop_mh_theme();
+end
+
+-- Label / value pairs in measured columns (values right-aligned).
+local function kv_grid(items, cols)
+    local lw, vw = 0, 0;
+    for _, it in ipairs(items) do
+        lw = math.max(lw, text_w(it[1]));
+        vw = math.max(vw, text_w(it[2]));
+    end
+    local cell = lw + 12 + vw + 26;
+    local x0 = imgui.GetCursorPosX();
+    for i, it in ipairs(items) do
+        local col = (i - 1) % cols;
+        if col > 0 then imgui.SameLine(); end
+        imgui.SetCursorPosX(x0 + col * cell);
+        imgui.TextColored(state.muted, it[1]);
+        imgui.SameLine();
+        imgui.SetCursorPosX(x0 + col * cell + lw + 12 + (vw - text_w(it[2])));
+        if it[3] then imgui.TextColored(it[3], it[2]); else imgui.Text(it[2]); end
+    end
+end
+
+-- Full drop table with rate bars and kills since last drop. Measured columns,
+-- so it is safe inside an auto-sized window.
+local function draw_detail_drops(rec, key)
+    local drops = sorted_drops(rec);
+    if #drops == 0 then
+        imgui.TextColored(state.muted, 'No recorded drops yet.');
+        return;
+    end
+
+    local s = state.session[key];
+    local kills = tonumber(rec.kills) or 0;
+    local BAR_W = 46;
+
+    local headers = { 'Item', 'Drops', 'Rate', '', 'Qty', 'Since', 'Last seen', 'Session' };
+    local right = { false, true, true, false, true, true, false, true };
+    local cells = {};
+    for i, drop in ipairs(drops) do
+        local occ = tonumber(drop.occurrences) or 0;
+        local since = '--';
+        if drop.last_kill_count ~= nil then
+            since = tostring(math.max(0, kills - (tonumber(drop.last_kill_count) or 0)));
+        end
+        local sdrop = s and s.drops and s.drops[tostring(drop.item_id)] or nil;
+        cells[i] = {
+            tostring(drop.name or ('Item ' .. tostring(drop.item_id or '?'))),
+            tostring(occ),
+            ('%.1f%%'):fmt(pct(occ, kills)),
+            '',
+            tostring(tonumber(drop.quantity) or 0),
+            since,
+            format_age(drop.last_seen) or '--',
+            sdrop and tostring(tonumber(sdrop.occurrences) or 0) or '--',
+            rate = pct(occ, kills),
+        };
+    end
+
+    local widths = {};
+    for c, h in ipairs(headers) do
+        local w = text_w(h);
+        for _, row in ipairs(cells) do w = math.max(w, text_w(row[c])); end
+        if c == 4 then w = BAR_W; end
+        widths[c] = w;
+    end
+
+    local x0 = imgui.GetCursorPosX();
+    local xs = {};
+    local x = x0;
+    for c = 1, #headers do
+        xs[c] = x;
+        x = x + widths[c] + ((c == 3) and 6 or 14);
+    end
+
+    local function put(c, text, color)
+        if c > 1 then imgui.SameLine(); end
+        local px = xs[c];
+        if right[c] then px = px + widths[c] - text_w(text); end
+        imgui.SetCursorPosX(px);
+        if color then imgui.TextColored(color, text); else imgui.Text(text); end
+    end
+
+    for c, h in ipairs(headers) do put(c, h, state.muted); end
+
+    local dl = imgui.GetWindowDrawList();
+    for _, row in ipairs(cells) do
+        for c = 1, #headers do
+            if c == 4 then
+                imgui.SameLine();
+                imgui.SetCursorPosX(xs[4]);
+                local sx, sy = imgui.GetCursorScreenPos();
+                local lh = imgui.GetTextLineHeight();
+                local by = sy + lh * 0.5 - 2;
+                local fill = math.max(0, math.min(1, (row.rate or 0) / 100));
+                dl:AddRectFilled({ sx, by }, { sx + BAR_W, by + 4 }, imgui.GetColorU32({ 0.2, 0.2, 0.22, 1.0 }), 2.0);
+                if fill > 0 then
+                    dl:AddRectFilled({ sx, by }, { sx + math.max(2, BAR_W * fill), by + 4 }, imgui.GetColorU32(UI_ACCENT), 2.0);
+                end
+                imgui.Dummy({ BAR_W, lh });
+            elseif c == 3 then
+                put(c, row[c], UI_ACCENT_TEXT);
+            elseif c == 1 then
+                put(c, row[c]);
+            elseif c == 7 or c == 8 then
+                put(c, row[c], state.muted);
+            else
+                put(c, row[c]);
+            end
+        end
+    end
+    imgui.Spacing();
+    imgui.TextColored(state.muted, 'Since = kills since that item last dropped. Rate = kills with the item / total kills.');
+end
+
+-- Mob detail window, docked beside History. Opens when a mob is clicked.
+local function draw_detail_window()
+    if not state.history_visible[1] or not state.detail_open then return; end
+    local key = state.history_selected_key;
+    local rec = key and config.records[key] or nil;
+    if rec == nil or state.history_frame == nil then
+        state.detail_open = false;
+        return;
+    end
+
+    local hx, hy, hw = state.history_frame[1], state.history_frame[2], state.history_frame[3];
+    local dsize = imgui.GetIO().DisplaySize;
+    local dw = tonumber(state.detail_last_w) or 420;
+    local x = hx + hw + 6;
+    if x + dw > (tonumber(dsize.x) or 1920) then
+        x = math.max(0, hx - dw - 6);
+    end
+    imgui.SetNextWindowPos({ x, hy });
+
+    local flags = bit.bor(
+        ImGuiWindowFlags_NoNav,
+        ImGuiWindowFlags_AlwaysAutoResize,
+        ImGuiWindowFlags_NoMove,
+        ImGuiWindowFlags_NoTitleBar,
+        ImGuiWindowFlags_NoSavedSettings,
+        ImGuiWindowFlags_NoFocusOnAppearing or 0);
+
+    push_mh_theme();
+    if imgui.Begin('MobHunt Mob Detail##mh_detail', nil, flags) then
+        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+
+        -- Title row: name, zone, close.
+        align_label();
+        imgui.TextColored(UI_ACCENT_TEXT, tostring(rec.name or 'Unknown'));
+        imgui.SameLine(0, 10);
+        align_label();
+        imgui.TextColored(state.muted, tostring(rec.zone_name or safe_zone_name(rec.zone_id)));
+        imgui.SameLine(0, 18);
+        if imgui.SmallButton('X##mh_detail_close') then
+            state.detail_open = false;
+        end
+        imgui.Spacing();
+
+        local fights = tonumber(rec.fights) or 0;
+        local kills = tonumber(rec.kills) or 0;
+        local deaths = tonumber(rec.deaths) or 0;
+        local exp_kills = tonumber(rec.exp_kills) or 0;
+        local timed = tonumber(rec.timed_kills) or 0;
+        local exp_text = (exp_kills > 0) and ('%d'):fmt(math.floor(((tonumber(rec.exp_total) or 0) / exp_kills) + 0.5)) or '--';
+        local time_text = (timed > 0) and format_span((tonumber(rec.fight_seconds) or 0) / timed) or '--';
+
+        section_header('Lifetime');
+        kv_grid({
+            { 'Fights', tostring(fights) },
+            { 'Kills', tostring(kills), state.success },
+            { 'Deaths', tostring(deaths), deaths > 0 and state.danger or nil },
+            { 'Win rate', ('%.1f%%'):fmt(pct(kills, fights)) },
+            { 'Death rate', ('%.1f%%'):fmt(pct(deaths, fights)), deaths > 0 and state.danger or nil },
+            { 'Avg EXP', exp_text },
+            { 'Avg fight', time_text },
+            { 'Total EXP', tostring(math.floor(tonumber(rec.exp_total) or 0)) },
+            { 'Streak', ('%d (best %d)'):fmt(tonumber(rec.current_streak) or 0, tonumber(rec.best_streak) or 0) },
+        }, 3);
+
+        imgui.Spacing();
+        section_header('Times');
+        local last_kill_age = format_age(rec.last_kill);
+        kv_grid({
+            { 'First seen', fmt_time(rec.first_seen) },
+            { 'Last kill', fmt_time(rec.last_kill) .. (last_kill_age and ('  (' .. last_kill_age .. ')') or '') },
+            { 'Last death', fmt_time(rec.last_death) },
+        }, 1);
+
+        if state.show_session[1] then
+            local s = state.session[key];
+            imgui.Spacing();
+            section_header('This Session');
+            local items = {
+                { 'Fights', tostring(s and (tonumber(s.fights) or 0) or 0) },
+                { 'Kills', tostring(s and (tonumber(s.kills) or 0) or 0), state.success },
+                { 'Deaths', tostring(s and (tonumber(s.deaths) or 0) or 0) },
+            };
+            if state.show_kills_per_hour[1] then
+                items[#items + 1] = { 'Kills / hr', ('%.1f'):fmt(session_kph(s)) };
+            end
+            items[#items + 1] = { 'EXP', tostring(s and (tonumber(s.exp_total) or 0) or 0) };
+            kv_grid(items, 3);
+        end
+
+        draw_job_stats(rec, true);
+
+        imgui.Spacing();
+        section_header('Drops');
+        draw_detail_drops(rec, key);
+
+        imgui.Spacing();
+        imgui.Separator();
+        imgui.Spacing();
+        -- Two-click delete (second click within 3s).
+        local armed = state.detail_delete_at ~= nil and (os.clock() - state.detail_delete_at) < 3.0;
+        imgui.PushStyleColor(ImGuiCol_Button, armed and { 0.62, 0.14, 0.14, 1.0 } or UI_CONTROL);
+        imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.70, 0.18, 0.18, 1.0 });
+        imgui.PushStyleColor(ImGuiCol_ButtonActive, { 0.80, 0.22, 0.22, 1.0 });
+        local clicked = imgui.Button((armed and 'Click again to delete' or 'Delete record') .. '##mh_detail_delete');
+        imgui.PopStyleColor(3);
+        if clicked then
+            if armed then
+                delete_history_record(key);
+                state.detail_open = false;
+                state.detail_delete_at = nil;
+            else
+                state.detail_delete_at = os.clock();
+            end
+        end
+        imgui.SameLine();
+        align_label();
+        imgui.TextColored(state.muted, 'Removes this mob + zone record and its drops.');
+
+        imgui.PopFont();
+
+        local ww = imgui.GetWindowSize();
+        state.detail_last_w = tonumber(ww) or state.detail_last_w;
+    end
+    imgui.End();
+    pop_mh_theme();
+end
+
+-- Red two-click button: the first click arms it for 3 seconds, the second
+-- click within that time confirms. Returns true on the confirming click.
+local function confirm_button(label, id, width)
+    local armed = state.purge_armed ~= nil and state.purge_armed.id == id
+        and (os.clock() - (tonumber(state.purge_armed.at) or 0)) < 3.0;
+    imgui.PushStyleColor(ImGuiCol_Button, armed and { 0.70, 0.16, 0.16, 1.0 } or { 0.36, 0.10, 0.10, 1.0 });
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.78, 0.20, 0.20, 1.0 });
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, { 0.88, 0.24, 0.24, 1.0 });
+    imgui.PushStyleColor(ImGuiCol_Text, UI_WHITE);
+    local text = armed and 'Click again to confirm' or label;
+    local clicked;
+    if width then
+        clicked = imgui.Button(text .. '##' .. id, { width, 0 });
+    else
+        clicked = imgui.Button(text .. '##' .. id);
+    end
+    imgui.PopStyleColor(4);
+    if clicked then
+        if armed then
+            state.purge_armed = nil;
+            return true;
+        end
+        state.purge_armed = T{ id = id, at = os.clock() };
+    end
+    return false;
+end
+
+-- Clears every mob record (fights, kills, deaths, EXP, drops) plus session
+-- and in-flight tracking. Settings and window layout are kept.
+local function purge_all_records()
+    config.records = T{};
+    config.active_encounters = T{};
+    state.session = T{};
+    state.session_start = os.time();
+    state.encounters = T{};
+    state.recent_dead = T{};
+    state.recent_kills = T{};
+    state.recent_deaths = T{};
+    state.recent_party_kills = T{};
+    state.pending_engage = T{};
+    state.history_selected_key = nil;
+    state.detail_open = false;
+    state.data_dirty = true;
+    settings.save();
+    print('[MobHunt] All mob records purged.');
+end
+
+-- Clears only the drop tables; fights / kills / deaths stay.
+local function purge_drop_records()
+    for _, rec in pairs(config.records) do
+        if rec ~= nil then rec.drops = T{}; end
+    end
+    for _, s in pairs(state.session) do
+        if s ~= nil then s.drops = T{}; end
+    end
+    state.data_dirty = true;
+    settings.save();
+    print('[MobHunt] All drop records purged.');
+end
+
+local function draw_data_tab()
+    local mobs, kills, items = 0, 0, 0;
+    for _, rec in pairs(config.records) do
+        if rec ~= nil then
+            mobs = mobs + 1;
+            kills = kills + (tonumber(rec.kills) or 0);
+            if rec.drops ~= nil then
+                for _ in pairs(rec.drops) do items = items + 1; end
+            end
+        end
+    end
+
+    section_header('Saved Data');
+    imgui.Text(('Mob / zone records: %d'):fmt(mobs));
+    imgui.Text(('Kills recorded: %d'):fmt(kills));
+    imgui.Text(('Drop entries: %d'):fmt(items));
+    imgui.TextColored(state.muted, 'Saved per character in:');
+    imgui.TextColored(state.muted, 'Game\\config\\addons\\MobHunt\\<Character>_<id>\\settings.lua');
+    imgui.Spacing();
+
+    section_header('Purge');
+    imgui.TextWrapped('Purging cannot be undone. Settings, colors and window positions are kept.');
+    imgui.Spacing();
+    if confirm_button('Purge drop data only', 'mh_purge_drops') then
+        purge_drop_records();
+    end
+    help_marker('Clears every drop table. Fights, kills, deaths, EXP and times stay.');
+    if confirm_button('Purge all mob data', 'mh_purge_all') then
+        purge_all_records();
+    end
+    help_marker('Clears every mob record (fights, kills, deaths, EXP, drops) and this session. Start fresh.');
 end
 
 local function draw_config_window()
@@ -2049,12 +3510,19 @@ local function draw_config_window()
         state.config_apply_geometry = false;
     end
 
-    push_theme();
+    push_mh_theme();
     if imgui.Begin('MobHunt Config##config', state.config_visible, window_flags(state.lock_config[1])) then
         custom_close('mobhunt_config_close', state.config_visible);
 
-        if imgui.BeginTabBar ~= nil and imgui.BeginTabBar('##mobhunt_config_tabs') then
-            if imgui.BeginTabItem('Window') then
+        state.config_tab = draw_tab_row({ 'Window', 'Display', 'Tracking', 'Data' }, tonumber(state.config_tab) or 1, 'mh_cfg_tab_');
+        do
+            if state.config_tab == 1 then
+                if imgui.Checkbox('Show Target Window', state.visible) then
+                    state.target_apply_geometry = true;
+                    state.mini_apply_geometry = true;
+                    state.settings_dirty = true;
+                end
+                help_marker('The window that shows the stats of your current target. Closing it with X turns this off; /mhunt target also toggles it.');
                 if imgui.Checkbox('Lock Target Window', state.lock_target) then state.settings_dirty = true; end
                 if imgui.Checkbox('Lock History Window', state.lock_history) then state.settings_dirty = true; end
                 if imgui.Checkbox('Lock Config Window', state.lock_config) then state.settings_dirty = true; end
@@ -2098,23 +3566,32 @@ local function draw_config_window()
                     state.config_apply_geometry = true;
                     state.geometry_dirty = true;
                 end
-                imgui.EndTabItem();
             end
 
-            if imgui.BeginTabItem('Display') then
+            if state.config_tab == 2 then
+                section_header('THEME');
+                imgui.PushItemWidth(220);
+                local chosen = draw_theme_combo(state.theme, 'mh_theme');
+                if chosen then
+                    state.theme = chosen;
+                    state.settings_dirty = true;
+                end
+                imgui.PopItemWidth();
+                imgui.Spacing();
+                section_header('CONTENT');
                 if imgui.Checkbox('Show Session Statistics', state.show_session) then state.settings_dirty = true; end
                 if imgui.Checkbox('Show Observed Drops', state.show_drops) then state.settings_dirty = true; end
                 if imgui.Checkbox('Show Kills / Hour', state.show_kills_per_hour) then state.settings_dirty = true; end
+                if imgui.Checkbox('Show Per-Job Stats', state.show_by_job) then state.settings_dirty = true; end
 
-                imgui.Separator();
-                imgui.Text('Accent Color'); if imgui.ColorEdit4('##mh_accent', state.accent) then state.settings_dirty = true; end
+                imgui.Spacing();
+                section_header('STAT COLORS');
                 imgui.Text('Kill / Success Color'); if imgui.ColorEdit4('##mh_success', state.success) then state.settings_dirty = true; end
                 imgui.Text('Death / Danger Color'); if imgui.ColorEdit4('##mh_danger', state.danger) then state.settings_dirty = true; end
                 imgui.Text('Muted Text Color'); if imgui.ColorEdit4('##mh_muted', state.muted) then state.settings_dirty = true; end
-                imgui.EndTabItem();
             end
 
-            if imgui.BeginTabItem('Tracking') then
+            if state.config_tab == 3 then
                 imgui.TextWrapped('A fight begins only after you engage/act on a mob, or that mob acts on you. Merely targeting a mob does not count.');
                 imgui.Separator();
 
@@ -2123,10 +3600,13 @@ local function draw_config_window()
                 if imgui.SliderInt('##mh_enc_timeout', state.encounter_timeout, 15, 600, '%d sec') then state.settings_dirty = true; end
                 imgui.PopItemWidth();
 
+                if imgui.Checkbox('Count party kills you did not join', state.credit_party_kills) then state.settings_dirty = true; end
+                help_marker('When a party / alliance member kills a mob near you that you never touched, count it as a fight and a kill and record its drops.');
+
                 if imgui.Checkbox('Debug Packet / Tracking Messages', state.debug) then state.settings_dirty = true; end
 
                 imgui.Separator();
-                imgui.TextColored(state.accent, 'Session Controls');
+                imgui.TextColored(UI_ACCENT_TEXT, 'Session Controls');
                 if imgui.Button('Reset Current Session Statistics') then
                     state.session = T{};
                     state.session_start = os.time();
@@ -2134,7 +3614,7 @@ local function draw_config_window()
                 end
 
                 imgui.Separator();
-                imgui.TextColored(state.accent, 'Diagnostics');
+                imgui.TextColored(UI_ACCENT_TEXT, 'Diagnostics');
                 imgui.Text(('Action packets: %d'):fmt(tonumber(state.debug_counters.actions) or 0));
                 imgui.Text(('Encounters started: %d'):fmt(tonumber(state.debug_counters.starts) or 0));
                 imgui.Text(('Encounters resumed: %d'):fmt(tonumber(state.debug_counters.resumes) or 0));
@@ -2148,17 +3628,20 @@ local function draw_config_window()
                 imgui.Text(('Inventory packets seen: %d'):fmt(tonumber(state.debug_counters.inventory_packets) or 0));
                 imgui.Text(('Direct inventory drops: %d'):fmt(tonumber(state.debug_counters.direct_drops) or 0));
                 imgui.Text(('Drops counted: %d'):fmt(tonumber(state.debug_counters.drops) or 0));
+                imgui.Text(('Drops from find lines: %d'):fmt(tonumber(state.debug_counters.chat_drops) or 0));
                 imgui.Text(('Drops ignored/unassociated: %d'):fmt(tonumber(state.debug_counters.ignored_drops) or 0));
-                imgui.EndTabItem();
             end
 
-            imgui.EndTabBar();
+            if state.config_tab == 4 then
+                draw_data_tab();
+            end
+
         end
 
         if not state.lock_config[1] then capture_geometry(state.config_geom); end
     end
     imgui.End();
-    pop_theme();
+    pop_mh_theme();
 end
 
 local function reset_session()
@@ -2177,6 +3660,12 @@ local function apply_loaded_config(s)
     state.visible[1] = config.visible ~= false;
     state.history_visible[1] = config.history_visible == true;
     state.config_visible[1] = config.config_visible == true;
+    state.timers_visible[1] = config.timers_visible == true;
+    if config.timers_window ~= nil then
+        state.timers_geom[1] = tonumber(config.timers_window.x) or state.timers_geom[1];
+        state.timers_geom[2] = tonumber(config.timers_window.y) or state.timers_geom[2];
+    end
+    state.timers_apply_geometry = true;
     state.font_scale[1] = tonumber(config.font_scale) or defaults.font_scale;
 
     local function apply_color(dst, src, def)
@@ -2198,6 +3687,7 @@ local function apply_loaded_config(s)
 
     state.border[1] = config.appearance.border ~= false;
     state.title_bar[1] = config.appearance.title_bar ~= false;
+    state.theme = tostring(config.appearance.theme or 'forest');
 
     state.target_only[1] = config.behavior.target_only ~= false;
     state.mini_mode[1] = config.behavior.mini_mode == true;
@@ -2205,8 +3695,10 @@ local function apply_loaded_config(s)
     state.show_session[1] = config.behavior.show_session ~= false;
     state.show_drops[1] = config.behavior.show_drops ~= false;
     state.show_kills_per_hour[1] = config.behavior.show_kills_per_hour ~= false;
+    state.show_by_job[1] = config.behavior.show_by_job ~= false;
     state.debug[1] = config.behavior.debug == true;
     state.encounter_timeout[1] = tonumber(config.behavior.encounter_timeout) or defaults.behavior.encounter_timeout;
+    state.credit_party_kills[1] = config.behavior.credit_party_kills ~= false;
 
     state.lock_target[1] = config.locks.target == true;
     state.lock_history[1] = config.locks.history == true;
@@ -2233,6 +3725,14 @@ settings.register('settings', 'mobhunt_settings_update', function(s)
     apply_loaded_config(s);
 end);
 
+ashita.events.register('text_in', 'mobhunt_text_in_cb', function(e)
+    if e == nil or e.message == nil then return; end
+    -- Skip re-printed lines (e.g. a chat addon replaying its backlog).
+    if e.injected == true then return; end
+    local ok, err = pcall(handle_find_message, e.message);
+    if not ok then dbg('find line error: ' .. tostring(err)); end
+end);
+
 ashita.events.register('packet_in', 'mobhunt_packet_in_cb', function(e)
     if e == nil then return; end
 
@@ -2243,6 +3743,33 @@ ashita.events.register('packet_in', 'mobhunt_packet_in_cb', function(e)
         local act = parse_action_packet(e);
         if act == nil then return; end
         state.debug_counters.actions = (tonumber(state.debug_counters.actions) or 0) + 1;
+
+        -- Keep any open fight alive while the mob is still involved in combat
+        -- (acting, or being acted on) so long party fights where you only
+        -- heal / support still credit the kill.
+        touch_encounter(act.actor_id);
+        for _, target in ipairs(act.targets) do
+            touch_encounter(target.id);
+        end
+
+        -- A party member (or the mob) acting on a mob you engaged starts
+        -- the fight; drawing your weapon alone does not.
+        local pending_actor = state.pending_engage[act.actor_id];
+        if pending_actor ~= nil then
+            for _, target in ipairs(act.targets) do
+                if target.id == player_id or is_party_member(target.id) then
+                    start_encounter(resolve_entity(act.actor_id) or pending_actor.info, 'engaged_mob_action');
+                    break;
+                end
+            end
+        elseif act.actor_id ~= player_id and is_party_member(act.actor_id) then
+            for _, target in ipairs(act.targets) do
+                local pending = state.pending_engage[target.id];
+                if pending ~= nil then
+                    start_encounter(resolve_entity(target.id) or pending.info, 'engaged_party_action');
+                end
+            end
+        end
 
         if act.actor_id == player_id then
             for _, target in ipairs(act.targets) do
@@ -2278,7 +3805,10 @@ ashita.events.register('packet_in', 'mobhunt_packet_in_cb', function(e)
                 count_death(p.actor, p.actor_index, 'action_message');
             elseif p.target ~= player_id then
                 -- Death messages for a mob are an important no-EXP / NM fallback.
-                count_kill(p.target, p.target_index, 'death_message');
+                if not count_kill(p.target, p.target_index, 'death_message')
+                    and not credit_party_kill(p.target, p.target_index, p.actor, 'death_message') then
+                    note_party_kill(p.target, p.actor);
+                end
             end
         end
 
@@ -2286,7 +3816,14 @@ ashita.events.register('packet_in', 'mobhunt_packet_in_cb', function(e)
         local p = parse_kill_packet(e);
         if p == nil then return; end
         if p.target ~= 0 and p.target ~= player_id then
-            count_kill(p.target, p.target_index, 'kill_packet');
+            -- 0x02D only arrives for kills that give your party credit.
+            if not count_kill(p.target, p.target_index, 'kill_packet')
+                and not credit_party_kill(p.target, p.target_index, nil, 'kill_packet') then
+                note_party_kill(p.target, nil);
+            end
+            if p.player == player_id and EXP_MESSAGES:contains(tonumber(p.message) or 0) then
+                credit_kill_exp(p.target, p.amount);
+            end
         end
 
     elseif e.id == 0x01F then
@@ -2358,10 +3895,14 @@ ashita.events.register('packet_out', 'mobhunt_packet_out_cb', function(e)
 
     if not ok then return; end
 
-    -- 0x02 = Engage monster.
+    -- 0x02 = Engage monster (weapon drawn). This alone is not a fight: the
+    -- mob is only marked pending until a real action happens between it and
+    -- you / your party (see the 0x028 handler).
     if tonumber(category) == 0x02 and tonumber(target_id) and tonumber(target_id) ~= 0 then
         local info = resolve_entity(target_id, target_index);
-        if info ~= nil then start_encounter(info, 'engage'); end
+        if info ~= nil and info.is_mob == true and state.encounters[info.id] == nil then
+            state.pending_engage[info.id] = T{ info = info, time = os.clock() };
+        end
     end
 end);
 
@@ -2369,7 +3910,7 @@ ashita.events.register('command', 'mobhunt_command_cb', function(e)
     if e == nil or e.command == nil then return; end
 
     local args = e.command:args();
-    if #args == 0 or not args[1]:any('/mobhunt', '/mh') then return; end
+    if #args == 0 or not args[1]:any('/mobhunt', '/mhunt') then return; end
 
     e.blocked = true;
 
@@ -2382,12 +3923,23 @@ ashita.events.register('command', 'mobhunt_command_cb', function(e)
             state.mini_apply_geometry = true;
             state.settings_dirty = true;
             return;
+        elseif sub == 'target' or sub == 'show' then
+            state.visible[1] = not state.visible[1];
+            state.target_apply_geometry = true;
+            state.mini_apply_geometry = true;
+            state.settings_dirty = true;
+            print(('[MobHunt] Target window: %s'):fmt(state.visible[1] and 'ON' or 'OFF'));
+            return;
         elseif sub == 'history' or sub == 'hist' then
             state.history_visible[1] = not state.history_visible[1];
             state.settings_dirty = true;
             return;
         elseif sub == 'config' or sub == 'settings' then
             state.config_visible[1] = not state.config_visible[1];
+            state.settings_dirty = true;
+            return;
+        elseif sub == 'timers' or sub == 'timer' then
+            state.timers_visible[1] = not state.timers_visible[1];
             state.settings_dirty = true;
             return;
         elseif sub == 'session' or sub == 'resetsession' then
@@ -2400,19 +3952,26 @@ ashita.events.register('command', 'mobhunt_command_cb', function(e)
             print(('[MobHunt] Debug messages: %s'):fmt(state.debug[1] and 'ON' or 'OFF'));
             return;
         elseif sub == 'help' then
-            print('[MobHunt] /mh - open History + Config');
-            print('[MobHunt] /mh mini - toggle Full / Mini target view');
-            print('[MobHunt] /mh history - toggle searchable history');
-            print('[MobHunt] /mh config - toggle configuration');
-            print('[MobHunt] /mh session - reset current-session counters only');
-            print('[MobHunt] /mh debug - toggle tracking diagnostics');
+            print('[MobHunt] /mhunt - open History + Config (and turn the target window back on)');
+            print('[MobHunt] /mhunt target - show / hide the target window');
+            print('[MobHunt] /mhunt mini - toggle Full / Mini target view');
+            print('[MobHunt] /mhunt history - toggle searchable history');
+            print('[MobHunt] /mhunt config - toggle configuration');
+            print('[MobHunt] /mhunt timers - toggle last-kill timers for this zone');
+            print('[MobHunt] /mhunt session - reset current-session counters only');
+            print('[MobHunt] /mhunt debug - toggle tracking diagnostics');
             return;
         end
     end
 
-    -- Bare /mh is the MobHunt control-center shortcut.
-    -- Keep the target window's normal target-driven visibility untouched and
-    -- bring up both management windows together.
+    -- Bare /mhunt is the MobHunt control-center shortcut: History + Config, and
+    -- the target window is switched back on if it was closed (it still only
+    -- appears with a target when "Only Show Target Window With a Target" is on).
+    if not state.visible[1] then
+        state.visible[1] = true;
+        state.target_apply_geometry = true;
+        state.mini_apply_geometry = true;
+    end
     state.history_visible[1] = true;
     state.config_visible[1] = true;
     state.history_apply_geometry = true;
@@ -2429,21 +3988,30 @@ ashita.events.register('d3d_present', 'mobhunt_present_cb', function()
     -- Keep the current target cached so packet-time resolution usually avoids
     -- scanning the full entity map.
     local target = get_current_target();
+    state.current_target = target;
     if target ~= nil then
         state.entity_cache[target.id] = target;
     end
 
     draw_target_window();
     draw_history_window();
+    draw_detail_window();
+    draw_timers_window();
     draw_config_window();
 
-    if (state.geometry_dirty or state.settings_dirty or state.data_dirty)
-        and (os.clock() - state.last_save) >= 0.75 then
+    -- Window / option changes save quickly. Lifetime statistics are written
+    -- at most every 10 seconds during play (and always on unload / zoning),
+    -- so a large history file is not rewritten on every fight start or kill.
+    local now = os.clock();
+    local ui_due = (state.geometry_dirty or state.settings_dirty) and (now - state.last_save) >= 0.75;
+    local data_due = state.data_dirty and (now - state.last_data_save) >= 10.0;
+    if ui_due or data_due then
         save_all();
         state.geometry_dirty = false;
         state.settings_dirty = false;
         state.data_dirty = false;
-        state.last_save = os.clock();
+        state.last_save = now;
+        state.last_data_save = now;
     end
 end);
 
@@ -2453,6 +4021,7 @@ end);
 
 ashita.events.register('zone_change', 'mobhunt_zone_change_cb', function()
     state.encounters = T{};
+    state.pending_engage = T{};
     state.recent_dead = T{};
     state.recent_kills = T{};
     state.recent_deaths = T{};
@@ -2469,5 +4038,13 @@ ashita.events.register('zone_change', 'mobhunt_zone_change_cb', function()
 
     if config.active_encounters == nil then config.active_encounters = T{}; end
     config.active_encounters = T{};
-    state.data_dirty = true;
+    state.recent_party_kills = T{};
+
+    -- Zoning is a natural checkpoint: write pending statistics now.
+    save_all();
+    state.data_dirty = false;
+    state.geometry_dirty = false;
+    state.settings_dirty = false;
+    state.last_data_save = os.clock();
+    state.last_save = os.clock();
 end);
