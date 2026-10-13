@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.14.2  
+**Version:** 1.16.1  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -144,6 +144,7 @@ Click **BLUPrints** in the sidebar to plan a spell set.
 - **Known Spells (left):** click a spell to add it to the build; click it again to take it out. Search covers spells, traits and mob families, and **Show unlearned** lists spells you haven't learned yet (they can't be added). Spells that would go over your limits are dimmed.
 - **Your Build (right):** the set slot by slot with points and traits; click a spell to remove it. Underneath: **Equip build**, **Load equipped** (loads the spells you have set right now) and **Clear**, then **Filter by Trait**: chips that filter Known Spells in one click (for example, only Auto Refresh spells, or spells with no trait).
 - **Side panel:** totals, **VS Equipped** (what equipping would add or remove), the **Trait Calculator** and the **Trait Planner**. Its width follows the text, so nothing is cut off.
+- **Spell set cooldown:** after you set new spells (from Azure Codex or the in-game menu), a tag like the "Teaches:" one shows "Spells ready in: Xs" and a bar. It only appears while spells are on cooldown. The server doesn't report this wait to the game's recast timers, so Azure Codex times it itself (60 seconds from when each new spell is set). Normal recasts after you cast a spell don't bring it up. It starts just under the Teaches tag and can be dragged anywhere. It also shows in the sidebar under Points.
 - Limits follow your level: points and spell slots come from the live game value when available, otherwise from the HorizonXI level table (see [HorizonXI Rules Used](#horizonxi-rules-used)).
 
 ![BLUPrints build planner with Your Build and Trait Calculator](Screenshots/traits_1.14.png)
@@ -247,6 +248,15 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.16.1
+- The spell set cooldown tag only appears for the 60-second wait after setting new spells, not when you cast a Blue Magic spell. It shows just the time and the bar (no spell names).
+
+### 1.16.0
+- Spell set cooldown now actually shows: it times the wait after setting new spells itself (the server doesn't report it to the game's recast timers), and it looks like the "Teaches:" tag, listing the spells still waiting.
+
+### 1.15.0
+- Spell set cooldown bar: after changing your Blue Magic set, shows the time until the set spells can be cast (floating bar plus a line in the sidebar).
 
 ### 1.14.2
 - Trait Calculator back in the BLUPrints side panel (which still sizes to its text).

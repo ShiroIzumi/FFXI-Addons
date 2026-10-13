@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.12.3
+    Version 1.16.1
 
     Commands:
       /azurecodex
@@ -27,7 +27,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.12.5';
+addon.version   = '1.16.1';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 
@@ -246,7 +246,6 @@ local defaults = T{
     },
 
     display = T{
-        visible_tabs = T{ all = true, known = true, missing = true, ready = true, bluprints = true, view = true },
         row_spacing = 'compact',
         rows_mode = 'auto',
         rows_per_page = 30,
@@ -387,10 +386,6 @@ local function ensure_tables()
     if config.appearance.title_bar == nil then config.appearance.title_bar = defaults.appearance.title_bar; end
     if config.appearance.locked == nil then config.appearance.locked = defaults.appearance.locked; end
 
-    if config.display.visible_tabs == nil then config.display.visible_tabs = T{}; end
-    for _, key in ipairs({ 'all', 'known', 'missing', 'ready', 'bluprints', 'view' }) do
-        if config.display.visible_tabs[key] == nil then config.display.visible_tabs[key] = true; end
-    end
     if config.display.row_spacing == nil then config.display.row_spacing = defaults.display.row_spacing; end
     if config.display.rows_mode == nil then config.display.rows_mode = defaults.display.rows_mode; end
     if config.display.rows_per_page == nil then config.display.rows_per_page = defaults.display.rows_per_page; end
@@ -499,14 +494,6 @@ local state = T{
     zone_locked = { config.appearance.zone_locked == true },
     location_locked = { config.appearance.location_locked == true },
 
-    visible_tabs = {
-        all = { config.display.visible_tabs.all ~= false },
-        known = { config.display.visible_tabs.known ~= false },
-        missing = { config.display.visible_tabs.missing ~= false },
-        ready = { config.display.visible_tabs.ready ~= false },
-        bluprints = { config.display.visible_tabs.bluprints ~= false },
-        view = { config.display.visible_tabs.view ~= false },
-    },
     row_spacing = tostring(config.display.row_spacing or 'compact'),
     rows_mode = tostring(config.display.rows_mode or 'auto'),
     rows_per_page = { tonumber(config.display.rows_per_page) or 30 },
@@ -655,9 +642,6 @@ local function apply_loaded_config(s)
     state.zone_locked[1] = config.appearance.zone_locked == true
     state.location_locked[1] = config.appearance.location_locked == true
 
-    for key, value in pairs(state.visible_tabs) do
-        value[1] = config.display.visible_tabs[key] ~= false;
-    end
     state.row_spacing = tostring(config.display.row_spacing or defaults.display.row_spacing)
     state.rows_mode = tostring(config.display.rows_mode or defaults.display.rows_mode)
     state.rows_per_page[1] = tonumber(config.display.rows_per_page) or defaults.display.rows_per_page
@@ -790,7 +774,7 @@ local AC_THEMES = {
     },
 };
 AC_THEMES.golden = {
-    -- XIUI-style black with warm gold.
+    -- Near-black with warm gold.
     label = 'Golden',
     background = { 0.051, 0.051, 0.051 },
     header = { 0.957, 0.855, 0.592 },
@@ -809,6 +793,10 @@ AC_THEMES.garnet = {
     label = 'Garnet',
     background = { 0.035, 0.035, 0.040 },
     header = { 0.800, 0.380, 0.430 },
+    -- Garnet only: trait labels and "not reached yet" use sand / amber so
+    -- they don't blend into the red accent and the red Unlearnable color.
+    info = { 0.880, 0.820, 0.710 },
+    partial = { 0.960, 0.690, 0.330 },
     muted = { 0.62, 0.62, 0.66 },
     title = { 0.020, 0.020, 0.022 },
     title_active = { 0.094, 0.035, 0.043 },
@@ -842,8 +830,15 @@ local function set_rgb(dst, rgb)
 end
 
 -- Updates the surface color tables in place (they are shared by push_theme).
+-- Optional per-theme colors for trait labels (info) and unreached traits /
+-- over-limit picks (partial). nil = use the accent / Unlearnable colors.
+local THEME_INFO = nil;
+local THEME_PARTIAL = nil;
+
 local function apply_theme_surfaces(key)
     local theme = AC_THEMES[tostring(key or 'midnight')] or AC_THEMES.midnight;
+    THEME_INFO = theme.info and { theme.info[1], theme.info[2], theme.info[3], 1.0 } or nil;
+    THEME_PARTIAL = theme.partial and { theme.partial[1], theme.partial[2], theme.partial[3], 1.0 } or nil;
     set_rgb(MUTED, theme.muted);
     set_rgb(TITLE, theme.title);
     set_rgb(TITLE_ACTIVE, theme.title_active);
@@ -866,6 +861,16 @@ local function select_theme(key)
     set_rgb(state.background, theme.background);
     set_rgb(state.header_color, theme.header);
     state.settings_dirty = true;
+end
+
+-- Trait label color (BLUPrints side panels).
+local function info_color()
+    return THEME_INFO or state.header_color;
+end
+
+-- Unreached trait / over-limit color (BLUPrints side panels).
+local function partial_color()
+    return THEME_PARTIAL or state.unknown_color;
 end
 
 -- Returns the configured accent color with an optional alpha multiplier.
@@ -951,11 +956,67 @@ local function draw_styled_tab(label, id, selected)
     return clicked;
 end
 
+-- Drag a window from any empty spot, title bar or not. ImGui's own move
+-- did not work for Zone Info / Spell Locations; if ImGui does start its own
+-- move, this backs off so the window doesn't move twice as fast.
+-- The new position is applied with SetNextWindowPos before the next Begin
+-- (call window_drag_apply right before Begin).
+local window_drag_state = {};
+
+local function window_drag_apply(key)
+    local st = window_drag_state[key];
+    if st ~= nil and st.next ~= nil then
+        imgui.SetNextWindowPos(st.next, { 0, 0 });
+        st.next = nil;
+    end
+end
+
+local function window_drag(key, locked)
+    if locked then
+        window_drag_state[key] = nil;
+        return;
+    end
+    local st = window_drag_state[key];
+    if st ~= nil then
+        if not imgui.IsMouseDown(0) or imgui.IsAnyItemActive() then
+            window_drag_state[key] = nil;
+            return;
+        end
+        local delta = imgui.GetIO().MouseDelta;
+        local dx = delta and tonumber(delta.x) or 0;
+        local dy = delta and tonumber(delta.y) or 0;
+        if dx ~= 0 or dy ~= 0 then
+            local wx, wy = imgui.GetWindowPos();
+            st.next = { (tonumber(wx) or 0) + dx, (tonumber(wy) or 0) + dy };
+        end
+        return;
+    end
+    if imgui.IsWindowHovered(0) and imgui.IsMouseClicked(0)
+        and not imgui.IsAnyItemHovered() and not imgui.IsAnyItemActive() then
+        window_drag_state[key] = { next = nil };
+    end
+end
+
 -- Aligns a plain text label with the frame padding of the controls beside it.
 local function align_label()
     if imgui.AlignTextToFramePadding ~= nil then
         imgui.AlignTextToFramePadding();
     end
+end
+
+-- Text box that is skipped by Tab focus cycling, so pressing Tab in game
+-- (targeting) never jumps into an Azure Codex search box. Click it to type.
+local function input_text_no_tab(label, buffer, size)
+    local pushed = false;
+    if imgui.PushItemFlag ~= nil and ImGuiItemFlags_NoTabStop ~= nil then
+        imgui.PushItemFlag(ImGuiItemFlags_NoTabStop, true);
+        pushed = true;
+    end
+    local changed = imgui.InputText(label, buffer, size);
+    if pushed then
+        imgui.PopItemFlag();
+    end
+    return changed;
 end
 
 -- Memoized: names are normalized thousands of times per frame otherwise.
@@ -1012,10 +1073,10 @@ local TRAIT_TIERS = {
     defensebonus = { 2, 4, 6, 8, 10, 12 },
     plantoidkiller = { 2, 4, 6 },
     magicdefensebonus = { 2, 4, 6, 8, 10 },
-    autorefresh = { 2 }, -- Single tier; unlocks at 8 trait points.
+    autorefresh = { 8 },
     maxhpboost = { 2, 4, 6, 8, 10, 12 },
     accuracybonus = { 2, 4, 6, 8, 10, 12 },
-    conservemp = { 2 }, -- Single tier; unlocks at 8 trait points.
+    conservemp = { 2, 4, 6, 8, 10 },
     evasionbonus = { 2, 4, 6, 8, 10 },
     resistgravity = { 2, 3, 4 },
     storetp = { 2, 4, 6, 8, 10 },
@@ -1845,14 +1906,25 @@ local function active_column_count()
     return count;
 end
 
+-- Lvl / Points / Learn are narrow fixed columns sized from the header text
+-- (plus the sort arrow); Spell, Type, Trait and Mob Family share the rest
+-- equally.
 local function setup_table_columns()
-    imgui.TableSetupColumn('Spell');
-    if state.columns.level[1] then imgui.TableSetupColumn('Lvl'); end
-    if state.columns.points[1] then imgui.TableSetupColumn('Points'); end
-    if state.columns.learn_skill[1] then imgui.TableSetupColumn('Learn Skill'); end
-    if state.columns.type[1] then imgui.TableSetupColumn('Type'); end
-    if state.columns.trait[1] then imgui.TableSetupColumn('Trait'); end
-    if state.columns.mob_family[1] then imgui.TableSetupColumn('Mob Family'); end
+    local function fixed_w(header, sample)
+        local a = tonumber((imgui.CalcTextSize(header .. ' ^'))) or 40;
+        local b = tonumber((imgui.CalcTextSize(sample))) or 30;
+        return math.max(a, b) + 14;
+    end
+    local stretch = ImGuiTableColumnFlags_WidthStretch or 0;
+    local fixed = ImGuiTableColumnFlags_WidthFixed or 0;
+
+    imgui.TableSetupColumn('Spell', stretch, 1.15);
+    if state.columns.level[1] then imgui.TableSetupColumn('Lvl', fixed, fixed_w('Lvl', '75')); end
+    if state.columns.points[1] then imgui.TableSetupColumn('Points', fixed, fixed_w('Points', '5')); end
+    if state.columns.learn_skill[1] then imgui.TableSetupColumn('Learn', fixed, fixed_w('Learn', '000')); end
+    if state.columns.type[1] then imgui.TableSetupColumn('Type', stretch, 1.0); end
+    if state.columns.trait[1] then imgui.TableSetupColumn('Trait', stretch, 1.0); end
+    if state.columns.mob_family[1] then imgui.TableSetupColumn('Mob Family', stretch, 1.0); end
 end
 
 local function draw_table_headers()
@@ -1878,7 +1950,7 @@ local function draw_table_headers()
 
     if state.columns.learn_skill[1] then
         imgui.TableNextColumn();
-        draw_sort_header('Learn Skill', 'learn_skill');
+        draw_sort_header('Learn', 'learn_skill');
     end
 
     if state.columns.type[1] then
@@ -2183,9 +2255,6 @@ local function save_config()
     config.appearance.zone_locked = state.zone_locked[1];
     config.appearance.location_locked = state.location_locked[1];
 
-    for key, value in pairs(state.visible_tabs) do
-        config.display.visible_tabs[key] = value[1];
-    end
     config.display.row_spacing = state.row_spacing;
     config.display.rows_mode = state.rows_mode;
     config.display.rows_per_page = math.floor(clamp(state.rows_per_page[1], 8, 60));
@@ -2444,7 +2513,6 @@ local function reset_all()
     reset_appearance();
     reset_window();
 
-    for _, value in pairs(state.visible_tabs) do value[1] = true; end
     state.row_spacing = defaults.display.row_spacing;
     state.rows_mode = defaults.display.rows_mode;
     state.rows_per_page[1] = defaults.display.rows_per_page;
@@ -2604,26 +2672,6 @@ local function draw_font_colors_tab()
     if imgui.Button('Reset Appearance') then
         reset_appearance();
     end
-end
-
-local function draw_tabs_config_tab()
-    section_title('MAIN TABS');
-    imgui.TextColored(MUTED, 'Choose which navigation tabs appear in the main window.');
-    for _, item in ipairs({
-        { 'All', 'all' },
-        { 'Known', 'known' },
-        { 'Missing', 'missing' },
-        { 'Up to My Level', 'ready' },
-        { 'BLUPrints', 'bluprints' },
-        { 'BLUPrint-View', 'view' },
-    }) do
-        if imgui.Checkbox(item[1] .. '##azure_visible_tab_' .. item[2], state.visible_tabs[item[2]]) then
-            state.settings_dirty = true;
-        end
-    end
-    imgui.Spacing();
-    imgui.TextColored(MUTED, 'Hiding the current tab does not close its page.');
-    imgui.TextColored(MUTED, 'Config stays available at all times.');
 end
 
 local function draw_display_tab()
@@ -3162,7 +3210,7 @@ local function draw_saved_build_loader()
 
     state.build_load_files = get_saved_build_files()
     push_theme()
-    if imgui.Begin('Load BLU Spell Build##bluspells_load_build', state.build_load_open, 0) then
+    if imgui.Begin('Load BLU Spell Build##bluspells_load_build', state.build_load_open, ImGuiWindowFlags_NoNav) then
         imgui.TextColored(state.header_color, 'Saved Builds')
         imgui.Separator()
 
@@ -3183,14 +3231,14 @@ local function draw_saved_build_loader()
 end
 
 -- Trait list with tier, points toward the next tier and a progress bar.
-local function draw_trait_list(traits, id_prefix)
+local function draw_trait_list(traits, id_prefix, bar_width)
     if #traits == 0 then
         imgui.TextColored(MUTED, 'No traits selected.');
         return;
     end
 
     for index, entry in ipairs(traits) do
-        local color = entry.tier > 0 and state.known_color or state.unknown_color;
+        local color = entry.tier > 0 and state.known_color or partial_color();
         imgui.TextColored(color, trait_label(entry));
         imgui.SameLine();
         if entry.maxed then
@@ -3208,7 +3256,7 @@ local function draw_trait_list(traits, id_prefix)
                 local span = math.max(1, entry.next_points - entry.prev_points);
                 ratio = math.max(0, math.min(1.0, (entry.points - entry.prev_points) / span));
             end
-            imgui.ProgressBar(ratio, { 0, 6 }, '');
+            imgui.ProgressBar(ratio, { bar_width or 0, 6 }, '');
         end
     end
 end
@@ -3343,7 +3391,7 @@ local function draw_trait_planner(traits, used, selected_count, point_cap, slot_
             shown = shown + 1;
             local picks, cost, complete = plan.picks, plan.cost, plan.complete;
             local target_label = ('%s %s'):fmt(entry.name, ROMAN[entry.tier + 1] or tostring(entry.tier + 1));
-            imgui.TextColored(state.header_color, target_label);
+            imgui.TextColored(info_color(), target_label);
             imgui.SameLine();
             if #picks == 0 then
                 imgui.TextColored(MUTED, 'no known spells left');
@@ -3355,7 +3403,7 @@ local function draw_trait_planner(traits, used, selected_count, point_cap, slot_
                 local fits = (used + cost) <= point_cap and (selected_count + #picks) <= slot_cap;
                 local parts = {};
                 for _, spell in ipairs(picks) do parts[#parts + 1] = tostring(spell.name); end
-                imgui.TextColored(fits and TEXT or state.unknown_color,
+                imgui.TextColored(fits and TEXT or partial_color(),
                     ('+%s  (%d pt, %d slot%s)'):fmt(table.concat(parts, ', '), cost, #picks, #picks == 1 and '' or 's'));
                 if fits then
                     imgui.SameLine();
@@ -3376,103 +3424,335 @@ local function draw_trait_planner(traits, used, selected_count, point_cap, slot_
     end
 end
 
-local function draw_spell_build_tab()
-    -- Keep saved loadouts at the top of BLUPrints for quick access.
-    section_title('AZURE LOADOUT');
+-- ----------------------------------------------------------------------------
+-- BLUPrints page (1.14.0): toolbar, budget bars, then two columns:
+-- Known spells (trait chips + search, click to add) | Your build (slots,
+-- click to remove) with Equip / Load equipped / Clear underneath.
+-- ----------------------------------------------------------------------------
+local function bp_text_w(value)
+    return tonumber((imgui.CalcTextSize(tostring(value)))) or 0;
+end
 
-    -- Keep the selector on its own row so the BLUPrint controls stay uncluttered.
-    imgui.Spacing();
-
-    state.spellsets_files = get_saved_build_files();
-    if #state.spellsets_files == 0 then
-        imgui.TextColored(MUTED, 'No saved sets found in BLUPrints.');
-    else
-        local selected_name = tostring(state.spellset_selected[1] or '')
-        local current_index = 0
-        local combo_items = { 'Select a BLUPrint...' }
-
-        for index, filename in ipairs(state.spellsets_files) do
-            combo_items[#combo_items + 1] = filename
-            if filename == selected_name then
-                current_index = index
-            end
-        end
-
-        local item_string = table.concat(combo_items, '\0') .. '\0\0'
-        local combo_value = { current_index }
-
-        imgui.PushItemWidth(360)
-        if imgui.Combo('##azure_bluprints_loadout_combo', combo_value, item_string, math.min(12, #combo_items)) then
-            local chosen_index = tonumber(combo_value[1]) or 0
-            local filename = chosen_index > 0 and state.spellsets_files[chosen_index] or nil
-            if filename ~= nil then
-                state.spellset_selected[1] = filename
-                -- Ask first; equipping replaces your whole set.
-                state.loadout_pending = filename
-            end
-        end
-        imgui.PopItemWidth()
-
-        imgui.SameLine();
-        if imgui.Button('Refresh##azure_bluprints_refresh') then
-            state.build_files_at = -1;
-            state.spellsets_files = get_saved_build_files();
-            local current = tostring(state.spellset_selected[1] or '');
-            local found = false;
-            for _, filename in ipairs(state.spellsets_files) do
-                if filename == current then
-                    found = true;
-                    break;
-                end
-            end
-            if not found then
-                state.spellset_selected[1] = '';
-            end
-            state.view_cache = nil;
-        end
-
-        if state.loadout_pending ~= nil then
-            imgui.TextColored(state.learnable_color, ('Equip %s?'):fmt(tostring(state.loadout_pending)));
-            imgui.SameLine();
-            if imgui.Button('Equip##azure_loadout_confirm') then
-                load_saved_build_file(state.loadout_pending, true);
-                state.loadout_pending = nil;
-            end
-            imgui.SameLine();
-            if imgui.Button('Cancel##azure_loadout_cancel') then
-                state.loadout_pending = nil;
-            end
-        end
+-- Label / value / thin bar block (fixed width).
+local function bp_budget(label, value, frac, width)
+    local x0 = imgui.GetCursorPosX();
+    local y0 = imgui.GetCursorPosY();
+    imgui.TextColored(MUTED, label);
+    imgui.SameLine();
+    imgui.SetCursorPosX(x0 + width - bp_text_w(value));
+    imgui.Text(value);
+    local sx, sy = imgui.GetCursorScreenPos();
+    sx = sx + (x0 - imgui.GetCursorPosX());
+    local dl = imgui.GetWindowDrawList();
+    dl:AddRectFilled({ sx, sy + 1 }, { sx + width, sy + 5 }, imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.08 }), 2.0);
+    frac = math.max(0, math.min(1, tonumber(frac) or 0));
+    if frac > 0 then
+        dl:AddRectFilled({ sx, sy + 1 }, { sx + math.max(3, width * frac), sy + 5 }, imgui.GetColorU32(accent()), 2.0);
     end
+    imgui.SetCursorPosY(y0);
+end
 
-    imgui.Spacing();
-    imgui.Spacing();
-    section_title('BLUPRINTS');
+-- Rounded filter chip; returns true when clicked.
+local function bp_chip(label, id, selected)
+    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 10.0);
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 9, 2 });
+    imgui.PushStyleColor(ImGuiCol_Button, selected and accent(0.28) or CONTROL);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, selected and accent(0.36) or CONTROL_HOVER);
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.44));
+    imgui.PushStyleColor(ImGuiCol_Text, selected and accent() or MUTED);
+    local clicked = imgui.Button(label .. '##' .. id);
+    imgui.PopStyleColor(4);
+    imgui.PopStyleVar(2);
+    return clicked;
+end
 
+-- Primary (accent-filled) button.
+local function bp_primary_button(label, id, enabled)
+    imgui.PushStyleColor(ImGuiCol_Button, enabled and accent(0.85) or CONTROL);
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, accent(1.0));
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, accent(0.70));
+    imgui.PushStyleColor(ImGuiCol_Text, enabled and { 0.02, 0.02, 0.06, 1.0 } or MUTED);
+    local clicked = imgui.Button(label .. '##' .. id) and enabled;
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+local function draw_spell_build_tab()
     local point_cap, slot_cap = get_build_caps();
     local used, selected_count = enforce_build_cap(point_cap, slot_cap);
-    local remaining = point_cap - used;
 
-    -- Calculator controls are intentionally stacked for a cleaner layout.
-    local equip_label = state.build_equipping[1] and 'Equipping...' or 'Equip This Build';
-    local equip_available = selected_count > 0 and not state.build_equipping[1];
+    -- ===== Toolbar: loadout + save =====
+    state.spellsets_files = get_saved_build_files();
+    align_label();
+    imgui.TextColored(MUTED, 'Loadout');
+    imgui.SameLine();
+    if #state.spellsets_files == 0 then
+        align_label();
+        imgui.TextColored(MUTED, '(no saved sets)');
+    else
+        local selected_name = tostring(state.spellset_selected[1] or '');
+        local current_index = 0;
+        local combo_items = { 'Select a BLUPrint...' };
+        for index, filename in ipairs(state.spellsets_files) do
+            combo_items[#combo_items + 1] = filename;
+            if filename == selected_name then current_index = index; end
+        end
+        local combo_value = { current_index };
+        imgui.PushItemWidth(math.max(180, bp_text_w('Select a BLUPrint...') + 40));
+        if imgui.Combo('##azure_bluprints_loadout_combo', combo_value, table.concat(combo_items, '\0') .. '\0\0', math.min(12, #combo_items)) then
+            local chosen_index = tonumber(combo_value[1]) or 0;
+            local filename = chosen_index > 0 and state.spellsets_files[chosen_index] or nil;
+            if filename ~= nil then
+                state.spellset_selected[1] = filename;
+                -- Ask first; equipping replaces your whole set.
+                state.loadout_pending = filename;
+            end
+        end
+        imgui.PopItemWidth();
+    end
+    imgui.SameLine();
+    if imgui.Button('Refresh##azure_bluprints_refresh') then
+        state.build_files_at = -1;
+        state.spellsets_files = get_saved_build_files();
+        local current = tostring(state.spellset_selected[1] or '');
+        local found = false;
+        for _, filename in ipairs(state.spellsets_files) do
+            if filename == current then found = true; break; end
+        end
+        if not found then state.spellset_selected[1] = ''; end
+        state.view_cache = nil;
+    end
 
-    if equip_available then
-        if imgui.Button(equip_label .. '##blu_build_equip') then
-            equip_selected_build();
+    -- Name + Save on the right.
+    imgui.SameLine();
+    local save_w = bp_text_w('Save') + 20;
+    local name_w = 190;
+    local row_w = tonumber((imgui.GetContentRegionAvail())) or 400;
+    if row_w > name_w + save_w + 12 then
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + row_w - name_w - save_w - 8);
+    end
+    imgui.PushItemWidth(name_w);
+    input_text_no_tab('##blu_build_name', state.build_name, 128);
+    imgui.PopItemWidth();
+    if imgui.IsItemHovered() and not imgui.IsItemActive() then
+        imgui.SetTooltip('Name for this build (saved to the BLUPrints folder)');
+    end
+    imgui.SameLine();
+    if imgui.Button('Save##blu_build_save') then
+        save_build_to_file();
+    end
+
+    if state.loadout_pending ~= nil then
+        imgui.TextColored(state.learnable_color, ('Equip %s?'):fmt(tostring(state.loadout_pending)));
+        imgui.SameLine();
+        if bp_primary_button('Equip', 'azure_loadout_confirm', true) then
+            load_saved_build_file(state.loadout_pending, true);
+            state.loadout_pending = nil;
+        end
+        imgui.SameLine();
+        if imgui.Button('Cancel##azure_loadout_cancel') then
+            state.loadout_pending = nil;
+        end
+    end
+
+    -- ===== Budget bars =====
+    imgui.Spacing();
+    local bud_w = math.max(150, bp_text_w('Points  00 / 00') + 20);
+    local bx = imgui.GetCursorPosX();
+    bp_budget('Spells', ('%d / %d'):fmt(selected_count, slot_cap), slot_cap > 0 and selected_count / slot_cap or 0, bud_w);
+    imgui.SameLine();
+    imgui.SetCursorPosX(bx + bud_w + 24);
+    bp_budget('Points', ('%d / %d'):fmt(used, point_cap), point_cap > 0 and used / point_cap or 0, bud_w);
+    imgui.SameLine();
+    imgui.SetCursorPosX(bx + (bud_w + 24) * 2);
+    local trait_totals, selected_spells = get_trait_totals();
+    if #selected_spells > 0 then
+        local adds, removes = equipped_diff(selected_spells);
+        if #adds == 0 and #removes == 0 then
+            imgui.TextColored(state.known_color, 'Same as equipped');
+        else
+            imgui.TextColored(state.learnable_color, ('+%d / -%d vs equipped'):fmt(#adds, #removes));
         end
     else
-        imgui.Button(equip_label .. '##blu_build_equip_disabled');
+        imgui.TextColored(MUTED, 'Empty build');
+    end
+    imgui.NewLine();
+    imgui.Spacing();
+
+    -- ===== Two columns =====
+    local avail_w, avail_h = imgui.GetContentRegionAvail();
+    avail_w = tonumber(avail_w) or 700;
+    avail_h = math.max(160, tonumber(avail_h) or 300);
+    local left_w = math.floor(avail_w * 0.56);
+
+    -- Trait chips (traits of your known spells), drawn under Your Build.
+    -- Click one to filter Known Spells to that trait.
+    local trait_set, trait_list = {}, {};
+    for _, spell in ipairs(spells) do
+        if is_known(spell.name) then
+            local t = get_spell_trait_name(spell);
+            if t ~= nil and not trait_set[t] then
+                trait_set[t] = true;
+                trait_list[#trait_list + 1] = t;
+            end
+        end
+    end
+    table.sort(trait_list);
+    local chips = { { label = 'All', value = nil } };
+    for _, t in ipairs(trait_list) do chips[#chips + 1] = { label = t, value = t }; end
+    chips[#chips + 1] = { label = 'No trait', value = '__none' };
+    if state.build_trait_filter ~= nil and state.build_trait_filter ~= '__none' and not trait_set[state.build_trait_filter] then
+        state.build_trait_filter = nil;
     end
 
+
+    imgui.PushStyleColor(ImGuiCol_ChildBg, { 0, 0, 0, 0 });
+
+    -- ---- Left: known spells ----
+    imgui.BeginChild('##azure_bp_left', { left_w, avail_h });
+    section_title('KNOWN SPELLS');
+
+    local col_w = tonumber((imgui.GetContentRegionAvail())) or left_w;
+    imgui.Spacing();
+    imgui.PushItemWidth(math.max(120, col_w - bp_text_w('Show unlearned') - 40));
+    input_text_no_tab('##blu_build_search', state.build_search, 128);
+    imgui.PopItemWidth();
+    if imgui.IsItemHovered() and not imgui.IsItemActive() then
+        imgui.SetTooltip('Search spells, traits or mob families');
+    end
     imgui.SameLine();
-    if imgui.Button('Clear Build##blu_build_clear') then
-        state.build_selected = {};
-        used, selected_count = 0, 0;
-        remaining = point_cap;
+    if state.build_show_unlearned == nil then state.build_show_unlearned = { false }; end
+    imgui.Checkbox('Show unlearned##bp_unlearned', state.build_show_unlearned);
+
+    -- Column header + list.
+    local name_x = 22;
+    local pts_w = bp_text_w('Pts') + 10;
+    local lv_w = bp_text_w('Lv 75') + 8;
+    local list_w = tonumber((imgui.GetContentRegionAvail())) or col_w;
+    local pts_x = math.floor(list_w * 0.46);
+    local lv_x = pts_x + pts_w + 6;
+    local trait_x = lv_x + lv_w + 6;
+
+    imgui.TextColored(MUTED, 'Spell');
+    imgui.SameLine(); imgui.SetCursorPosX(pts_x); imgui.TextColored(MUTED, 'Pts');
+    imgui.SameLine(); imgui.SetCursorPosX(lv_x); imgui.TextColored(MUTED, 'Lv');
+    imgui.SameLine(); imgui.SetCursorPosX(trait_x); imgui.TextColored(MUTED, 'Trait');
+
+    imgui.BeginChild('##azure_codex_bluprints_spell_list', { 0, 0 });
+    local query = tostring(state.build_search[1] or ''):lower();
+    local filter = state.build_trait_filter;
+    local shown = 0;
+    for _, spell in ipairs(spells) do
+        local known = is_known(spell.name);
+        local trait_name = get_spell_trait_name(spell);
+        local trait_ok = filter == nil
+            or (filter == '__none' and trait_name == nil)
+            or (trait_name ~= nil and trait_name == filter);
+        if (known or state.build_show_unlearned[1]) and trait_ok
+            and (query == '' or spell_haystack(spell):find(query, 1, true) ~= nil) then
+            shown = shown + 1;
+            local key = normalize_name(spell.name);
+            local checked = state.build_selected[key] == true;
+            local cost = tonumber(spell.points) or 0;
+            local blocked = (not checked) and (((used + cost) > point_cap) or (selected_count >= slot_cap));
+            local _, spell_color = get_spell_display_state(spell);
+
+            local row_x = imgui.GetCursorPosX();
+            imgui.PushStyleColor(ImGuiCol_Header, accent(0.16));
+            imgui.PushStyleColor(ImGuiCol_HeaderHovered, accent(0.22));
+            imgui.PushStyleColor(ImGuiCol_HeaderActive, accent(0.30));
+            imgui.PushStyleColor(ImGuiCol_Text, (blocked or not known) and MUTED or spell_color);
+            local label = (checked and '+ ' or '  ') .. tostring(spell.name);
+            if imgui.Selectable(label .. '##bp_add_' .. key, checked, 0, { list_w - 4, 0 }) then
+                if checked then
+                    state.build_selected[key] = false;
+                    used, selected_count = get_build_points_used();
+                elseif known and not blocked then
+                    state.build_selected[key] = true;
+                    used = used + cost;
+                    selected_count = selected_count + 1;
+                end
+            end
+            imgui.PopStyleColor(4);
+            if imgui.IsItemHovered() then
+                if not known then
+                    imgui.SetTooltip('Not learned yet');
+                elseif blocked then
+                    imgui.SetTooltip('Over your limits (points or spell slots)');
+                end
+            end
+
+            imgui.SameLine(); imgui.SetCursorPosX(row_x + pts_x + pts_w - bp_text_w(cost) - 6);
+            imgui.TextColored(blocked and MUTED or state.header_color, tostring(cost));
+            imgui.SameLine(); imgui.SetCursorPosX(row_x + lv_x);
+            imgui.TextColored(MUTED, tostring(spell.level or '--'));
+            imgui.SameLine(); imgui.SetCursorPosX(row_x + trait_x);
+            local badge = get_spell_trait_badge(spell);
+            if badge == nil or tostring(badge):lower() == 'none' then
+                imgui.TextColored(MUTED, '--');
+            else
+                imgui.TextColored(blocked and MUTED or TEXT, tostring(badge));
+            end
+        end
+    end
+    if shown == 0 then
+        imgui.TextColored(MUTED, 'No spells match.');
+    end
+    imgui.EndChild();
+    imgui.EndChild();
+
+    imgui.SameLine(0, 14);
+
+    -- ---- Right: your build ----
+    imgui.BeginChild('##azure_bp_right', { 0, avail_h });
+    section_title('YOUR BUILD');
+    imgui.TextColored(MUTED, 'Click a spell to remove it.');
+    imgui.Spacing();
+
+    local slot_list_w = tonumber((imgui.GetContentRegionAvail())) or 260;
+    local num_w = bp_text_w('00') + 8;
+    local spt_w = bp_text_w('0') + 10;
+    for slot = 1, slot_cap do
+        local spell = selected_spells[slot];
+        local row_x = imgui.GetCursorPosX();
+        imgui.TextColored(spell and state.header_color or BORDER, ('%02d'):fmt(slot));
+        imgui.SameLine();
+        imgui.SetCursorPosX(row_x + num_w);
+        if spell ~= nil then
+            local key = normalize_name(spell.name);
+            imgui.PushStyleColor(ImGuiCol_Header, accent(0.16));
+            imgui.PushStyleColor(ImGuiCol_HeaderHovered, { 0.55, 0.15, 0.15, 0.55 });
+            imgui.PushStyleColor(ImGuiCol_HeaderActive, { 0.65, 0.18, 0.18, 0.70 });
+            if imgui.Selectable(tostring(spell.name) .. '##bp_slot_' .. key, false, 0, { math.max(60, slot_list_w - num_w - 4), 0 }) then
+                state.build_selected[key] = false;
+                used, selected_count = get_build_points_used();
+            end
+            imgui.PopStyleColor(3);
+            local name_end = row_x + num_w + bp_text_w(spell.name) + 12;
+            local pts_xr = row_x + math.floor(slot_list_w * 0.55);
+            imgui.SameLine();
+            imgui.SetCursorPosX(math.max(name_end, pts_xr));
+            imgui.TextColored(state.header_color, tostring(tonumber(spell.points) or 0));
+            local badge = get_spell_trait_badge(spell);
+            if badge ~= nil and tostring(badge):lower() ~= 'none' then
+                imgui.SameLine();
+                imgui.SetCursorPosX(math.max(name_end, pts_xr) + spt_w + 6);
+                imgui.TextColored(info_color(), tostring(badge));
+            end
+        else
+            imgui.TextColored(BORDER, 'empty');
+        end
     end
 
-    if imgui.Button('Select Currently Equipped##blu_build_equipped') then
+    imgui.Spacing();
+    imgui.Spacing();
+    local equip_label = state.build_equipping[1] and 'Equipping...' or 'Equip build';
+    local equip_available = selected_count > 0 and not state.build_equipping[1];
+    if bp_primary_button(equip_label, 'blu_build_equip', equip_available) then
+        equip_selected_build();
+    end
+    imgui.SameLine();
+    if imgui.Button('Load equipped##blu_build_equipped') then
         state.build_selected = {};
         used, selected_count = 0, 0;
         local equipped = get_current_equipped_spell_names();
@@ -3480,7 +3760,6 @@ local function draw_spell_build_tab()
         for _, name in ipairs(equipped) do
             equipped_lookup[normalize_name(name)] = true;
         end
-
         for _, spell in ipairs(spells) do
             local key = normalize_name(spell.name);
             local cost = tonumber(spell.points) or 0;
@@ -3490,112 +3769,43 @@ local function draw_spell_build_tab()
                 selected_count = selected_count + 1;
             end
         end
-        remaining = point_cap - used;
-
         if #equipped == 0 then
             log_message('Unable to read currently equipped BLU spells.');
         end
     end
-
-    if imgui.Button('Save Current Build##blu_build_save') then
-        save_build_to_file();
-    end
+    if imgui.IsItemHovered() then imgui.SetTooltip('Load the spells you have set right now'); end
     imgui.SameLine();
-    imgui.PushItemWidth(300);
-    imgui.InputText('##blu_build_name', state.build_name, 128);
-    imgui.PopItemWidth();
-    imgui.SameLine();
-    imgui.TextColored(MUTED, 'Equipset Name');
-
-    imgui.Spacing();
-    imgui.Spacing();
-    align_label();
-    imgui.Text('Search:');
-    imgui.SameLine();
-    imgui.PushItemWidth(260);
-    imgui.InputText('##blu_build_search', state.build_search, 128);
-    imgui.PopItemWidth();
-
-    imgui.Separator();
-
-    -- Spell selection remains in the main Azure Codex window.  The live
-    -- Spell Card and Trait Calculator are rendered in a companion window.
-    imgui.TextColored(state.header_color, 'SELECT SPELLS');
-    imgui.SameLine();
-    if imgui.Button('Clear all Checked##azure_codex_clear_checked') then
+    if imgui.Button('Clear##blu_build_clear') then
         state.build_selected = {};
         used, selected_count = 0, 0;
-        remaining = point_cap;
     end
-    imgui.TextColored(MUTED, ('Choose up to %d spells within %d BLU points (your current limits).'):fmt(slot_cap, point_cap));
+
+    -- Trait chips: filter Known Spells to one trait.
     imgui.Spacing();
-
-    -- Keep the BLUPrint controls and SELECT SPELLS header fixed while only
-    -- the spell list itself scrolls.
-    local list_height = select(2, imgui.GetContentRegionAvail());
-    list_height = math.max(120, tonumber(list_height) or 120);
-    -- BeginChild uses ImGui's ChildBg color rather than WindowBg. Keep the
-    -- scrollable spell list visually consistent with the user-configured
-    -- Azure Codex background (including opacity).
-    imgui.PushStyleColor(ImGuiCol_ChildBg, {
-        state.background[1], state.background[2], state.background[3], state.background[4]
-    });
-    imgui.BeginChild('##azure_codex_bluprints_spell_list', { 0, list_height });
-
-    local query = tostring(state.build_search[1] or ''):lower();
-    for _, spell in ipairs(spells) do
-        local haystack = spell_haystack(spell);
-
-        if query == '' or haystack:find(query, 1, true) ~= nil then
-            local key = normalize_name(spell.name);
-            local checked = state.build_selected[key] == true;
-            local cost = tonumber(spell.points) or 0;
-            local would_exceed_points = (not checked) and ((used + cost) > point_cap);
-            local would_exceed_slots = (not checked) and (selected_count >= slot_cap);
-            local blocked = would_exceed_points or would_exceed_slots;
-            local known = is_known(spell.name);
-
-            -- Use the exact same configurable Known / Learnable / Unlearnable
-            -- colors as the main spell list.  Capacity blocking does not
-            -- replace the spell's learning-state color.
-            local _, spell_color = get_spell_display_state(spell);
-            imgui.PushStyleColor(ImGuiCol_Text, spell_color);
-
-            local value = { checked };
-            if not known then
-                -- Unknown spells remain visible with their configured learning-state
-                -- color, but cannot be selected for a BLUPrint until learned.
-                imgui.BeginDisabled();
-                imgui.Checkbox(('%s  [%d pt]##build_%s'):fmt(tostring(spell.name), cost, key), value);
-                imgui.EndDisabled();
-            elseif blocked then
-                imgui.BeginDisabled();
-                imgui.Checkbox(('%s  [%d pt]##build_%s'):fmt(tostring(spell.name), cost, key), value);
-                imgui.EndDisabled();
+    imgui.Spacing();
+    section_title('FILTER BY TRAIT');
+    local chip_w = tonumber((imgui.GetContentRegionAvail())) or 260;
+    local line_x = 0;
+    local spacing = 4;
+    for index, chip in ipairs(chips) do
+        local w = bp_text_w(chip.label) + 18;
+        if index > 1 then
+            if line_x + spacing + w <= chip_w then
+                imgui.SameLine(0, spacing);
+                line_x = line_x + spacing;
             else
-                if imgui.Checkbox(('%s  [%d pt]##build_%s'):fmt(tostring(spell.name), cost, key), value) then
-                    if checked then
-                        state.build_selected[key] = false;
-                        used, selected_count = get_build_points_used();
-                    elseif (used + cost) <= point_cap and selected_count < slot_cap then
-                        state.build_selected[key] = true;
-                        used = used + cost;
-                        selected_count = selected_count + 1;
-                    end
-                end
+                line_x = 0;
             end
-
-            imgui.PopStyleColor(1);
-
-            imgui.SameLine();
-            local suffix = blocked and (would_exceed_points and '  [cap]' or ('  [%d slots]'):fmt(slot_cap)) or '';
-            imgui.TextColored(MUTED, ('Lv %s  %s%s'):fmt(
-                tostring(spell.level or '--'), tostring(get_spell_trait_badge(spell) or 'None'), suffix));
         end
+        if bp_chip(chip.label, 'bp_chip_' .. tostring(index), state.build_trait_filter == chip.value) then
+            state.build_trait_filter = chip.value;
+        end
+        line_x = line_x + w;
     end
 
     imgui.EndChild();
-    imgui.PopStyleColor();
+
+    imgui.PopStyleColor(1);
 end
 
 local function draw_bluprints_companion_window()
@@ -3614,12 +3824,17 @@ local function draw_bluprints_companion_window()
     -- This window intentionally follows the main Azure Codex window and has
     -- no close button. It exists only while the BLUPrints tab is active.
     imgui.SetNextWindowPos({ main_x + main_w + 8, main_y });
-    imgui.SetNextWindowSize({ 500, main_h });
+    -- Width follows the content (Trait Planner lines); height matches the
+    -- main window.
+    if imgui.SetNextWindowSizeConstraints ~= nil then
+        imgui.SetNextWindowSizeConstraints({ 260, main_h }, { 1100, main_h });
+    end
 
     push_theme();
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
 
-    local flags = bit.bor(ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize);
+    local flags = bit.bor(ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize, ImGuiWindowFlags_NoNav,
+        ImGuiWindowFlags_AlwaysAutoResize);
     if not state.title_bar[1] then
         flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar);
     end
@@ -3633,7 +3848,9 @@ local function draw_bluprints_companion_window()
         local used, selected_count = enforce_build_cap(point_cap, slot_cap);
         local trait_totals, selected_spells = get_trait_totals();
 
-        imgui.TextColored(state.header_color, 'SPELL CARD');
+        -- The build's slots are in the main window; this panel shows the
+        -- totals, VS Equipped, the Trait Calculator and the Trait Planner.
+        imgui.TextColored(state.header_color, 'BUILD');
         imgui.Separator();
         imgui.TextColored(state.known_color, ('%d / %d SPELLS'):fmt(selected_count, slot_cap));
         imgui.SameLine();
@@ -3642,36 +3859,8 @@ local function draw_bluprints_companion_window()
             imgui.SameLine();
             imgui.TextColored(MUTED, '(level limits)');
         end
-        imgui.Spacing();
-
         if #selected_spells == 0 then
-            imgui.TextColored(MUTED, 'No spells selected.');
-            imgui.TextColored(MUTED, 'Your BLUPrint will appear here.');
-        else
-            for slot = 1, slot_cap do
-                local spell = selected_spells[slot];
-                if spell ~= nil then
-                    local cost = tonumber(spell.points) or 0;
-                    imgui.TextColored(state.header_color, ('%02d'):fmt(slot));
-                    imgui.SameLine();
-                    imgui.Text(tostring(spell.name));
-                    imgui.SameLine();
-                    imgui.TextColored(MUTED, ('Lv %s  %d pt'):fmt(tostring(spell.level or '--'), cost));
-                    local trait_text = get_spell_trait_badge(spell);
-                    if trait_text ~= nil and tostring(trait_text):lower() ~= 'none' then
-                        imgui.SameLine();
-                        imgui.TextColored(state.header_color, tostring(trait_text));
-                    end
-                else
-                    imgui.TextColored(BORDER, ('%02d  -- empty --'):fmt(slot));
-                end
-            end
-        end
-
-        imgui.Spacing();
-        if imgui.ProgressBar ~= nil then
-            local ratio = point_cap > 0 and math.min(1.0, used / point_cap) or 0;
-            imgui.ProgressBar(ratio, { 0, 8 }, '');
+            imgui.TextColored(MUTED, 'Click spells on the left to build a set.');
         end
 
         if #selected_spells > 0 then
@@ -3689,13 +3878,14 @@ local function draw_bluprints_companion_window()
             imgui.PushTextWrapPos(420);
             imgui.TextUnformatted('HorizonXI / LandSandBoat 75-era rules: each spell gives 4 points to its trait (some give more: '
                 .. 'Self-Destruct, Frightful Roar, Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge, '
-                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh has one tier at 8 points; Conserve MP has one tier at 8; Resist Gravity '
+                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh needs 32; Resist Gravity '
                 .. 'tiers are 8 / 12 / 16. Each trait has its own maximum tier.');
             imgui.PopTextWrapPos();
             imgui.EndTooltip();
         end
         imgui.Separator();
-        draw_trait_list(trait_totals, 'card');
+        -- Fixed bar width: this window sizes itself to its content.
+        draw_trait_list(trait_totals, 'card', math.floor(260 * (tonumber(state.font_scale[1]) or 1.0)));
 
         imgui.Spacing();
         draw_trait_planner(trait_totals, used, selected_count, point_cap, slot_cap);
@@ -3729,7 +3919,7 @@ local function draw_location_window()
         );
     end
 
-    local location_flags = 0;
+    local location_flags = ImGuiWindowFlags_NoNav;
     if state.location_locked[1] then
         location_flags = bit.bor(
             location_flags,
@@ -3749,64 +3939,47 @@ local function draw_location_window()
     -- Keep one stable ImGui window identity for every spell so position/size are shared.
     -- The text before ### may change; the ID after ### remains constant.
     local title = 'Azure Codex - Spell Locations - ' .. tostring(spell.name) .. '###bluspells_locations';
+    window_drag_apply('locations');
     if imgui.Begin(title, state.location_open, location_flags) then
         local base_font_size = imgui.GetFontSize();
         local requested_size = base_font_size * state.font_scale[1];
         imgui.PushFont(nil, requested_size);
-        if state.location_reset_scroll and imgui.SetScrollY ~= nil then
-            imgui.SetScrollY(0);
-            state.location_reset_scroll = false;
-        end
-
-        if not state.title_bar[1] then
-            local window_w = select(1, imgui.GetWindowSize());
-            window_w = tonumber(window_w) or 760;
-
-            local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
-
-            if imgui.Button('X##bluspells_locations_close', { 22, 20 }) then
-                state.location_open[1] = false;
-            end
-
-            imgui.SetCursorPos({ saved_x, saved_y });
-        end
 
         local location_avail_w = select(1, imgui.GetContentRegionAvail());
         location_avail_w = tonumber(location_avail_w) or 760;
 
-        if imgui.BeginTable ~= nil and location_avail_w >= LOCATION_TWO_COLUMN_WIDTH then
-            local header_flags = 0;
-            if ImGuiTableFlags_SizingStretchProp ~= nil then
-                header_flags = bit.bor(header_flags, ImGuiTableFlags_SizingStretchProp);
-            end
-
-            if imgui.BeginTable('##bluspells_location_header', 2, header_flags) then
-                imgui.TableSetupColumn('##location_spell', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
-                imgui.TableSetupColumn('##location_family', ImGuiTableColumnFlags_WidthFixed or 0, 230);
-
-                imgui.TableNextRow();
-
-                imgui.TableNextColumn();
-                imgui.TextColored(state.header_color, tostring(spell.name));
-
-                imgui.TableNextColumn();
-                imgui.TextColored(MUTED, 'Mob Family:');
-                imgui.SameLine();
-                imgui.Text(tostring(spell.mob_family or '--'));
-
-                imgui.EndTable();
-            end
-        else
-            -- On narrow windows stack the family under the spell name instead
-            -- of clipping it off the right edge.
+        -- Header: spell name and mob family on the left, close button
+        -- (title bar hidden) measured and right-aligned so nothing overlaps.
+        do
+            local frame_h = imgui.GetFrameHeight();
+            local start_x = imgui.GetCursorPosX();
+            align_label();
             imgui.TextColored(state.header_color, tostring(spell.name));
+            imgui.SameLine(0, 16);
+            align_label();
             imgui.TextColored(MUTED, 'Mob Family:');
             imgui.SameLine();
+            align_label();
             imgui.Text(tostring(spell.mob_family or '--'));
+            if not state.title_bar[1] then
+                imgui.SameLine();
+                local close_x = start_x + location_avail_w - frame_h;
+                if imgui.GetCursorPosX() < close_x then imgui.SetCursorPosX(close_x); end
+                if imgui.Button('X##bluspells_locations_close', { frame_h, frame_h }) then
+                    state.location_open[1] = false;
+                end
+            end
         end
 
         imgui.Separator();
+
+        -- Only the list scrolls (same layout as Farm Zones): the header and
+        -- close button stay put, and the window drags like the others.
+        imgui.BeginChild('##bluspells_location_list', { 0, 0 });
+        if state.location_reset_scroll and imgui.SetScrollY ~= nil then
+            imgui.SetScrollY(0);
+            state.location_reset_scroll = false;
+        end
 
         if #entries == 0 then
             imgui.TextColored(MUTED, 'No learning locations available.');
@@ -3832,42 +4005,29 @@ local function draw_location_window()
                             imgui.Text('  - ' .. tostring(mob_name));
                         end
                     else
-                        -- Wide layout: split the list evenly into two columns.
+                        -- Wide layout: split the list evenly into two columns
+                        -- (measured, no table, so empty space drags the window).
                         local left_count = math.ceil(#mobs / 2);
-                        local table_flags = 0;
-                        if ImGuiTableFlags_SizingStretchSame ~= nil then
-                            table_flags = bit.bor(table_flags, ImGuiTableFlags_SizingStretchSame);
-                        end
-
-                        if imgui.BeginTable(
-                            '##location_zone_' .. tostring(zone_index), 2, table_flags
-                        ) then
-                            imgui.TableSetupColumn('##left', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
-                            imgui.TableSetupColumn('##right', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
-
-                            for row = 1, left_count do
-                                imgui.TableNextRow();
-
-                                imgui.TableNextColumn();
-                                local left_mob = mobs[row];
-                                if left_mob ~= nil then
-                                    imgui.Text('  - ' .. tostring(left_mob));
-                                end
-
-                                imgui.TableNextColumn();
-                                local right_index = row + left_count;
-                                local right_mob = mobs[right_index];
-                                if right_mob ~= nil then
-                                    imgui.Text('  - ' .. tostring(right_mob));
-                                end
+                        local col_x = imgui.GetCursorPosX();
+                        local half = math.floor(current_w / 2);
+                        for row = 1, left_count do
+                            local left_mob = mobs[row];
+                            imgui.Text('  - ' .. tostring(left_mob or ''));
+                            local right_mob = mobs[row + left_count];
+                            if right_mob ~= nil then
+                                imgui.SameLine();
+                                imgui.SetCursorPosX(col_x + half);
+                                imgui.Text('  - ' .. tostring(right_mob));
                             end
-
-                            imgui.EndTable();
                         end
                     end
                 end
             end
         end
+
+        imgui.EndChild();
+
+        window_drag('locations', state.location_locked[1]);
 
         imgui.PopFont();
     end
@@ -3899,7 +4059,7 @@ local function draw_zone_info_window()
     local zone_name = zone_id and locations.get_zone_name(zone_id) or 'Unknown Zone';
     local known_count, total_count, rows = get_zone_progress(zone_id);
 
-    local zone_flags = 0;
+    local zone_flags = ImGuiWindowFlags_NoNav;
     if state.zone_locked[1] then
         zone_flags = bit.bor(
             zone_flags,
@@ -3926,80 +4086,64 @@ local function draw_zone_info_window()
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
 
     local title = 'Azure Codex - Zone Info - ' .. tostring(zone_name) .. '###bluspells_zone_info';
+    window_drag_apply('zone');
     if imgui.Begin(title, state.zone_info_open, zone_flags) then
         local base_font_size = imgui.GetFontSize();
         local requested_size = base_font_size * state.font_scale[1];
         imgui.PushFont(nil, requested_size);
+
+        -- Header: zone name, id and progress on the left; Hide Known and
+        -- the close button measured and right-aligned so nothing overlaps
+        -- at any font scale.
+        do
+            local style = imgui.GetStyle();
+            local frame_h = imgui.GetFrameHeight();
+            local inner_x = (style.ItemInnerSpacing and style.ItemInnerSpacing.x) or 4;
+            local spacing_x = (style.ItemSpacing and style.ItemSpacing.x) or 8;
+            local start_x, start_y = imgui.GetCursorPos();
+            local content_w = tonumber((imgui.GetContentRegionAvail())) or state.zone_last_w;
+
+            local hide_w = frame_h + inner_x + (tonumber((imgui.CalcTextSize('Hide Known'))) or 80);
+            local close_w = state.title_bar[1] and 0 or (frame_h + spacing_x);
+            local right_w = hide_w + close_w;
+
+            if imgui.AlignTextToFramePadding ~= nil then imgui.AlignTextToFramePadding(); end
+            imgui.TextColored(state.header_color, tostring(zone_name));
+            imgui.SameLine();
+            if zone_id ~= nil then
+                imgui.TextColored(MUTED, ('ID %d'):fmt(zone_id));
+            else
+                imgui.TextColored(MUTED, 'ID --');
+            end
+            imgui.SameLine();
+            imgui.Text(('%d / %d learned'):fmt(known_count, total_count));
+            imgui.SameLine();
+            local text_end_x = imgui.GetCursorPosX();
+
+            local right_x = start_x + content_w - right_w;
+            if text_end_x <= right_x then
+                imgui.SetCursorPosX(right_x);
+            else
+                imgui.NewLine();
+                right_x = start_x;
+            end
+            imgui.Checkbox('Hide Known##bluspells_zone_hide', state.zone_hide_known);
+            if not state.title_bar[1] then
+                imgui.SameLine();
+                if imgui.Button('X##bluspells_zone_info_close', { frame_h, frame_h }) then
+                    state.zone_info_open[1] = false;
+                end
+            end
+        end
+
+        imgui.Separator();
+
+        -- Only the list scrolls (same layout as Farm Zones).
+        imgui.BeginChild('##bluspells_zone_list', { 0, 0 });
         if state.zone_reset_scroll and imgui.SetScrollY ~= nil then
             imgui.SetScrollY(0);
             state.zone_reset_scroll = false;
         end
-
-        if not state.title_bar[1] then
-            local window_w = select(1, imgui.GetWindowSize());
-            window_w = tonumber(window_w) or state.zone_last_w;
-
-            local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
-
-            if imgui.Button('X##bluspells_zone_info_close', { 22, 20 }) then
-                state.zone_info_open[1] = false;
-            end
-
-            imgui.SetCursorPos({ saved_x, saved_y });
-        end
-
-        local header_avail_w = select(1, imgui.GetContentRegionAvail());
-        header_avail_w = tonumber(header_avail_w) or state.zone_last_w;
-
-        if imgui.BeginTable ~= nil and header_avail_w >= 560 then
-            local header_flags = 0;
-            if ImGuiTableFlags_SizingStretchProp ~= nil then
-                header_flags = bit.bor(header_flags, ImGuiTableFlags_SizingStretchProp);
-            end
-
-            if imgui.BeginTable('##bluspells_zone_header', 4, header_flags) then
-                imgui.TableSetupColumn('##zone_name', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
-                imgui.TableSetupColumn('##zone_id', ImGuiTableColumnFlags_WidthFixed or 0, 90);
-                imgui.TableSetupColumn('##zone_progress', ImGuiTableColumnFlags_WidthFixed or 0, 130);
-                imgui.TableSetupColumn('##zone_hide', ImGuiTableColumnFlags_WidthFixed or 0, 110);
-
-                imgui.TableNextRow();
-                imgui.TableNextColumn();
-                imgui.TextColored(state.header_color, tostring(zone_name));
-
-                imgui.TableNextColumn();
-                if zone_id ~= nil then
-                    imgui.TextColored(MUTED, ('Zone ID: %d'):fmt(zone_id));
-                else
-                    imgui.TextColored(MUTED, 'Zone ID: --');
-                end
-
-                imgui.TableNextColumn();
-                imgui.Text(('%d of %d learned'):fmt(known_count, total_count));
-
-                imgui.TableNextColumn();
-                imgui.Checkbox('Hide Known', state.zone_hide_known);
-
-                imgui.EndTable();
-            end
-        else
-            -- Narrow layout: flow the header to two compact rows rather than
-            -- clipping the progress / Hide Known controls off the right edge.
-            imgui.TextColored(state.header_color, tostring(zone_name));
-            imgui.SameLine();
-            if zone_id ~= nil then
-                imgui.TextColored(MUTED, ('Zone ID: %d'):fmt(zone_id));
-            else
-                imgui.TextColored(MUTED, 'Zone ID: --');
-            end
-
-            imgui.Text(('%d of %d learned'):fmt(known_count, total_count));
-            imgui.SameLine();
-            imgui.Checkbox('Hide Known', state.zone_hide_known);
-        end
-
-        imgui.Separator();
 
         if zone_id == nil then
             imgui.TextColored(MUTED, 'Current zone information is not available yet.');
@@ -4029,44 +4173,20 @@ local function draw_zone_info_window()
                         tostring(row.spell.name), learn_skill
                     );
 
-                    -- Responsive Spell (BLU:#) | Lv | Status row.
-                    -- The BLU learning threshold stays directly with the spell
-                    -- name with exactly one separating space.
-                    if imgui.BeginTable ~= nil then
-                        local row_flags = 0;
-                        if ImGuiTableFlags_SizingStretchProp ~= nil then
-                            row_flags = bit.bor(row_flags, ImGuiTableFlags_SizingStretchProp);
-                        end
-
-                        if imgui.BeginTable('##zone_spell_row_' .. tostring(row_index), 3, row_flags) then
-                            local level_w = avail_w < 620 and 52 or 62;
-                            local status_w = avail_w < 620 and 92 or 112;
-
-                            imgui.TableSetupColumn('##spell_name', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
-                            imgui.TableSetupColumn('##spell_level', ImGuiTableColumnFlags_WidthFixed or 0, level_w);
-                            imgui.TableSetupColumn('##spell_status', ImGuiTableColumnFlags_WidthFixed or 0, status_w);
-
-                            imgui.TableNextRow();
-                            imgui.TableNextColumn();
-                            imgui.TextColored(spell_color, spell_label);
-
-                            imgui.TableNextColumn();
-                            imgui.TextColored(state.header_color, 'Lv');
-                            imgui.SameLine();
-                            imgui.Text(tostring(row.spell.level or '--'));
-
-                            imgui.TableNextColumn();
-                            imgui.TextColored(spell_color, status_text);
-
-                            imgui.EndTable();
-                        end
-                    else
+                    -- Spell (BLU:#) | Lv | Status row in measured columns (no
+                    -- table, so empty space still drags the window).
+                    do
+                        local row_x = imgui.GetCursorPosX();
+                        local level_w = (tonumber((imgui.CalcTextSize('Lv 75'))) or 40) + 16;
+                        local status_w = (tonumber((imgui.CalcTextSize('Unlearnable'))) or 80) + 8;
                         imgui.TextColored(spell_color, spell_label);
                         imgui.SameLine();
-                        imgui.TextColored(state.header_color, ('Lv %s'):fmt(
-                            tostring(row.spell.level or '--')
-                        ));
+                        imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8, row_x + avail_w - level_w - status_w));
+                        imgui.TextColored(state.header_color, 'Lv');
                         imgui.SameLine();
+                        imgui.Text(tostring(row.spell.level or '--'));
+                        imgui.SameLine();
+                        imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8, row_x + avail_w - status_w));
                         imgui.TextColored(spell_color, status_text);
                     end
 
@@ -4081,6 +4201,10 @@ local function draw_zone_info_window()
                 end
             end
         end
+
+        imgui.EndChild();
+
+        window_drag('zone', state.zone_locked[1]);
 
         if not state.zone_locked[1] then
             capture_zone_geometry();
@@ -4183,7 +4307,7 @@ local function draw_farm_window()
         state.farm_apply_geometry = false;
     end
 
-    local flags = 0;
+    local flags = ImGuiWindowFlags_NoNav;
     if not state.title_bar[1] then flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar); end
 
     push_theme();
@@ -4287,7 +4411,7 @@ local function draw_log_window()
         state.log_apply_geometry = false;
     end
 
-    local flags = 0;
+    local flags = ImGuiWindowFlags_NoNav;
     if not state.title_bar[1] then flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar); end
 
     push_theme();
@@ -4625,7 +4749,7 @@ local function draw_bluprint_view_page()
             imgui.TextColored(MUTED, ('Lv %s   %d pt'):fmt(tostring(spell.level or '--'), tonumber(spell.points) or 0));
             if trait_text ~= nil and tostring(trait_text):lower() ~= 'none' then
                 imgui.SameLine();
-                imgui.TextColored(state.header_color, tostring(trait_text));
+                imgui.TextColored(info_color(), tostring(trait_text));
             end
         end
     end
@@ -4675,12 +4799,11 @@ local function draw_config_window()
 
     push_theme();
 
-    if imgui.Begin('Azure Codex - Config##bluspells_config', state.config_open, 0) then
+    if imgui.Begin('Azure Codex - Config##bluspells_config', state.config_open, ImGuiWindowFlags_NoNav) then
         local config_tabs = {
             { label = 'Window', id = 'cfg_tab_window', draw = draw_window_tab },
             { label = 'Font & Colors', id = 'cfg_tab_font_colors', draw = draw_font_colors_tab },
             { label = 'Display', id = 'cfg_tab_display', draw = draw_display_tab },
-            { label = 'Tabs', id = 'cfg_tab_tabs', draw = draw_tabs_config_tab },
             { label = 'Behavior', id = 'cfg_tab_behavior', draw = draw_behavior_tab },
             { label = 'About', id = 'cfg_tab_about', draw = draw_about_tab },
         };
@@ -4756,7 +4879,8 @@ local function draw_main_table(filtered, first, last)
         if ImGuiTableFlags_RowBg ~= nil then flags = bit.bor(flags, ImGuiTableFlags_RowBg); end
         if ImGuiTableFlags_BordersInnerH ~= nil then flags = bit.bor(flags, ImGuiTableFlags_BordersInnerH); end
 
-        if imgui.BeginTable('##bluspells_spell_table', active_column_count(), flags) then
+        -- New table id so widths saved by the old (all equal) layout are not reused.
+        if imgui.BeginTable('##bluspells_spell_table_v2', active_column_count(), flags) then
             setup_table_columns();
             draw_table_headers();
 
@@ -4769,6 +4893,335 @@ local function draw_main_table(filtered, first, last)
     else
         draw_fallback_rows(filtered, first, last);
     end
+end
+
+-- ----------------------------------------------------------------------------
+-- Sidebar layout helpers (main window).
+-- ----------------------------------------------------------------------------
+local function text_w(value)
+    return tonumber((imgui.CalcTextSize(tostring(value)))) or 0;
+end
+
+-- Shortens text with ".." so it fits max_w.
+local function fit_text(value, max_w)
+    value = tostring(value or '');
+    if text_w(value) <= max_w then return value; end
+    while #value > 1 and text_w(value .. '..') > max_w do
+        value = value:sub(1, -2);
+    end
+    return value .. '..';
+end
+
+-- Label (muted, left), value (right) and a thin progress bar under them.
+local function sidebar_stat(label, value, frac, sub)
+    local cw = tonumber((imgui.GetContentRegionAvail())) or 160;
+    local x0 = imgui.GetCursorPosX();
+    local vw = text_w(value);
+    imgui.TextColored(MUTED, fit_text(label, math.max(20, cw - vw - 10)));
+    imgui.SameLine();
+    imgui.SetCursorPosX(x0 + cw - vw);
+    imgui.Text(value);
+
+    local dl = imgui.GetWindowDrawList();
+    local sx, sy = imgui.GetCursorScreenPos();
+    sy = sy + 1;
+    dl:AddRectFilled({ sx, sy }, { sx + cw, sy + 4 }, imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.08 }), 2.0);
+    frac = math.max(0, math.min(1, tonumber(frac) or 0));
+    if frac > 0 then
+        dl:AddRectFilled({ sx, sy }, { sx + math.max(3, cw * frac), sy + 4 }, imgui.GetColorU32(accent()), 2.0);
+    end
+    imgui.Dummy({ cw, 6 });
+    if sub ~= nil then
+        imgui.TextColored(MUTED, sub);
+    end
+    imgui.Spacing();
+end
+
+-- Full-width navigation row; accent bar on the left when selected.
+local function sidebar_nav(label, id, selected, small)
+    local cw = tonumber((imgui.GetContentRegionAvail())) or 160;
+    local h = small and imgui.GetTextLineHeightWithSpacing() or imgui.GetFrameHeight();
+
+    imgui.PushStyleColor(ImGuiCol_Header, accent(0.16));
+    imgui.PushStyleColor(ImGuiCol_HeaderHovered, accent(0.22));
+    imgui.PushStyleColor(ImGuiCol_HeaderActive, accent(0.30));
+    imgui.PushStyleColor(ImGuiCol_Text, selected and accent() or (small and MUTED or TEXT));
+    local pushed_align = false;
+    if ImGuiStyleVar_SelectableTextAlign ~= nil then
+        imgui.PushStyleVar(ImGuiStyleVar_SelectableTextAlign, { 0.0, 0.5 });
+        pushed_align = true;
+    end
+
+    local clicked = imgui.Selectable('  ' .. label .. '##' .. id, selected, 0, { cw, h });
+
+    if selected and imgui.GetItemRectMin ~= nil then
+        local mnx, mny = imgui.GetItemRectMin();
+        local _, mxy = imgui.GetItemRectMax();
+        imgui.GetWindowDrawList():AddRectFilled({ mnx, mny }, { mnx + 2, mxy }, imgui.GetColorU32(accent()), 0.0);
+    end
+
+    if pushed_align then imgui.PopStyleVar(1); end
+    imgui.PopStyleColor(4);
+    return clicked;
+end
+
+local function sidebar_separator()
+    imgui.Spacing();
+    imgui.PushStyleColor(ImGuiCol_Separator, { 1.0, 1.0, 1.0, 0.07 });
+    imgui.Separator();
+    imgui.PopStyleColor(1);
+    imgui.Spacing();
+end
+
+-- BeginChild across Ashita builds. Newer ImGui takes (id, size, child_flags,
+-- window_flags); older builds take (id, size, border, window_flags). Padding
+-- comes from AlwaysUseWindowPadding, which moved from window flags to
+-- child flags.
+local function begin_child_compat(id, size, window_flags, use_padding)
+    window_flags = window_flags or 0;
+    local child_flags = 0;
+    if use_padding and ImGuiChildFlags_AlwaysUseWindowPadding ~= nil then
+        child_flags = ImGuiChildFlags_AlwaysUseWindowPadding;
+    end
+    local ok, result = pcall(imgui.BeginChild, id, size, child_flags, window_flags);
+    if ok then return result; end
+
+    if use_padding and ImGuiWindowFlags_AlwaysUseWindowPadding ~= nil then
+        window_flags = bit.bor(window_flags, ImGuiWindowFlags_AlwaysUseWindowPadding);
+    end
+    return imgui.BeginChild(id, size, false, window_flags);
+end
+
+-- ----------------------------------------------------------------------------
+-- Spell set cooldown: after you set new Blue Magic (from Azure Codex or the
+-- in-game menu), the newly set spells can't be cast for a while. The server
+-- doesn't send that wait to the game's recast timers, so Azure Codex times it
+-- itself from the moment each new spell appears in your set (60 seconds).
+-- Normal recasts after casting a spell are not shown.
+-- ----------------------------------------------------------------------------
+local SET_SPELL_WAIT = 60;
+local setcd = { sig = nil, checked_at = 0, added_at = {}, total = 0, remaining = 0, cooling = {}, placed = false };
+
+local function spell_recast_seconds(spell)
+    local id = state.resource_ids[spell._key or normalize_name(spell.name)];
+    if id == nil then return 0; end
+    local ok, value = pcall(function()
+        return AshitaCore:GetMemoryManager():GetRecast():GetSpellTimer(id);
+    end);
+    if not ok then return 0; end
+    return math.max(0, (tonumber(value) or 0) / 60);
+end
+
+local function update_set_cooldown()
+    local now = os.clock();
+    if now - setcd.checked_at < 0.25 then return; end
+    setcd.checked_at = now;
+    build_resource_cache();
+
+    local list = get_equipped_spells();
+    local keys, present = {}, {};
+    for _, spell in ipairs(list) do
+        local k = tostring(spell._key or spell.name);
+        keys[#keys + 1] = k;
+        present[k] = true;
+    end
+    table.sort(keys);
+    local sig = table.concat(keys, ',');
+
+    if setcd.sig ~= sig then
+        local old = setcd.sig;
+        setcd.sig = sig;
+        -- The first read, zoning (an empty set) and job changes are not
+        -- spell changes: only time spells added to an existing set.
+        if old ~= nil and old ~= '' and sig ~= '' then
+            local before = {};
+            for k in old:gmatch('[^,]+') do before[k] = true; end
+            for _, k in ipairs(keys) do
+                if not before[k] then setcd.added_at[k] = now; end
+            end
+        end
+        for k in pairs(setcd.added_at) do
+            if not present[k] then setcd.added_at[k] = nil; end
+        end
+    end
+
+    -- Remaining wait per newly set spell (only the 60s set-change wait; normal
+    -- spell recasts after casting are left to your hotbar / timers).
+    local longest, cooling = 0, {};
+    for _, spell in ipairs(list) do
+        local k = tostring(spell._key or spell.name);
+        local left = 0;
+        local t = setcd.added_at[k];
+        if t ~= nil then
+            left = SET_SPELL_WAIT - (now - t);
+            if left <= 0 then setcd.added_at[k] = nil; left = 0; end
+        end
+        if left > 0 then
+            cooling[#cooling + 1] = { name = spell.name, left = left };
+            if left > longest then longest = left; end
+        end
+    end
+    table.sort(cooling, function(x, y) return x.left > y.left; end);
+    setcd.cooling = cooling;
+    setcd.remaining = longest;
+    if longest <= 0 then
+        setcd.total = 0;
+    elseif longest > setcd.total then
+        setcd.total = longest;
+    end
+end
+
+local function set_cooldown_active()
+    return setcd.remaining > 0 and setcd.total > 0;
+end
+
+-- Tag like the "Teaches:" one, shown only while newly set spells are on
+-- cooldown. Drag it anywhere; it starts just under the Teaches tag.
+local function draw_set_cooldown_window()
+    if not set_cooldown_active() then return; end
+
+    if not setcd.placed then
+        local scale = tonumber(state.font_scale[1]) or 1.0;
+        imgui.SetNextWindowPos({ state.target_tag_x, state.target_tag_y + math.floor(38 * scale) }, { 0, 0 });
+        setcd.placed = true;
+    end
+    window_drag_apply('setcd');
+
+    push_theme();
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
+    local flags = bit.bor(ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_AlwaysAutoResize,
+        ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoFocusOnAppearing or 0);
+    if imgui.Begin('Azure Codex - Spell Set Cooldown###azure_set_cooldown', nil, flags) then
+        local scale = tonumber(state.font_scale[1]) or 1.0;
+        imgui.PushFont(nil, imgui.GetFontSize() * scale);
+
+        imgui.TextColored(state.header_color, 'Spells ready in:');
+        imgui.SameLine();
+        imgui.TextColored(state.unknown_color, ('%ds'):fmt(math.ceil(setcd.remaining)));
+
+        local bar_w = math.floor(240 * scale);
+        local sx, sy = imgui.GetCursorScreenPos();
+        local dl = imgui.GetWindowDrawList();
+        local frac = math.max(0, math.min(1, setcd.remaining / math.max(0.01, setcd.total)));
+        dl:AddRectFilled({ sx, sy + 2 }, { sx + bar_w, sy + 6 }, imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.08 }), 2.0);
+        dl:AddRectFilled({ sx, sy + 2 }, { sx + math.max(3, bar_w * frac), sy + 6 }, imgui.GetColorU32(accent()), 2.0);
+        imgui.Dummy({ bar_w, 8 });
+
+        window_drag('setcd', false);
+        imgui.PopFont();
+    end
+    imgui.End();
+    imgui.PopStyleVar(1);
+    pop_theme();
+end
+
+local function draw_sidebar(blu_level, list_page)
+    imgui.TextColored(accent(), blu_level and ('BLUE MAGE  Lv %d'):fmt(blu_level) or 'BLUE MAGE');
+    imgui.Spacing();
+
+    -- Blue Magic skill.
+    local blu_skill = safe_blue_magic_skill();
+    local skill_cap = blu_level and blue_magic_cap_for_level(blu_level) or nil;
+    if blu_skill ~= nil and skill_cap ~= nil then
+        sidebar_stat('BLU Skill', ('%d / %d'):fmt(math.floor(blu_skill), math.floor(skill_cap)),
+            skill_cap > 0 and (blu_skill / skill_cap) or 0);
+    elseif blu_skill ~= nil then
+        sidebar_stat('BLU Skill', ('%d / --'):fmt(math.floor(blu_skill)), 0);
+    else
+        sidebar_stat('BLU Skill', '-- / --', 0);
+    end
+
+    -- Set points (live when the client reports them, else equipped vs the
+    -- HorizonXI level limit) and spell slots.
+    local blu_spent, blu_max = get_blu_points();
+    if blu_level ~= nil then
+        local cap_points, cap_slots = horizon_blu_caps(blu_level);
+        local equipped_list, equipped_points = get_equipped_spells();
+        local spent, max_points = equipped_points, cap_points;
+        if blu_spent ~= nil and blu_max ~= nil then
+            spent, max_points = blu_spent, blu_max;
+        end
+        sidebar_stat('Points', ('%d / %d'):fmt(spent, max_points),
+            max_points > 0 and (spent / max_points) or 0,
+            ('Spells set %d / %d'):fmt(#equipped_list, cap_slots));
+        if set_cooldown_active() then
+            imgui.TextColored(state.learnable_color, ('Spells ready in %ds'):fmt(math.ceil(setcd.remaining)));
+            imgui.Spacing();
+        end
+    elseif blu_spent ~= nil and blu_max ~= nil then
+        sidebar_stat('Points', ('%d / %d'):fmt(blu_spent, blu_max), blu_max > 0 and (blu_spent / blu_max) or 0);
+    else
+        sidebar_stat('Points', '-- / --', 0);
+    end
+
+    -- Overall progress.
+    local learned_count = get_learned_count();
+    local missing_count = math.max(0, #spells - learned_count);
+    sidebar_stat('Learned', ('%d / %d'):fmt(learned_count, #spells),
+        #spells > 0 and (learned_count / #spells) or 0,
+        ('%.1f%%  |  %d missing'):fmt(#spells > 0 and (learned_count / #spells * 100.0) or 0, missing_count));
+
+    -- Current zone.
+    local zone_id = safe_current_zone_id();
+    local zone_known, zone_total = get_zone_progress(zone_id);
+    local zone_name = zone_id and locations.get_zone_name(zone_id) or 'This zone';
+    sidebar_stat(tostring(zone_name), ('%d / %d'):fmt(zone_known, zone_total),
+        zone_total > 0 and (zone_known / zone_total) or 0);
+
+    sidebar_separator();
+
+    if sidebar_nav('Spells', 'ac_nav_spells', list_page) then
+        state.build_page[1] = false;
+        state.spellsets_page[1] = false;
+        state.bluprint_view_page[1] = false;
+    end
+    if sidebar_nav('BLUPrints', 'ac_nav_build', state.build_page[1] == true) then
+        state.build_page[1] = true;
+        state.spellsets_page[1] = false;
+        state.bluprint_view_page[1] = false;
+    end
+    if sidebar_nav('BLUPrint-View', 'ac_nav_view', state.bluprint_view_page[1] == true) then
+        state.bluprint_view_page[1] = true;
+        state.build_page[1] = false;
+        state.spellsets_page[1] = false;
+    end
+
+    sidebar_separator();
+
+    if sidebar_nav('Zone Info', 'ac_nav_zone', state.zone_info_open[1] == true, true) then
+        state.zone_info_open[1] = not state.zone_info_open[1];
+        state.zone_apply_saved_geometry = true;
+        if state.zone_info_open[1] then state.zone_reset_scroll = true; end
+    end
+    if sidebar_nav('Farm Zones', 'ac_nav_farm', state.farm_open[1] == true, true) then
+        state.farm_open[1] = not state.farm_open[1];
+        state.farm_apply_geometry = true;
+    end
+    if sidebar_nav('Learned Log', 'ac_nav_log', state.log_open[1] == true, true) then
+        state.log_open[1] = not state.log_open[1];
+        state.log_apply_geometry = true;
+    end
+
+    -- Config pinned to the bottom of the sidebar.
+    local _, rem_h = imgui.GetContentRegionAvail();
+    rem_h = tonumber(rem_h) or 0;
+    local row_h = imgui.GetTextLineHeightWithSpacing();
+    if rem_h > row_h + 4 then
+        imgui.SetCursorPosY(imgui.GetCursorPosY() + rem_h - row_h - 2);
+    end
+    if sidebar_nav('Config', 'ac_nav_config', state.config_open[1] == true, true) then
+        state.config_open[1] = not state.config_open[1];
+    end
+end
+
+-- Small colored dot + label (legend).
+local function legend_item(color, label)
+    local h = imgui.GetTextLineHeight();
+    local sx, sy = imgui.GetCursorScreenPos();
+    imgui.GetWindowDrawList():AddCircleFilled({ sx + 4, sy + h * 0.5 }, 3.5, imgui.GetColorU32(color), 12);
+    imgui.Dummy({ 10, h });
+    imgui.SameLine(0, 4);
+    imgui.TextColored(MUTED, label);
 end
 
 local function draw_window()
@@ -4800,7 +5253,8 @@ local function draw_window()
         state.apply_saved_geometry = false;
     end
 
-    local flags = 0;
+    -- NoNav: keyboard navigation / Tab never moves focus inside Azure Codex.
+    local flags = ImGuiWindowFlags_NoNav;
 
     if state.locked[1] then
         flags = bit.bor(flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize);
@@ -4814,33 +5268,60 @@ local function draw_window()
     -- Border visibility is independent from the window background.
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
 
+    -- Sidebar width from measured text at the current font scale; the window
+    -- can't be resized narrower than the sidebar plus a usable table.
+    local fscale = tonumber(state.font_scale[1]) or 1.0;
+    local side_w = math.floor(math.max(
+        text_w('BLU Points  000 / 000'),
+        text_w('Rolanberry Fields  00 / 00'),
+        text_w('BLUPrint-View') + 44) * fscale + 26);
+    if imgui.SetNextWindowSizeConstraints ~= nil then
+        imgui.SetNextWindowSizeConstraints({ side_w + 460, 320 }, { 10000, 10000 });
+    end
+
     if imgui.Begin('Azure Codex##bluspells', state.open, flags) then
         build_resource_cache();
         update_known_snapshot();
 
-        if not state.title_bar[1] then
-            local window_w = select(1, imgui.GetWindowSize());
-            window_w = tonumber(window_w) or state.last_w;
+        local base_font_size = imgui.GetFontSize();
+        imgui.PushFont(nil, base_font_size * state.font_scale[1]);
 
-            local saved_x, saved_y = imgui.GetCursorPos();
-            imgui.SetCursorPos({ math.max(8, window_w - 48), 6 });
+        local blu_level = safe_blu_level();
+        local list_page = not state.build_page[1] and not state.bluprint_view_page[1]
+            and not state.spellsets_page[1];
+        local child_flags = ImGuiWindowFlags_NoNav or 0;
 
-            if imgui.Button('X##bluspells_custom_close', { 22, 20 }) then
-                state.open[1] = false;
-                state.config_open[1] = false;
-            end
+        -- ===== Sidebar: progress + navigation =====
+        imgui.PushStyleColor(ImGuiCol_ChildBg, { 1.0, 1.0, 1.0, 0.018 });
+        begin_child_compat('##ac_sidebar', { side_w, 0 },
+            bit.bor(child_flags, ImGuiWindowFlags_NoScrollbar or 0), true);
+        draw_sidebar(blu_level, list_page);
+        imgui.EndChild();
+        imgui.PopStyleColor(1);
 
-            imgui.SetCursorPos({ saved_x, saved_y });
+        if imgui.GetItemRectMin ~= nil then
+            local _, side_top = imgui.GetItemRectMin();
+            local side_right, side_bottom = imgui.GetItemRectMax();
+            imgui.GetWindowDrawList():AddLine({ side_right, side_top }, { side_right, side_bottom },
+                imgui.GetColorU32({ 1.0, 1.0, 1.0, 0.07 }), 1.0);
         end
 
-        -- Search + config toolbar.
-        align_label();
-        imgui.Text('Search:');
-        imgui.SameLine();
+        imgui.SameLine(0, 8);
 
-        imgui.PushItemWidth(300);
-        imgui.InputText('##bluspells_search', state.search, 128);
+        -- ===== Main area: search, filters, page =====
+        begin_child_compat('##ac_main', { 0, 0 }, child_flags, false);
+
+        local frame_h = imgui.GetFrameHeight();
+        local clear_w = text_w('Clear') + 18;
+        local close_w = state.title_bar[1] and 0 or (frame_h + 8);
+        local row_w = tonumber((imgui.GetContentRegionAvail())) or 500;
+
+        imgui.PushItemWidth(math.max(120, row_w - clear_w - close_w - 10));
+        input_text_no_tab('##bluspells_search', state.search, 128);
         imgui.PopItemWidth();
+        if imgui.IsItemHovered() and not imgui.IsItemActive() then
+            imgui.SetTooltip('Search every column. Use | for OR, e.g. refresh|regen|goblin');
+        end
 
         local current_search = tostring(state.search[1] or '');
         if current_search ~= state.last_search then
@@ -4849,155 +5330,34 @@ local function draw_window()
         end
 
         imgui.SameLine();
-        if imgui.Button('Clear') then
+        if imgui.Button('Clear##bluspells_search_clear') then
             state.search[1] = '';
             state.last_search = '';
             mark_ui_state_changed(true);
         end
 
-        imgui.SameLine();
-        if imgui.Button('Config') then
-            state.config_open[1] = not state.config_open[1];
-        end
-
-        -- Each tab has its own visibility setting. Keep the current page active
-        -- even if its navigation button is hidden.
-        local vt = state.visible_tabs;
-        local first_nav = true;
-        local function next_nav()
-            if not first_nav then imgui.SameLine(); end
-            first_nav = false;
-        end
-        local blu_level = safe_blu_level();
-        if vt.all[1] then next_nav(); draw_filter_button('All', 'all', true); end
-        if vt.known[1] then next_nav(); draw_filter_button('Known', 'known', true); end
-        if vt.missing[1] then next_nav(); draw_filter_button('Missing', 'missing', true); end
-        if vt.ready[1] then
-            next_nav();
-            draw_filter_button(blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
-                'ready', blu_level ~= nil);
-        end
-        if vt.bluprints[1] then
-            next_nav();
-            if draw_toggle_button('BLUPrints', 'blu_main_spell_build', state.build_page[1]) then
-                state.build_page[1] = true;
-                state.spellsets_page[1] = false;
-                state.bluprint_view_page[1] = false;
-            end
-        end
-        if vt.view[1] then
-            next_nav();
-            if draw_toggle_button('BLUPrint-View', 'blu_main_spell_build_view', state.bluprint_view_page[1]) then
-                state.bluprint_view_page[1] = true;
-                state.build_page[1] = false;
-                state.spellsets_page[1] = false;
-            end
-        end
-        if not first_nav then imgui.SameLine(); end
-        align_label();
-        imgui.TextColored(MUTED, 'Search all columns | OR with "|"');
-
-        local blu_skill = safe_blue_magic_skill();
-        local blu_skill_level = safe_blu_level();
-        local blu_skill_cap = nil;
-        local blu_spent, blu_max = get_blu_points();
-
-        if blu_skill_level ~= nil then
-            blu_skill_cap = blue_magic_cap_for_level(blu_skill_level);
-        end
-        imgui.TextColored(state.header_color, 'BLU Skill:');
-        imgui.SameLine();
-
-        if blu_skill ~= nil and blu_skill_cap ~= nil then
-            imgui.Text(('%d/%d'):fmt(
-                math.floor(blu_skill),
-                math.floor(blu_skill_cap)
-            ));
-        elseif blu_skill ~= nil then
-            imgui.Text(('%d/--'):fmt(math.floor(blu_skill)));
-        else
-            imgui.TextColored(MUTED, '--/--');
-        end
-        imgui.SameLine();
-        imgui.TextColored(state.header_color, 'BLU Points:');
-        imgui.SameLine();
-        if blu_spent ~= nil and blu_max ~= nil then
-            imgui.Text(('%d/%d'):fmt(blu_spent, blu_max));
-        elseif blu_skill_level ~= nil then
-            -- Client does not expose live points: equipped total vs the
-            -- HorizonXI level limit.
-            local cap_points, cap_slots = horizon_blu_caps(blu_skill_level);
-            local equipped_list, equipped_points = get_equipped_spells();
-            imgui.Text(('%d/%d'):fmt(equipped_points, cap_points));
+        if not state.title_bar[1] then
             imgui.SameLine();
-            imgui.TextColored(MUTED, ('Spells: %d/%d'):fmt(#equipped_list, cap_slots));
-        else
-            imgui.TextColored(MUTED, '--/--');
-        end
-
-        -- Completion status.
-        local learned_count = get_learned_count();
-        local missing_count = math.max(0, #spells - learned_count);
-        local pct = (#spells > 0) and ((learned_count / #spells) * 100.0) or 0.0;
-
-        local current_zone_id = safe_current_zone_id();
-        local zone_known_count, zone_total_count = get_zone_progress(current_zone_id);
-
-        -- Align both text segments to the button's frame baseline.
-        -- This is more reliable than manually adjusting cursor Y positions.
-        if imgui.AlignTextToFramePadding ~= nil then
-            imgui.AlignTextToFramePadding();
-        end
-
-        imgui.Text(('Learned %d / %d (%.1f%%)   Missing %d'):fmt(
-            learned_count, #spells, pct, missing_count
-        ));
-
-        imgui.SameLine();
-
-        if imgui.Button('Zone Info') then
-            state.zone_info_open[1] = not state.zone_info_open[1];
-            state.zone_apply_saved_geometry = true;
-            if state.zone_info_open[1] then
-                state.zone_reset_scroll = true;
+            if imgui.Button('X##bluspells_custom_close', { frame_h, frame_h }) then
+                state.open[1] = false;
+                state.config_open[1] = false;
             end
         end
 
-        imgui.SameLine();
+        -- Filters (clicking one also returns to the spell list).
+        draw_filter_button('All', 'all', true);
+        imgui.SameLine(0, 4);
+        draw_filter_button('Known', 'known', true);
+        imgui.SameLine(0, 4);
+        draw_filter_button('Missing', 'missing', true);
+        imgui.SameLine(0, 4);
+        draw_filter_button(
+            blu_level and ('Up to Lv ' .. tostring(blu_level)) or 'Up to My Level',
+            'ready',
+            blu_level ~= nil
+        );
 
-        if imgui.AlignTextToFramePadding ~= nil then
-            imgui.AlignTextToFramePadding();
-        end
-
-        imgui.Text(('%d of %d learned from this Zone'):fmt(zone_known_count, zone_total_count));
-
-        imgui.SameLine();
-        if draw_toggle_button('Farm Zones', 'azure_farm_btn', state.farm_open[1] == true) then
-            state.farm_open[1] = not state.farm_open[1];
-            state.farm_apply_geometry = true;
-        end
-        imgui.SameLine();
-        if draw_toggle_button('Learned Log', 'azure_log_btn', state.log_open[1] == true) then
-            state.log_open[1] = not state.log_open[1];
-            state.log_apply_geometry = true;
-        end
-
-        if imgui.ProgressBar ~= nil then
-            local avail_w = select(1, imgui.GetContentRegionAvail());
-            avail_w = tonumber(avail_w) or 500;
-
-            imgui.ProgressBar(
-                #spells > 0 and (learned_count / #spells) or 0,
-                { math.min(avail_w, 520), 8 },
-                ''
-            );
-        end
-
-        imgui.Separator();
-
-        local base_font_size = imgui.GetFontSize();
-        local requested_size = base_font_size * state.font_scale[1];
-        imgui.PushFont(nil, requested_size);
+        imgui.Spacing();
 
         if state.build_page[1] then
             draw_spell_build_tab();
@@ -5019,57 +5379,61 @@ local function draw_window()
                 draw_main_table(filtered, first, last);
             end
 
-            imgui.Separator();
+            imgui.Spacing();
 
             local page_color = state.paging_color;
-        local hover = {
-            clamp(page_color[1] + 0.14, 0, 1),
-            clamp(page_color[2] + 0.08, 0, 1),
-            clamp(page_color[3] + 0.08, 0, 1),
-            page_color[4],
-        };
-        local active = {
-            clamp(page_color[1] + 0.22, 0, 1),
-            clamp(page_color[2] + 0.12, 0, 1),
-            clamp(page_color[3] + 0.12, 0, 1),
-            page_color[4],
-        };
+            local hover = {
+                clamp(page_color[1] + 0.14, 0, 1),
+                clamp(page_color[2] + 0.08, 0, 1),
+                clamp(page_color[3] + 0.08, 0, 1),
+                page_color[4],
+            };
+            local active = {
+                clamp(page_color[1] + 0.22, 0, 1),
+                clamp(page_color[2] + 0.12, 0, 1),
+                clamp(page_color[3] + 0.12, 0, 1),
+                page_color[4],
+            };
 
-        imgui.PushStyleColor(ImGuiCol_Button, page_color);
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, hover);
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, active);
+            imgui.PushStyleColor(ImGuiCol_Button, page_color);
+            imgui.PushStyleColor(ImGuiCol_ButtonHovered, hover);
+            imgui.PushStyleColor(ImGuiCol_ButtonActive, active);
 
-        if state.page > 1 then
-            if imgui.Button('< Previous') then state.page = state.page - 1; end
-        else
-            imgui.BeginDisabled();
-            imgui.Button('< Previous');
-            imgui.EndDisabled();
-        end
+            if state.page > 1 then
+                if imgui.Button('< Prev') then state.page = state.page - 1; end
+            else
+                imgui.BeginDisabled();
+                imgui.Button('< Prev');
+                imgui.EndDisabled();
+            end
 
-        imgui.SameLine();
-        imgui.Text(('Page %d / %d   Showing %d of %d'):fmt(
-            state.page, pages, #filtered, #spells
-        ));
-        imgui.SameLine();
+            imgui.SameLine();
+            align_label();
+            imgui.Text(('%d / %d'):fmt(state.page, pages));
+            imgui.SameLine();
 
-        if state.page < pages then
-            if imgui.Button('Next >') then state.page = state.page + 1; end
-        else
-            imgui.BeginDisabled();
-            imgui.Button('Next >');
-            imgui.EndDisabled();
-        end
+            if state.page < pages then
+                if imgui.Button('Next >') then state.page = state.page + 1; end
+            else
+                imgui.BeginDisabled();
+                imgui.Button('Next >');
+                imgui.EndDisabled();
+            end
 
             imgui.PopStyleColor(3);
 
-            imgui.SameLine();
-            imgui.TextColored(state.known_color, 'Known');
-            imgui.SameLine();
-            imgui.TextColored(state.learnable_color, 'Learnable');
-            imgui.SameLine();
-            imgui.TextColored(state.unknown_color, 'Unlearnable');
+            imgui.SameLine(0, 16);
+            align_label();
+            imgui.TextColored(MUTED, ('%d of %d spells'):fmt(#filtered, #spells));
+            imgui.SameLine(0, 16);
+            legend_item(state.known_color, 'Known');
+            imgui.SameLine(0, 10);
+            legend_item(state.learnable_color, 'Learnable');
+            imgui.SameLine(0, 10);
+            legend_item(state.unknown_color, 'Unlearnable');
         end
+
+        imgui.EndChild();
 
         imgui.PopFont();
 
@@ -5172,7 +5536,9 @@ ashita.events.register('d3d_present', 'bluspells_present_cb', function()
     -- Learned Log records the right time / zone / mob even with the main
     -- window closed.
     update_known_snapshot();
+    update_set_cooldown();
     draw_window();
+    draw_set_cooldown_window();
     draw_farm_window();
     draw_log_window();
     draw_target_tag();
