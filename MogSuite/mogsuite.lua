@@ -27,7 +27,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.2.0';
+addon.version = '1.2.1';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 

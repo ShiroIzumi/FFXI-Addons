@@ -9,7 +9,7 @@
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
 | **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
 
-**Version:** 1.2.0
+**Version:** 1.2.1
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -180,6 +180,9 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.2.1
+- Actions: **Starlight** and **Moonlight** are now used on yourself (`<me>`) instead of your target.
 
 ### 1.2.0
 - Visible **mouse pointer** over every MogSuite window, dropdown and popup (FFXI hides the Windows one). Default: fuchsia, 1.4x. Size, colors, shadow and on / off in Settings > Global > Appearance.

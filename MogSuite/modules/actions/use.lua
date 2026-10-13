@@ -15,10 +15,13 @@ function command_prefix(row)
     return '/ja';
 end
 
+-- Weapon skills used on yourself (75 era): everything else targets the enemy.
+WS_SELF = { ['Starlight'] = true, ['Moonlight'] = true };
+
 -- Targets bits: 0x01 self, 0x02 player, 0x04 party, 0x08 alliance,
 -- 0x10 NPC, 0x20 enemy.
 function default_target(row)
-    if row.k == 'ws' then return '<t>'; end
+    if row.k == 'ws' then return WS_SELF[row.name] and '<me>' or '<t>'; end
     if row.k == 'pet' then return PET_ENEMY[row.name] and '<t>' or '<me>'; end
     local t = tonumber(res_field(row.res, 'Targets')) or 0;
     if row.k == 'bp' and t == 0 then return (row.bp == 'rage') and '<t>' or '<me>'; end
@@ -28,7 +31,7 @@ function default_target(row)
 end
 
 function can_target_self(row)
-    if row.k == 'ws' then return false; end
+    if row.k == 'ws' then return WS_SELF[row.name] == true; end
     if row.k == 'pet' then return not PET_ENEMY[row.name]; end
     local t = tonumber(res_field(row.res, 'Targets')) or 0;
     if row.k == 'bp' and t == 0 then return row.bp ~= 'rage'; end
