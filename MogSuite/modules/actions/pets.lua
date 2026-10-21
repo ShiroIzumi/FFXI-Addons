@@ -66,7 +66,7 @@ function bp_row(me, b, lvl, af_up)
     elseif tag == 'merit' then
         local have = has_ability(me, res);
         if have and lvl >= need then row.status = 'ready';
-        else row.status, row.note = 'na', 'Merit'; end
+        else row.status, row.note = 'na', 'Avatar trial'; end
     elseif lvl >= need then
         row.status = 'ready';
     else

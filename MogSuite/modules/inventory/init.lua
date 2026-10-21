@@ -148,11 +148,24 @@ function module_toggle(force)
     toggle_all();
 end
 
+-- Esc (core): hide the main window and every pop-out (same as the open key;
+-- pop-outs you didn't close with X come back next time).
+function module_close_all()
+    local showing = (not state.hidden) and (state.visible[1] or #(config.popouts or {}) > 0);
+    if showing then
+        state.hidden = true;
+        mark_dirty();
+    end
+end
+
 function module_reset_position()
     config.window.x, config.window.y, config.window.w, config.window.h = 220, 180, 440, 560;
     state.main_rt.apply_geometry = true;
     mark_dirty();
 end
+
+-- Settings window sidebar: is the inventory window showing?
+function module_is_open() return (not state.hidden) and state.visible[1] == true; end
 
 function module_is_locked() return config.locked == true; end
 function module_set_locked(v) config.locked = v == true; mark_dirty(); end

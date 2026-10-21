@@ -1,6 +1,6 @@
 addon.name    = 'scrollingcombatlog';
 addon.author  = 'Izumi (ShiroIzumi)';
-addon.version = '1.3.2';
+addon.version = '1.3.4';
 addon.desc    = 'Self-only packet-driven Ashita v4 scrolling combat text inspired by MSBT. Shows completed actions only.';
 addon.link    = '';
 
@@ -180,8 +180,112 @@ local function update_low_hp()
     end
 end
 
+-- Food running out: "Food wears off in 20s", then every 5 seconds (15, 10,
+-- 5). Reads your own status timers (the same math as the statustimers addon);
+-- the "Food wore off" line itself comes from the game's wear-off message.
+local FOOD_STATUS = 251;
+local FOOD_MARKS = { 20, 15, 10, 5 };
+local INFINITE_DURATION = 0x7FFFFFFF;
+local VANA_BASE_STAMP = 0x3C307D70;
+local food = { checked = 0, next_mark = 1, last_left = nil, utc_ptr = nil, utc_scanned = false };
+
+-- The game's own UTC clock when it can be found (falls back to the PC clock).
+local function game_utc_stamp()
+    local now = os.time();
+    if not food.utc_scanned then
+        food.utc_scanned = true;
+        pcall(function()
+            food.utc_ptr = ashita.memory.find('FFXiMain.dll', 0, '8B0D????????8B410C8B49108D04808D04808D04808D04C1C3', 2, 0);
+        end);
+    end
+    local ptr = food.utc_ptr;
+    if ptr == nil or ptr == 0 then return now; end
+    local ok, stamp = pcall(function()
+        local p1 = ashita.memory.read_uint32(ptr);
+        if p1 == nil or p1 == 0 then return nil; end
+        local p2 = ashita.memory.read_uint32(p1);
+        if p2 == nil or p2 == 0 then return nil; end
+        return ashita.memory.read_uint32(p2 + 0x0C);
+    end);
+    if not ok or stamp == nil or stamp == 0 or math.abs(stamp - now) > 86400 then return now; end
+    return stamp;
+end
+
+-- Seconds of food left, or nil when no food is active (-1 = no time limit).
+local function food_seconds_left()
+    local left = nil;
+    pcall(function()
+        local player = AshitaCore:GetMemoryManager():GetPlayer();
+        local icons = player:GetStatusIcons();
+        local timers = player:GetStatusTimers();
+        for i = 1, 32 do
+            if tonumber(icons[i]) == FOOD_STATUS then
+                local raw = tonumber(timers[i]) or 0;
+                if raw == INFINITE_DURATION then left = -1; return; end
+                local real = raw - (game_utc_stamp() - VANA_BASE_STAMP) * 60;
+                while real < -2147483648 do real = real + 0xFFFFFFFF; end
+                left = (real < 1) and 0 or math.ceil(real / 60);
+                return;
+            end
+        end
+    end);
+    return left;
+end
+
+local function update_food_watch()
+    local now = os.clock();
+    if now - food.checked < 0.25 then return; end
+    food.checked = now;
+    if state.paused or not settings.enabled then return; end
+
+    local left = food_seconds_left();
+    if left == nil or left < 0 then
+        food.next_mark, food.last_left = 1, nil;
+        return;
+    end
+    -- New food (more time than before): start over.
+    if food.last_left ~= nil and left > food.last_left + 2 then food.next_mark = 1; end
+    food.last_left = left;
+
+    -- Skip marks that already passed (for example after a reload with 8s left)
+    -- and announce only the latest one reached.
+    local announce = nil;
+    while FOOD_MARKS[food.next_mark] ~= nil and left <= FOOD_MARKS[food.next_mark] do
+        if left > 0 then announce = FOOD_MARKS[food.next_mark]; end
+        food.next_mark = food.next_mark + 1;
+    end
+    if announce ~= nil then
+        -- Say the mark (20, 15, ...) when we are on it, the real time when we
+        -- came in late (after a reload).
+        local shown = (announce - left <= 1) and announce or math.max(1, left);
+        events.add_event('incoming', 'ability', ('Food wears off in %ds'):fmt(shown), 'food_warning');
+    end
+end
+
+-- Your character is in the world (not the title / character select screen,
+-- where party memory still holds the last character's data). Same check as
+-- Triage / XIUI: your entity is drawn (render flag 0x200) and not hidden
+-- (0x4000).
+local function logged_in()
+    local ok, r = pcall(function()
+        local idx = AshitaCore:GetMemoryManager():GetParty():GetMemberTargetIndex(0);
+        if (tonumber(idx) or 0) == 0 then return false; end
+        local flags = tonumber(AshitaCore:GetMemoryManager():GetEntity():GetRenderFlags0(idx)) or 0;
+        return bit.band(flags, 0x200) == 0x200 and bit.band(flags, 0x4000) == 0;
+    end);
+    if not ok then return true; end   -- can't tell: don't hide
+    return r == true;
+end
+
 ashita.events.register('d3d_present', 'scl_scroll_present_cb', function()
+    -- Before you log in (title / character select) only the settings window
+    -- can show: no combat text, session window or Move Mode handles.
+    if not logged_in() then
+        ui.draw_config();
+        return;
+    end
     update_low_hp();
+    update_food_watch();
     rewards.update_exp_memory_watch();
     rewards.update_rest_watch();
     rewards.update_zone_banner();

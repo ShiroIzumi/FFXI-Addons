@@ -39,6 +39,7 @@ JOBS = { 'WAR', 'MNK', 'WHM', 'BLM', 'RDM', 'THF', 'PLD', 'DRK', 'BST', 'BRD', '
     'SAM', 'NIN', 'DRG', 'SMN', 'BLU', 'COR', 'PUP', 'DNC', 'SCH' };
 
 TYPE_WEAPON, TYPE_ARMOR, TYPE_USABLE, TYPE_CRYSTAL = 4, 5, 7, 8;
+EQUIP_USE_BLUE = { 0.45, 0.72, 1.00, 1.00 };   -- equipped usable gear shown in the Inventory tab
 FLAG_RARE, FLAG_EX = 0x8000, 0x6040;
 
 FILTERS = {
@@ -93,12 +94,15 @@ function get_item_info(id)
     pcall(function() info.level = tonumber(res.Level) or 0; end);
     pcall(function() info.jobs = tonumber(res.Jobs) or 0; end);
     pcall(function() info.stack = tonumber(res.StackSize) or 1; end);
+    pcall(function() info.charges = tonumber(res.MaxCharges) or 0; end);   -- enchanted gear (Use when equipped)
     pcall(function() info.bitmap = res.Bitmap; info.image_size = tonumber(res.ImageSize) or 0; end);
     info.name = (info.name ~= nil and info.name ~= '') and info.name or ('Item ' .. tostring(id));
     info.name_lower = info.name:lower();
     info.type = info.type or 0;
     info.flags = info.flags or 0;
     info.slots = info.slots or 0;
+    info.charges = info.charges or 0;
+    info.enchanted = (info.type == TYPE_WEAPON or info.type == TYPE_ARMOR) and info.charges > 0;
     info.rare = bit.band(info.flags, FLAG_RARE) ~= 0;
     info.ex = bit.band(info.flags, FLAG_EX) ~= 0;
     item_cache[id] = info;

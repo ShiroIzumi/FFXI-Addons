@@ -19,6 +19,13 @@ function draw_tooltip(row)
     end
     if row.equipped ~= nil then
         imgui.TextColored(UI_ACCENT, ('Equipped (%s)'):fmt(SLOT_LABELS[row.equipped] or '?'));
+        if row.mirror then
+            imgui.TextColored(EQUIP_USE_BLUE, ('In %s; shown here because it can be used (right-click > Use).'):fmt(BAG_NAMES[row.bag] or 'another bag'));
+        end
+        if row.info.enchanted then
+            local label = use_label(row);
+            imgui.TextColored(UI_MUTED, label);
+        end
     end
     if info.type == TYPE_WEAPON or info.type == TYPE_ARMOR then
         local slots = {};
@@ -101,7 +108,12 @@ function draw_context_menu()
     end
     if can_use(row) then
         any = true;
-        if imgui.Selectable('Use##nai_use') then do_use(row); end
+        local label, ready = use_label(row);
+        if ready then
+            if imgui.Selectable(label .. '##nai_use') then do_use(row); end
+        else
+            imgui.TextDisabled(label);
+        end
     end
     if can_equip(row) then
         any = true;

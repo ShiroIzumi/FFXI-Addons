@@ -1,946 +1,448 @@
 --[[
     IzClock - Ashita v4 / HorizonXI
-    Version 2.9.5
+    Version 3.1.4
+
+    A small Vana'diel clock: Vana'diel time, the elemental day (and the next
+    one), the countdown to the next day, moon phase, and optionally your
+    local time and Japan time. Every piece can be turned on / off, renamed,
+    reordered and recolored. Hover it for the week, moon, crafting, guild
+    hours and ships; click it for the info window with all of it. An
+    optional second clock and an optional day-change alert.
 
     Commands:
-      /ic
-      /izclock
+      /ic, /izclock          show / hide the clock(s)
+      /ic config             settings (also /icconfig, or right-click the clock)
+      /ic info               the info window (or click the clock)
+      /ic second             show / hide the second clock
+      /ic lock               lock / unlock the clocks' positions
+      /ic reset              move the clocks back to the top-left corner
+      /ic help               list the commands
 
-    Displays the current Vana'diel time and elemental day.
+    Vana'diel time is calculated from the computer clock (no packet needed),
+    so it shows right away.
 
-    This version does NOT depend on packet 0x5C.  Vana'diel time advances at a
-    fixed 25x Earth-time rate, so it is calculated directly from Unix time using
-    the same epoch offset used by established FFXI clock implementations.
-
-    Ashita v4 safety:
-      * No ImGuiCond_* usage.
-      * No Player / Entity access required.
-      * Uses current Ashita v4 settings persistence.
-]]--
+    Files:
+      izclock.lua         settings, commands, events
+      core/vana.lua       Vana'diel time, days, moon
+      core/theme.lua      settings window look (same as Triage)
+      core/cursor.lua     mouse pointer over IzClock windows
+      core/gamestate.lua  hide before login / during cutscenes
+      core/schedule.lua   guild hours, ships, moon forecast, crafting element
+      ui/clock.lua        a clock window (main and second)
+      ui/info.lua         the hover window and the info window
+      ui/config.lua       the settings window
+]]
 
 addon.name      = 'izclock';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '2.9.5';
-addon.desc      = 'Displays Vana\'diel time, day rotation, moon phase, and local time.';
+addon.version   = '3.1.4';
+addon.desc      = 'Vana\'diel clock: time, elemental day, next-day countdown, moon phase, local and Japan time.';
 addon.link      = '';
 
-require 'common';
+require('common');
+local imgui = require('imgui');
+local settings = require('settings');
+local theme = require('core.theme');
+local cursor = require('core.cursor');
+local vana = require('core.vana');
+local schedule = require('core.schedule');
+local clock = require('ui.clock');
+local info = require('ui.info');
+local config = require('ui.config');
 
-local imgui    = require 'imgui';
-local settings = require 'settings';
+cursor.install();
 
-local defaults = T{
-    visible = false,
-    config_visible = false,
-    font_scale = 1.00,
-    window_alpha = 0.92,
-    mini_mode = false,
-    hide_title_bar = false,
-    hide_border = false,
-    show_local_time = false,
-    show_jp_time = false,
-    local_time_24h = false,
-    show_local_seconds = false,
-    show_moon_phase = false,
-    show_element_icons = false,
-    compact_mode = false,
-    lock_window = false,
-    background_color = { 0.055, 0.070, 0.095 },
-    alignment = 'left',
-    window = T{
-        x = 50,
-        y = 50,
+local function day_colors()
+    local t = {};
+    for i = 0, 7 do
+        local c = vana.DAY_COLORS[i];
+        t[i + 1] = { c[1], c[2], c[3], c[4] };
+    end
+    return t;
+end
+
+-- Pieces of the clock, in display order. id = which piece; label = the text
+-- in front of it (empty = none).
+local function default_segments()
+    return {
+        { id = 'local', show = false, label = 'LOCAL' },
+        { id = 'vana',  show = true,  label = 'VANA' },
+        { id = 'jp',    show = false, label = 'JP' },
+        { id = 'day',   show = true,  label = '' },
+        { id = 'next',  show = true,  label = 'NEXT' },
+        { id = 'moon',  show = false, label = 'MOON' },
+    };
+end
+
+-- Everything one clock window needs. The main clock keeps these at the top
+-- level of the settings; the second clock has its own copy under `second`.
+local function view_defaults()
+    return {
+        -- What shows
+        layout = 'line',            -- line (one line), stack (one per line), full (stack + the week's rotation)
+        segments = default_segments(),
+        show_labels = true,
+        day_next = true,            -- "Watersday > Windsday"
+        element_tags = false,       -- [Wa] before day names
+        time24 = false,             -- local / JP time
+        seconds = false,
+        countdown = 'ms',           -- ms ("44m 15s") | clock ("44:15")
+        moon_percent = true,
+        separator = '|',
+
+        -- Look
+        font_scale = 1.00,
+        text_effect = 'shadow',     -- none | shadow | outline | both
+        label_color = { 0.58, 0.64, 0.72, 1.00 },
+        value_color = { 0.91, 0.94, 0.98, 1.00 },
+        vana_color = { 0.34, 0.76, 1.00, 1.00 },
+        sep_color = { 0.42, 0.47, 0.55, 1.00 },
+        day_colors = day_colors(),
+        bg = { 0.055, 0.070, 0.095 },
+        bg_alpha = 0.92,
+        border = true,
+        border_color = { 0.20, 0.38, 0.52, 0.90 },
+        rounding = 4,
+        pad_x = 8,
+        pad_y = 4,
+        gap = 8,                    -- space around separators / between pieces
+        line_gap = 3,               -- space between lines (stack / full)
+        width_mode = 'auto',        -- auto | fixed
         width = 520,
-        height = 150,
-    },
-};
+        align = 'left',             -- left | center | right (fixed width only)
 
-local config = settings.load(defaults);
+        -- Position
+        x = 50, y = 50,
+        lock = false,
+    };
+end
 
-local state = T{
-    open = { true },
-    config_open = { config.config_visible == true },
-    font_scale = { tonumber(config.font_scale) or 1.00 },
-    window_alpha = { tonumber(config.window_alpha) or 0.92 },
-    mini_mode = { config.mini_mode == true },
-    hide_title_bar = { config.hide_title_bar == true },
-    hide_border = { config.hide_border == true },
-    show_local_time = { config.show_local_time == true },
-    show_jp_time = { config.show_jp_time == true },
-    local_time_24h = { config.local_time_24h == true },
-    show_local_seconds = { config.show_local_seconds == true },
-    show_moon_phase = { config.show_moon_phase == true },
-    show_element_icons = { config.show_element_icons == true },
-    compact_mode = { config.compact_mode == true },
-    lock_window = { config.lock_window == true },
-    background_color = {
-        tonumber(config.background_color and config.background_color[1]) or 0.055,
-        tonumber(config.background_color and config.background_color[2]) or 0.070,
-        tonumber(config.background_color and config.background_color[3]) or 0.095,
-    },
-    alignment = (config.alignment == 'right' and 'right') or (config.alignment == 'center' and 'center') or 'left',
-    apply_saved_geometry = true,
-    last_x = tonumber(config.window.x) or 50,
-    last_y = tonumber(config.window.y) or 50,
-    last_w = tonumber(config.window.width) or 520,
-    last_h = tonumber(config.window.height) or 150,
-    geometry_dirty = false,
-    last_geometry_save = 0,
-};
-
--- IzClock should always appear immediately when loaded or reloaded.
-config.visible = true;
-
-local days = T{
-    [0] = 'Firesday',
-    [1] = 'Earthsday',
-    [2] = 'Watersday',
-    [3] = 'Windsday',
-    [4] = 'Iceday',
-    [5] = 'Lightningday',
-    [6] = 'Lightsday',
-    [7] = 'Darksday',
-};
-
--- Element-inspired day colors.  These are deliberately bright enough to read
--- on the addon's dark local ImGui theme without affecting any global UI style.
-local day_colors = T{
-    [0] = { 1.00, 0.34, 0.22, 1.00 }, -- Firesday
-    [1] = { 0.78, 0.62, 0.30, 1.00 }, -- Earthsday
-    [2] = { 0.30, 0.68, 1.00, 1.00 }, -- Watersday
-    [3] = { 0.38, 0.92, 0.58, 1.00 }, -- Windsday
-    [4] = { 0.58, 0.90, 1.00, 1.00 }, -- Iceday
-    [5] = { 0.78, 0.52, 1.00, 1.00 }, -- Lightningday
-    [6] = { 1.00, 0.92, 0.55, 1.00 }, -- Lightsday
-    [7] = { 0.72, 0.58, 0.86, 1.00 }, -- Darksday
-};
-
-local day_icons = T{
-    [0] = '[Fi]',
-    [1] = '[Ea]',
-    [2] = '[Wa]',
-    [3] = '[Wi]',
-    [4] = '[Ic]',
-    [5] = '[Li]',
-    [6] = '[Ls]',
-    [7] = '[Da]',
-};
-
-local moon_phases = T{
-    [0] = 'New Moon',
-    [1] = 'Waxing Crescent',
-    [2] = 'First Quarter Moon',
-    [3] = 'Waxing Gibbous',
-    [4] = 'Full Moon',
-    [5] = 'Waning Gibbous',
-    [6] = 'Last Quarter Moon',
-    [7] = 'Waning Crescent',
-};
-
-local UI_TEXT   = { 0.91, 0.94, 0.98, 1.00 };
-local UI_MUTED  = { 0.58, 0.64, 0.72, 1.00 };
-local UI_ACCENT = { 0.34, 0.76, 1.00, 1.00 };
-
--- FFXI / Vana'diel constants.
--- One Vana'diel day = 3456 Earth seconds.
--- One Vana'diel hour = 144 Earth seconds.
-local VANA_EPOCH_OFFSET = 92514960;
-local EARTH_SECONDS_PER_VANA_DAY = 3456;
-local EARTH_SECONDS_PER_VANA_HOUR = 144;
-
-local function get_vana_time()
-    -- os.time() is Unix epoch time. Adding the established Vana'diel epoch
-    -- offset gives the same day/time basis used by the working clock.
-    local raw = os.time() + VANA_EPOCH_OFFSET;
-
-    local total_days = math.floor(raw / EARTH_SECONDS_PER_VANA_DAY);
-    local day_index = total_days % 8;
-
-    local hour = math.floor(raw / EARTH_SECONDS_PER_VANA_HOUR) % 24;
-
-    -- A Vana'diel minute is 2.4 Earth seconds.
-    local minute = math.floor((raw % EARTH_SECONDS_PER_VANA_HOUR) / 2.4);
-
-    -- Earth seconds until the next Vana'diel day begins.
-    local seconds_into_day = raw % EARTH_SECONDS_PER_VANA_DAY;
-    local seconds_to_next_day = EARTH_SECONDS_PER_VANA_DAY - seconds_into_day;
-    if seconds_to_next_day <= 0 then
-        seconds_to_next_day = EARTH_SECONDS_PER_VANA_DAY;
+-- The second clock starts as a stacked panel under the first.
+local function second_defaults()
+    local d = view_defaults();
+    d.enabled = false;
+    d.layout = 'stack';
+    d.x, d.y = 50, 110;
+    for _, s in ipairs(d.segments) do
+        s.show = (s.id == 'vana' or s.id == 'day' or s.id == 'next' or s.id == 'moon');
     end
-
-    return hour, minute, day_index, total_days, seconds_to_next_day;
+    return d;
 end
 
-local function format_countdown(total_seconds)
-    total_seconds = math.max(0, math.floor(tonumber(total_seconds) or 0));
-
-    local minutes = math.floor(total_seconds / 60);
-    local seconds = total_seconds % 60;
-
-    return ('%02dm %02ds'):fmt(minutes, seconds);
+local function all_days(v)
+    local t = {};
+    for i = 1, 8 do t[i] = v; end
+    return t;
 end
 
-local function get_moon_info(total_days)
-    -- FFXI uses an 84-Vana-day lunar cycle. The signed value ranges from
-    -- -100..100; the game displays its absolute value as illumination percent.
-    local cycle_days = 84;
-    local signed_percent = ((((total_days + 26) % cycle_days) - (cycle_days / 2))
-        / (cycle_days / 2)) * 100;
+local defaults = T(view_defaults());
+defaults.version = 3;
+defaults.visible = true;
+defaults.hide_events = true;        -- hide during cutscenes (always hidden before login)
 
-    local phase = 0;
+-- Second clock (off by default)
+defaults.second = second_defaults();
 
-    if signed_percent >= 7 and signed_percent <= 38 then
-        phase = 1; -- Waxing Crescent
-    elseif signed_percent >= 40 and signed_percent <= 55 then
-        phase = 2; -- First Quarter Moon
-    elseif signed_percent >= 57 and signed_percent <= 88 then
-        phase = 3; -- Waxing Gibbous
-    elseif signed_percent >= 90 or signed_percent <= -95 then
-        phase = 4; -- Full Moon
-    elseif signed_percent >= -93 and signed_percent <= -62 then
-        phase = 5; -- Waning Gibbous
-    elseif signed_percent >= -60 and signed_percent <= -45 then
-        phase = 6; -- Last Quarter Moon
-    elseif signed_percent >= -43 and signed_percent <= -12 then
-        phase = 7; -- Waning Crescent
-    else
-        phase = 0; -- New Moon
+-- Hover window: where it opens and what it shows
+defaults.hover = {
+    area = 'clock',                 -- clock (anywhere on it) | day (the day only) | off
+    scale = 1.00,                   -- text size
+    week = true, moon = true, craft = true, guilds = true, travel = true,
+    routes = (function() local t = {}; for k, v in pairs(schedule.DEFAULT_HOVER_ROUTES) do t[k] = v; end return t; end)(),
+};
+
+-- Day-change alert (off by default)
+defaults.alert = {
+    enabled = false,
+    minutes = 0,                    -- 0 = when the day changes, else this many minutes before
+    chat = true,
+    flash = true,
+    flash_secs = 10,
+    days = all_days(true),          -- which days to announce (1 = Firesday)
+};
+
+-- Info window position (-1 = not moved yet: opens under the main clock)
+defaults.info_pos = { x = -1, y = -1 };
+defaults.info_scale = 1.00;
+
+-- Settings window
+defaults.config_theme = 'midnight';
+defaults.ui_scale = 1.00;
+defaults.config_win = { x = -1, y = -1, w = -1, h = -1 };   -- -1 = not moved / resized yet
+defaults.pointer = { enabled = true, size = 1.4, color = { 1.00, 0.10, 0.75, 1.00 }, outline = { 0.05, 0.00, 0.05, 1.00 }, shadow = true };
+
+local cfg = settings.load(defaults);
+
+-- Adds missing keys (older saves); keeps the user's lists as they are.
+local function copy(v)
+    if type(v) ~= 'table' then return v; end
+    local o = {};
+    for k, x in pairs(v) do o[k] = copy(x); end
+    return o;
+end
+
+local function fill(dst, def)
+    for k, v in pairs(def) do
+        if dst[k] == nil or type(dst[k]) ~= type(v) then
+            dst[k] = copy(v);
+        elseif type(v) == 'table' and #v == 0 then
+            fill(dst[k], v);
+        end
     end
-
-    local percent = math.floor(math.abs(signed_percent) + 0.5);
-
-    return moon_phases[phase] or 'Unknown Moon', percent;
 end
 
-local function get_upcoming_days(current_day_index)
-    local upcoming = {};
-
-    -- Show the next seven days in order, which displays the complete rotation
-    -- before returning to the current elemental day.
-    for offset = 1, 7 do
-        local idx = (current_day_index + offset) % 8;
-        upcoming[#upcoming + 1] = idx;
+-- 2.x settings → 3.0 (same look: one line / mini / full, the same pieces).
+local function migrate(c)
+    if (tonumber(c.version) or 0) >= 3 then return; end
+    if c.compact_mode == true then c.layout = 'line';
+    elseif c.mini_mode == true then c.layout = 'stack';
+    elseif c.compact_mode == false then c.layout = 'full'; end
+    local segs = default_segments();
+    for _, s in ipairs(segs) do
+        if s.id == 'local' and c.show_local_time ~= nil then s.show = c.show_local_time == true; end
+        if s.id == 'jp' and c.show_jp_time ~= nil then s.show = c.show_jp_time == true; end
+        if s.id == 'moon' and c.show_moon_phase ~= nil then s.show = c.show_moon_phase == true; end
     end
-
-    return upcoming;
+    c.segments = segs;
+    if c.show_element_icons ~= nil then c.element_tags = c.show_element_icons == true; end
+    if c.local_time_24h ~= nil then c.time24 = c.local_time_24h == true; end
+    if c.show_local_seconds ~= nil then c.seconds = c.show_local_seconds == true; end
+    if tonumber(c.window_alpha) ~= nil then c.bg_alpha = tonumber(c.window_alpha); end
+    if type(c.background_color) == 'table' then
+        c.bg = { tonumber(c.background_color[1]) or 0.055, tonumber(c.background_color[2]) or 0.070, tonumber(c.background_color[3]) or 0.095 };
+    end
+    if c.hide_border ~= nil then c.border = c.hide_border ~= true; end
+    if c.lock_window ~= nil then c.lock = c.lock_window == true; end
+    if type(c.window) == 'table' then
+        c.x = tonumber(c.window.x) or c.x;
+        c.y = tonumber(c.window.y) or c.y;
+        if c.alignment == 'center' or c.alignment == 'right' then
+            c.align = c.alignment;
+            c.width_mode = 'fixed';
+            c.width = math.floor(tonumber(c.window.width) or 520);
+        end
+    end
+    for _, k in ipairs({ 'config_visible', 'window_alpha', 'mini_mode', 'hide_title_bar', 'hide_border', 'show_local_time',
+        'show_jp_time', 'local_time_24h', 'show_local_seconds', 'show_moon_phase', 'show_element_icons', 'compact_mode',
+        'lock_window', 'background_color', 'alignment', 'window' }) do
+        c[k] = nil;
+    end
+    c.version = 3;
 end
 
-local function align_line(total_width)
-    if state.alignment == 'left' then
+-- Every piece once, unknown ones dropped (keeps the user's order).
+local function clean_segments(list)
+    local seen, out = {}, {};
+    for _, s in ipairs(list or {}) do
+        if type(s) == 'table' and s.id ~= nil and not seen[s.id] then
+            seen[s.id] = true;
+            out[#out + 1] = s;
+        end
+    end
+    for _, s in ipairs(default_segments()) do
+        if not seen[s.id] then
+            s.show = false;
+            out[#out + 1] = s;
+        end
+    end
+    return out;
+end
+
+local function prepare(c)
+    migrate(c);
+    -- 3.0: the week tooltip setting became the hover window's.
+    if c.rotation_tip == false and type(c.hover) ~= 'table' then c.hover = { area = 'off' }; end
+    c.rotation_tip = nil;
+    fill(c, defaults);
+    c.segments = clean_segments(c.segments);
+    c.second.segments = clean_segments(c.second.segments);
+    c.visible = true;   -- the clock always shows after a load / login
+end
+
+prepare(cfg);
+theme.set_profile({ theme = cfg.config_theme, opacity = 0.97, use_theme_bg = true, text_effect = cfg.text_effect });
+
+-- Settings are saved shortly after a change, never while a slider is held.
+local save_at = nil;
+-- pos_only: just a clock being dragged (no need to lay the text out again).
+local function dirty(pos_only)
+    save_at = os.clock();
+    if pos_only == true then return; end
+    clock.invalidate();
+    theme.set_profile({ theme = cfg.config_theme, opacity = 0.97, use_theme_bg = true, text_effect = cfg.text_effect });
+end
+
+local function save_now()
+    save_at = nil;
+    pcall(settings.save);
+end
+
+local clocks = { main = clock.new('main'), second = clock.new('second') };
+
+-- ============================================================================
+-- Day-change alert
+-- ============================================================================
+
+local alert = { armed_day = nil, last_day = nil };
+
+local function announce(day, msg)
+    local a = cfg.alert;
+    if a.chat then print('[IzClock] ' .. msg); end
+    if a.flash then clock.flash(day, a.flash_secs); end
+end
+
+local function check_alert()
+    local a = cfg.alert;
+    local v = vana.now();
+    local lead = math.max(0, math.floor(tonumber(a.minutes) or 0)) * 60;
+    if alert.last_day == nil then
+        -- First check after load: don't announce what was already due.
+        alert.last_day = v.total_days;
+        if lead > 0 and v.to_next <= lead then alert.armed_day = v.total_days; end
         return;
     end
-
-    local avail_w = imgui.GetContentRegionAvail();
-    avail_w = tonumber(avail_w) or 0;
-
-    if avail_w > total_width then
-        local x = imgui.GetCursorPosX();
-        local remaining = avail_w - total_width;
-
-        if state.alignment == 'center' then
-            imgui.SetCursorPosX(x + (remaining / 2));
-        elseif state.alignment == 'right' then
-            imgui.SetCursorPosX(x + remaining);
-        end
-    end
-end
-
-local function text_width(value)
-    local w = imgui.CalcTextSize(value);
-    return tonumber(w) or 0;
-end
-
-local function day_value_width(day_index)
-    local width = text_width(days[day_index] or 'Unknown');
-
-    if state.show_element_icons[1] then
-        width = width + text_width(day_icons[day_index] or '[?]') + text_width(' ');
-    end
-
-    return width;
-end
-
-local function draw_day_value(day_index)
-    if state.show_element_icons[1] then
-        imgui.TextColored(day_colors[day_index] or UI_TEXT, day_icons[day_index] or '[?]');
-        imgui.SameLine();
-    end
-
-    imgui.TextColored(day_colors[day_index] or UI_TEXT, days[day_index] or 'Unknown');
-end
-
-
-local function draw_day_rotation_tooltip(current_day_index)
-    if not imgui.IsItemHovered() then
+    if not a.enabled then
+        alert.last_day = v.total_days;
         return;
     end
-
-    -- Real tooltip rendering gives us a vertical, color-coded list and
-    -- automatically uses IzClock's currently pushed font / font scale.
-    imgui.BeginTooltip();
-
-    imgui.TextColored(UI_MUTED, 'DAY ROTATION');
-    imgui.Separator();
-
-    for offset = 0, 7 do
-        local idx = (current_day_index + offset) % 8;
-        local name = days[idx] or 'Unknown';
-
-        if offset == 0 then
-            imgui.TextColored(day_colors[idx] or UI_TEXT, ('> %s'):fmt(name));
-            imgui.SameLine();
-            imgui.TextColored(UI_MUTED, '(Current)');
-        else
-            imgui.TextColored(day_colors[idx] or UI_TEXT, ('  %s'):fmt(name));
-        end
-    end
-
-    imgui.EndTooltip();
-end
-
-local function draw_label_value(label, value, value_color)
-    local combined_width = text_width(label) + text_width(' ') + text_width(value);
-    align_line(combined_width);
-
-    imgui.TextColored(UI_MUTED, label);
-    imgui.SameLine();
-    imgui.TextColored(value_color or UI_TEXT, value);
-end
-
-local function draw_label_day(label, day_index)
-    local combined_width = text_width(label) + text_width(' ') + day_value_width(day_index);
-    align_line(combined_width);
-
-    imgui.TextColored(UI_MUTED, label);
-    imgui.SameLine();
-    draw_day_value(day_index);
-end
-
-local function draw_day_rotation(current_day_index)
-    local upcoming = get_upcoming_days(current_day_index);
-
-    local total_width = 0;
-    for i, idx in ipairs(upcoming) do
-        if i > 1 then
-            total_width = total_width + text_width(' > ');
-        end
-        total_width = total_width + day_value_width(idx);
-    end
-
-    align_line(total_width);
-
-    for i, idx in ipairs(upcoming) do
-        if i > 1 then
-            imgui.SameLine();
-            imgui.TextColored(UI_MUTED, '>');
-            imgui.SameLine();
-        end
-
-        draw_day_value(idx);
-    end
-end
-
-local function compact_part_width(label, value)
-    return text_width(label) + text_width(' ') + text_width(value);
-end
-
-local function draw_compact_separator()
-    imgui.SameLine();
-    imgui.TextColored(UI_MUTED, '|');
-    imgui.SameLine();
-end
-
-local function draw_compact_line(local_time_str, vana_time_str, jp_time_str, day_index, next_day_index, countdown_str, moon_name, moon_percent)
-    local parts_width = 0;
-    local separators = 0;
-
-    if state.show_local_time[1] then
-        parts_width = parts_width + compact_part_width('LOCAL', local_time_str or '--:--');
-        separators = separators + 1;
-    end
-
-    parts_width = parts_width + compact_part_width('VANA', vana_time_str);
-    separators = separators + 1;
-
-    if state.show_jp_time[1] then
-        parts_width = parts_width + compact_part_width('JP', jp_time_str or '--:--');
-        separators = separators + 1;
-    end
-
-    parts_width = parts_width + day_value_width(day_index) + text_width(' > ') + day_value_width(next_day_index);
-    separators = separators + 1;
-
-    parts_width = parts_width + compact_part_width('NEXT', countdown_str);
-
-    if state.show_moon_phase[1] then
-        separators = separators + 1;
-        parts_width = parts_width + compact_part_width('MOON', ('%s (%d%%)'):fmt(moon_name, moon_percent));
-    end
-
-    parts_width = parts_width + (separators * text_width(' | '));
-    align_line(parts_width);
-
-    if state.show_local_time[1] then
-        imgui.TextColored(UI_MUTED, 'LOCAL');
-        imgui.SameLine();
-        imgui.TextColored(UI_TEXT, local_time_str or '--:--');
-        draw_compact_separator();
-    end
-
-    imgui.TextColored(UI_MUTED, 'VANA');
-    imgui.SameLine();
-    imgui.TextColored(UI_ACCENT, vana_time_str);
-    draw_compact_separator();
-
-    if state.show_jp_time[1] then
-        imgui.TextColored(UI_MUTED, 'JP');
-        imgui.SameLine();
-        imgui.TextColored(UI_TEXT, jp_time_str or '--:--');
-        draw_compact_separator();
-    end
-
-    draw_day_value(day_index);
-    local hover_current_day = imgui.IsItemHovered();
-
-    imgui.SameLine();
-    imgui.TextColored(UI_MUTED, '>');
-    local hover_day_arrow = imgui.IsItemHovered();
-
-    imgui.SameLine();
-    draw_day_value(next_day_index);
-    local hover_next_day = imgui.IsItemHovered();
-
-    if hover_current_day or hover_day_arrow or hover_next_day then
-        -- draw_day_rotation_tooltip normally checks hover on the last item.
-        -- The next-day item is last here; for current day / arrow hover, open
-        -- the same tooltip directly so the entire "Day > Next Day" segment is
-        -- interactive without changing its visual layout.
-        if hover_next_day then
-            draw_day_rotation_tooltip(day_index);
-        else
-            imgui.BeginTooltip();
-            imgui.TextColored(UI_MUTED, 'DAY ROTATION');
-            imgui.Separator();
-
-            for offset = 0, 7 do
-                local idx = (day_index + offset) % 8;
-                local name = days[idx] or 'Unknown';
-
-                if offset == 0 then
-                    imgui.TextColored(day_colors[idx] or UI_TEXT, ('> %s'):fmt(name));
-                    imgui.SameLine();
-                    imgui.TextColored(UI_MUTED, '(Current)');
-                else
-                    imgui.TextColored(day_colors[idx] or UI_TEXT, ('  %s'):fmt(name));
-                end
+    if lead == 0 then
+        if v.total_days ~= alert.last_day then
+            if a.days[v.day + 1] ~= false then
+                local el = schedule.ELEMENTS[v.day].name;
+                announce(v.day, ('%s has begun (%s).'):format(vana.DAYS[v.day], el));
             end
-
-            imgui.EndTooltip();
+        end
+    elseif v.to_next <= lead and alert.armed_day ~= v.total_days then
+        alert.armed_day = v.total_days;
+        if a.days[v.next_day + 1] ~= false then
+            announce(v.next_day, ('%s begins in %s.'):format(vana.DAYS[v.next_day], schedule.span(v.to_next)));
         end
     end
-
-    draw_compact_separator();
-
-    imgui.TextColored(UI_MUTED, 'NEXT');
-    imgui.SameLine();
-    imgui.TextColored(UI_TEXT, countdown_str);
-
-    if state.show_moon_phase[1] then
-        draw_compact_separator();
-        imgui.TextColored(UI_MUTED, 'MOON');
-        imgui.SameLine();
-        imgui.TextColored(UI_TEXT, ('%s (%d%%)'):fmt(moon_name, moon_percent));
-    end
+    alert.last_day = v.total_days;
 end
 
-local function save_config()
-    config.visible = state.open[1];
-    config.config_visible = state.config_open[1];
-    config.font_scale = state.font_scale[1];
-    config.window_alpha = state.window_alpha[1];
-    config.mini_mode = state.mini_mode[1];
-    config.hide_title_bar = state.hide_title_bar[1];
-    config.hide_border = state.hide_border[1];
-    config.show_local_time = state.show_local_time[1];
-    config.show_jp_time = state.show_jp_time[1];
-    config.local_time_24h = state.local_time_24h[1];
-    config.show_local_seconds = state.show_local_seconds[1];
-    config.show_moon_phase = state.show_moon_phase[1];
-    config.show_element_icons = state.show_element_icons[1];
-    config.compact_mode = state.compact_mode[1];
-    config.lock_window = state.lock_window[1];
-
-    if config.background_color == nil then
-        config.background_color = T{};
-    end
-    config.background_color[1] = state.background_color[1];
-    config.background_color[2] = state.background_color[2];
-    config.background_color[3] = state.background_color[3];
-
-    config.alignment = state.alignment;
-
-    if config.window == nil then
-        config.window = T{};
-    end
-
-    config.window.x = state.last_x;
-    config.window.y = state.last_y;
-    config.window.width = state.last_w;
-    config.window.height = state.last_h;
-
-    settings.save();
+local function test_alert()
+    local v = vana.now();
+    local a = cfg.alert;
+    local msg = (tonumber(a.minutes) or 0) > 0
+        and ('%s begins in %dm. (test)'):format(vana.DAYS[v.next_day], a.minutes)
+        or ('%s has begun. (test)'):format(vana.DAYS[v.next_day]);
+    if a.chat then print('[IzClock] ' .. msg); end
+    if a.flash then clock.flash(v.next_day, a.flash_secs); end
 end
 
-local function capture_window_geometry()
-    -- Current Ashita v4 ImGui returns two numeric values from each function.
-    local x, y = imgui.GetWindowPos();
-    local w, h = imgui.GetWindowSize();
+local ctx = {
+    dirty = dirty,
+    defaults = defaults,
+    default_segments = default_segments,
+    view_defaults = function(which) if which == 'second' then return second_defaults(); end return view_defaults(); end,
+    day_colors = day_colors,
+    test_alert = test_alert,
+    info_toggle = function() info.toggle(); end,
+    reset_position = function(which)
+        if which == nil or which == 'main' then
+            cfg.x, cfg.y = 50, 50;
+            clocks.main:place();
+        end
+        if which == nil or which == 'second' then
+            cfg.second.x, cfg.second.y = 50, 110;
+            clocks.second:place();
+        end
+        if which == nil then
+            cfg.info_pos.x, cfg.info_pos.y = -1, -1;
+            info.placed = false;
+        end
+        dirty();
+    end,
+};
 
-    x = tonumber(x);
-    y = tonumber(y);
-    w = tonumber(w);
-    h = tonumber(h);
+-- The character's own settings arrive after login.
+settings.register('settings', 'izclock_settings_update', function(s)
+    if s == nil then return; end
+    cfg = s;
+    prepare(cfg);
+    clocks.main:place();
+    clocks.second:place();
+    dirty();
+    save_at = nil;
+end);
 
-    if x == nil or y == nil or w == nil or h == nil then
-        return;
-    end
-
-    if math.abs(x - state.last_x) >= 1
-        or math.abs(y - state.last_y) >= 1
-        or math.abs(w - state.last_w) >= 1
-        or math.abs(h - state.last_h) >= 1 then
-        state.last_x = x;
-        state.last_y = y;
-        state.last_w = w;
-        state.last_h = h;
-        state.geometry_dirty = true;
-    end
-end
+local HELP = {
+    '/ic or /izclock - show / hide the clock(s)',
+    '/ic config - settings (also /icconfig, or right-click the clock)',
+    '/ic info - the info window (or click the clock)',
+    '/ic second - show / hide the second clock',
+    '/ic lock - lock / unlock the clocks\' positions',
+    '/ic reset - move the clocks back to the top-left corner',
+};
 
 ashita.events.register('command', 'izclock_command_cb', function(e)
-    if e == nil or e.command == nil then
-        return;
-    end
-
     local args = e.command:args();
-    if #args == 0 then
+    if #args == 0 then return; end
+    local cmd = args[1]:lower();
+    if cmd == '/icconfig' then
+        e.blocked = true;
+        config.toggle();
         return;
     end
-
-    if args[1]:any('/ic', '/izclock') then
-        e.blocked = true;
-
-        state.open[1] = not state.open[1];
-        config.visible = state.open[1];
-        settings.save();
-        return;
-    end
-
-    if args[1]:any('/icconfig') then
-        e.blocked = true;
-
-        state.config_open[1] = not state.config_open[1];
-        config.config_visible = state.config_open[1];
-        settings.save();
-        return;
+    if cmd ~= '/ic' and cmd ~= '/izclock' then return; end
+    e.blocked = true;
+    local sub = (args[2] or ''):lower();
+    if sub == '' or sub == 'toggle' then
+        cfg.visible = not cfg.visible;
+    elseif sub == 'show' then
+        cfg.visible = true;
+    elseif sub == 'hide' then
+        cfg.visible = false;
+    elseif sub == 'config' or sub == 'settings' then
+        config.toggle();
+    elseif sub == 'info' then
+        info.toggle();
+    elseif sub == 'second' then
+        cfg.second.enabled = not cfg.second.enabled;
+        if cfg.second.enabled then clocks.second:place(); end
+        print('[IzClock] Second clock ' .. (cfg.second.enabled and 'on.' or 'off.'));
+        dirty();
+    elseif sub == 'lock' then
+        cfg.lock = not cfg.lock;
+        cfg.second.lock = cfg.lock;
+        print('[IzClock] Position ' .. (cfg.lock and 'locked.' or 'unlocked.'));
+        dirty();
+    elseif sub == 'reset' then
+        ctx.reset_position();
+        print('[IzClock] Clocks moved to the top-left corner.');
+    else
+        for _, line in ipairs(HELP) do print('[IzClock] ' .. line); end
     end
 end);
 
+local ui = { config = config, info = info };
 
--- Ashita v4 loads the addon before the active character profile is always
--- available. The settings library can therefore replace the startup settings
--- table after login. Rehydrate every runtime UI value when that happens so
--- IzClock immediately uses the character's saved profile without requiring
--- /addon reload izclock.
-settings.register('settings', 'izclock_settings_update', function(s)
-    if s == nil then
-        return;
+local function report(where, ok, err)
+    if ok then return; end
+    err = tostring(err);
+    if ui[where .. '_error'] ~= err then
+        ui[where .. '_error'] = err;
+        print('[IzClock] ' .. where .. ' error: ' .. err);
     end
-
-    config = s;
-
-    state.config_open[1] = config.config_visible == true;
-    state.font_scale[1] = tonumber(config.font_scale) or 1.00;
-    state.window_alpha[1] = tonumber(config.window_alpha) or 0.92;
-    state.mini_mode[1] = config.mini_mode == true;
-    state.hide_title_bar[1] = config.hide_title_bar == true;
-    state.hide_border[1] = config.hide_border == true;
-    state.show_local_time[1] = config.show_local_time == true;
-    state.show_jp_time[1] = config.show_jp_time == true;
-    state.local_time_24h[1] = config.local_time_24h == true;
-    state.show_local_seconds[1] = config.show_local_seconds == true;
-    state.show_moon_phase[1] = config.show_moon_phase == true;
-    state.show_element_icons[1] = config.show_element_icons == true;
-    state.compact_mode[1] = config.compact_mode == true;
-    state.lock_window[1] = config.lock_window == true;
-
-    state.background_color[1] = tonumber(config.background_color and config.background_color[1]) or 0.055;
-    state.background_color[2] = tonumber(config.background_color and config.background_color[2]) or 0.070;
-    state.background_color[3] = tonumber(config.background_color and config.background_color[3]) or 0.095;
-
-    state.alignment =
-        (config.alignment == 'right' and 'right')
-        or (config.alignment == 'center' and 'center')
-        or 'left';
-
-    if type(config.window) ~= 'table' then
-        config.window = T{
-            x = 50,
-            y = 50,
-            width = 520,
-            height = 150,
-        };
-    end
-
-    state.last_x = tonumber(config.window.x) or 50;
-    state.last_y = tonumber(config.window.y) or 50;
-    state.last_w = tonumber(config.window.width) or 520;
-    state.last_h = tonumber(config.window.height) or 150;
-
-    -- Reapply the character profile's saved window geometry on the next frame.
-    state.apply_saved_geometry = true;
-    state.geometry_dirty = false;
-    state.last_geometry_save = 0;
-
-    -- The clock itself should remain visible after login/reprofile.
-    config.visible = true;
-    state.open[1] = true;
-end);
-
-local function format_utc_time(timestamp)
-    local fmt;
-    if state.local_time_24h[1] then
-        fmt = state.show_local_seconds[1] and '!%H:%M:%S' or '!%H:%M';
-    else
-        fmt = state.show_local_seconds[1] and '!%I:%M:%S %p' or '!%I:%M %p';
-    end
-
-    local value = os.date(fmt, timestamp);
-    if value ~= nil and not state.local_time_24h[1] and value:sub(1, 1) == '0' then
-        value = value:sub(2);
-    end
-    return value;
-end
-
-local function get_local_time_string()
-    local fmt;
-    if state.local_time_24h[1] then
-        fmt = state.show_local_seconds[1] and '%H:%M:%S' or '%H:%M';
-    else
-        fmt = state.show_local_seconds[1] and '%I:%M:%S %p' or '%I:%M %p';
-    end
-
-    local value = os.date(fmt);
-    if value ~= nil and not state.local_time_24h[1] and value:sub(1, 1) == '0' then
-        value = value:sub(2);
-    end
-    return value;
-end
-
-local function get_jp_time_string()
-    -- Japan Standard Time is always UTC+9 and does not observe DST.
-    return format_utc_time(os.time() + (9 * 60 * 60));
 end
 
 ashita.events.register('d3d_present', 'izclock_present_cb', function()
-    if not state.open[1] then
-        return;
+    report('alert', pcall(check_alert));
+    if cfg.visible then
+        report('clock', pcall(clocks.main.draw, clocks.main, cfg, cfg, ctx, ui));
+        if cfg.second.enabled then
+            report('second clock', pcall(clocks.second.draw, clocks.second, cfg.second, cfg, ctx, ui));
+        end
     end
-
-    if state.apply_saved_geometry then
-        imgui.SetNextWindowPos({ state.last_x, state.last_y });
-        imgui.SetNextWindowSize({ state.last_w, state.last_h });
-        state.apply_saved_geometry = false;
+    report('info', pcall(info.draw, cfg, ctx));
+    report('settings', pcall(config.draw, cfg, ctx));
+    cursor.draw(cfg.pointer);
+    if save_at ~= nil and os.clock() - save_at > 0.6 and not imgui.IsAnyItemActive() then
+        save_now();
     end
-
-    local hour, minute, day_index, total_days, seconds_to_next_day = get_vana_time();
-    local time_str = ('%02d:%02d'):fmt(hour, minute);
-    local next_day_index = (day_index + 1) % 8;
-    local countdown_str = format_countdown(seconds_to_next_day);
-    local moon_name, moon_percent = get_moon_info(total_days);
-
-    -- Local time follows the computer's timezone/DST.
-    -- JP time is derived from UTC at JST (UTC+9), which has no DST.
-    local local_time_str = get_local_time_string();
-    local jp_time_str = get_jp_time_string();
-
-    -- Local theme only: this removes the default gray/red appearance without
-    -- changing the user's global Ashita / ImGui theme.
-    imgui.PushStyleColor(ImGuiCol_WindowBg,        {
-        state.background_color[1],
-        state.background_color[2],
-        state.background_color[3],
-        state.window_alpha[1]
-    });
-    imgui.PushStyleColor(ImGuiCol_TitleBg,         { 0.070, 0.105, 0.150, 1.00 });
-    imgui.PushStyleColor(ImGuiCol_TitleBgActive,   { 0.085, 0.150, 0.215, 1.00 });
-    imgui.PushStyleColor(ImGuiCol_TitleBgCollapsed,{ 0.070, 0.105, 0.150, 1.00 });
-    local border_alpha = state.hide_border[1] and 0.00 or 0.90;
-    imgui.PushStyleColor(ImGuiCol_Border,          { 0.20, 0.38, 0.52, border_alpha });
-    imgui.PushStyleColor(ImGuiCol_Separator,       { 0.18, 0.34, 0.46, 0.85 });
-    imgui.PushStyleColor(ImGuiCol_Text,            UI_TEXT);
-
-    local window_flags = ImGuiWindowFlags_NoNav;
-
-    if state.hide_title_bar[1] then
-        window_flags = bit.bor(window_flags, ImGuiWindowFlags_NoTitleBar);
-    end
-
-    if state.lock_window[1] then
-        window_flags = bit.bor(window_flags, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoResize);
-    end
-
-    if imgui.Begin('IzClock##izclock', state.open, window_flags) then
-        -- Current Ashita v4 font scaling approach.  Do not use the removed
-        -- SetWindowFontScale API.
-        local base_font_size = imgui.GetFontSize();
-        imgui.PushFont(nil, base_font_size * state.font_scale[1]);
-
-        if state.compact_mode[1] then
-            draw_compact_line(
-                local_time_str,
-                time_str,
-                jp_time_str,
-                day_index,
-                next_day_index,
-                countdown_str,
-                moon_name,
-                moon_percent
-            );
-        else
-            if state.show_local_time[1] then
-                draw_label_value('LOCAL TIME', local_time_str or '--:--', UI_TEXT);
-            end
-
-            draw_label_value('VANA\'DIEL TIME', time_str, UI_ACCENT);
-
-            if state.show_jp_time[1] then
-                draw_label_value('JP TIME', jp_time_str or '--:--', UI_TEXT);
-            end
-
-            if state.mini_mode[1] then
-                local combined_width = text_width('CURRENT DAY') + text_width(' ') + day_value_width(day_index);
-                align_line(combined_width);
-
-                imgui.TextColored(UI_MUTED, 'CURRENT DAY');
-                imgui.SameLine();
-                draw_day_value(day_index);
-                draw_day_rotation_tooltip(day_index);
-            else
-                draw_label_day('CURRENT DAY', day_index);
-            end
-
-            draw_label_value('NEXT DAY IN', countdown_str, UI_TEXT);
-
-            if state.show_moon_phase[1] then
-                draw_label_value('MOON', ('%s (%d%%)'):fmt(moon_name, moon_percent), UI_TEXT);
-            end
-
-            if state.mini_mode[1] then
-                draw_label_day('NEXT DAY', next_day_index);
-            else
-                imgui.Separator();
-
-                local rotation_label = 'UPCOMING ROTATION';
-                align_line(text_width(rotation_label));
-                imgui.TextColored(UI_MUTED, rotation_label);
-                draw_day_rotation(day_index);
-            end
-        end
-
-        imgui.PopFont();
-
-        capture_window_geometry();
-    end
-
-    imgui.End();
-
-    imgui.PopStyleColor(7);
-
-    if state.geometry_dirty and (os.clock() - state.last_geometry_save) >= 0.50 then
-        save_config();
-        state.geometry_dirty = false;
-        state.last_geometry_save = os.clock();
-    end
-end);
-
-local function render_config_window()
-    if not state.config_open[1] then
-        return;
-    end
-
-    -- Keep the configuration window visually related to IzClock but slightly
-    -- more opaque than the display window so controls stay easy to read.
-    imgui.PushStyleColor(ImGuiCol_WindowBg,         { 0.055, 0.070, 0.095, 0.98 });
-    imgui.PushStyleColor(ImGuiCol_TitleBg,          { 0.070, 0.105, 0.150, 1.00 });
-    imgui.PushStyleColor(ImGuiCol_TitleBgActive,    { 0.085, 0.150, 0.215, 1.00 });
-    imgui.PushStyleColor(ImGuiCol_TitleBgCollapsed, { 0.070, 0.105, 0.150, 1.00 });
-    imgui.PushStyleColor(ImGuiCol_Border,           { 0.20, 0.38, 0.52, 0.90 });
-    imgui.PushStyleColor(ImGuiCol_Separator,        { 0.18, 0.34, 0.46, 0.85 });
-    imgui.PushStyleColor(ImGuiCol_Text,             UI_TEXT);
-
-    if imgui.Begin('IzClock Configuration##izclock_config', state.config_open, ImGuiWindowFlags_NoNav) then
-        imgui.TextColored(UI_ACCENT, 'Display');
-        imgui.Separator();
-
-        imgui.Text('Font Size');
-        imgui.SameLine();
-        imgui.PushItemWidth(190);
-        if imgui.SliderFloat('##izclock_font_scale_config', state.font_scale, 0.75, 2.00, '%.2fx') then
-            config.font_scale = state.font_scale[1];
-            settings.save();
-        end
-        imgui.PopItemWidth();
-
-        imgui.Text('Transparency');
-        imgui.SameLine();
-        imgui.PushItemWidth(190);
-        if imgui.SliderFloat('##izclock_alpha_config', state.window_alpha, 0.00, 1.00, '%.2f') then
-            config.window_alpha = state.window_alpha[1];
-            settings.save();
-        end
-        imgui.PopItemWidth();
-
-        imgui.SameLine();
-        imgui.Text('Background');
-        imgui.SameLine();
-
-        -- RGB only: transparency remains controlled by the dedicated slider.
-        -- ColorEdit3 is supported by current Ashita v4 ImGui bindings.
-        if imgui.ColorEdit3('##izclock_background_color', state.background_color, ImGuiColorEditFlags_NoInputs) then
-            if config.background_color == nil then
-                config.background_color = T{};
-            end
-            config.background_color[1] = state.background_color[1];
-            config.background_color[2] = state.background_color[2];
-            config.background_color[3] = state.background_color[3];
-            settings.save();
-        end
-
-        imgui.TextColored(UI_MUTED, '0.00 = fully transparent   1.00 = opaque');
-
-        imgui.Separator();
-        imgui.TextColored(UI_ACCENT, 'Layout');
-
-        if imgui.Checkbox('Mini Mode', state.mini_mode) then
-            config.mini_mode = state.mini_mode[1];
-            settings.save();
-        end
-        imgui.SameLine();
-        imgui.TextColored(UI_MUTED, '(unchecked = Full)');
-
-        if imgui.Checkbox('Compact One-Line', state.compact_mode) then
-            config.compact_mode = state.compact_mode[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Lock Window', state.lock_window) then
-            config.lock_window = state.lock_window[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Hide Title Bar', state.hide_title_bar) then
-            config.hide_title_bar = state.hide_title_bar[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Hide Border', state.hide_border) then
-            config.hide_border = state.hide_border[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Show Moon Phase', state.show_moon_phase) then
-            config.show_moon_phase = state.show_moon_phase[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Elemental Icons', state.show_element_icons) then
-            config.show_element_icons = state.show_element_icons[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('Show Local Time', state.show_local_time) then
-            config.show_local_time = state.show_local_time[1];
-            settings.save();
-        end
-
-        imgui.SameLine();
-        if imgui.Checkbox('Show JP Time', state.show_jp_time) then
-            config.show_jp_time = state.show_jp_time[1];
-            settings.save();
-        end
-
-        if imgui.Checkbox('24hr Format', state.local_time_24h) then
-            config.local_time_24h = state.local_time_24h[1];
-            settings.save();
-        end
-
-        imgui.SameLine();
-        if imgui.Checkbox('Seconds', state.show_local_seconds) then
-            config.show_local_seconds = state.show_local_seconds[1];
-            settings.save();
-        end
-
-        imgui.Text('Alignment');
-        imgui.SameLine();
-
-        if state.alignment == 'left' then
-            imgui.TextColored(UI_ACCENT, 'Left');
-        else
-            if imgui.Button('Left') then
-                state.alignment = 'left';
-                config.alignment = 'left';
-                settings.save();
-            end
-        end
-
-        imgui.SameLine();
-
-        if state.alignment == 'center' then
-            imgui.TextColored(UI_ACCENT, 'Center');
-        else
-            if imgui.Button('Center') then
-                state.alignment = 'center';
-                config.alignment = 'center';
-                settings.save();
-            end
-        end
-
-        imgui.SameLine();
-
-        if state.alignment == 'right' then
-            imgui.TextColored(UI_ACCENT, 'Right');
-        else
-            if imgui.Button('Right') then
-                state.alignment = 'right';
-                config.alignment = 'right';
-                settings.save();
-            end
-        end
-
-        imgui.TextColored(UI_MUTED, 'Mini: Time / Day / next-day countdown / Next Day');
-        imgui.TextColored(UI_MUTED, 'Full: Mini data + full 7-day rotation');
-        imgui.TextColored(UI_MUTED, 'Compact: single-line layout (overrides Mini / Full)');
-
-        imgui.Separator();
-        imgui.TextColored(UI_MUTED, 'Commands:');
-        imgui.Text('/ic        Toggle clock');
-        imgui.Text('/icconfig  Toggle this window');
-    end
-
-    imgui.End();
-    imgui.PopStyleColor(7);
-
-    if state.config_open[1] == false then
-        config.config_visible = false;
-        settings.save();
-    end
-end
-
-ashita.events.register('d3d_present', 'izclock_config_present_cb', function()
-    render_config_window();
 end);
 
 ashita.events.register('unload', 'izclock_unload_cb', function()
-    save_config();
+    save_now();
 end);

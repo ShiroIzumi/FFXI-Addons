@@ -718,26 +718,12 @@ local function draw_events()
     table.sort(lanes.incoming, newest_first);
     table.sort(lanes.notify, newest_first);
 
-    -- Visible cap: drop the OLDEST rows (end of each newest-first list).
+    -- Visible cap, per lane: drop the OLDEST rows (end of each newest-first
+    -- list). Each lane has its own cap, so outgoing spam never hides an
+    -- incoming skill-up or reward.
     local cap = math.floor(clamp(tonumber(settings.max_visible_events) or 14, 4, MAX_EVENTS));
-    while (#lanes.outgoing + #lanes.incoming) > cap do
-        local oldest_out = lanes.outgoing[#lanes.outgoing];
-        local oldest_in = lanes.incoming[#lanes.incoming];
-
-        if oldest_out and oldest_in then
-            if oldest_out.created <= oldest_in.created then
-                table.remove(lanes.outgoing);
-            else
-                table.remove(lanes.incoming);
-            end
-        elseif oldest_out then
-            table.remove(lanes.outgoing);
-        elseif oldest_in then
-            table.remove(lanes.incoming);
-        else
-            break;
-        end
-    end
+    while #lanes.outgoing > cap do table.remove(lanes.outgoing); end
+    while #lanes.incoming > cap do table.remove(lanes.incoming); end
 
     while #lanes.notify > NOTIFY_MAX_VISIBLE do
         table.remove(lanes.notify);

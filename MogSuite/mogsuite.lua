@@ -20,14 +20,15 @@
     when you click them.
 
     Layout:
-      core/       theme, keys, module loader, the config window, mouse pointer
+      core/       theme, keys, module loader, the settings window (sidebar +
+                  search, core/cfgui.lua), mouse pointer
       modules/    character, inventory, actions (one folder each)
       data/       shared data (your characters' bags, prices, key item marks)
 ]]
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.2.1';
+addon.version = '1.4.0';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -43,6 +44,7 @@ local keys         = require('core.keys');
 local loader       = require('core.loader');
 local configwindow = require('core.configwindow');
 local cursor       = require('core.cursor');
+local cfgui        = require('core.cfgui');
 
 -- Wrap imgui.Begin / popups before any window is drawn so the visible mouse
 -- pointer knows when the mouse is over a MogSuite window.
@@ -65,7 +67,8 @@ local defaults = T{
         config_visible = false,
         config_tab = 'character',
         config_section = T{},
-        config_window = T{ x = 180, y = 140, w = 640, h = 620 },
+        config_page = '',           -- last settings page ('module:page')
+        config_window = T{ x = 180, y = 140, w = 780, h = 640 },
         -- Visible mouse pointer over MogSuite windows (FFXI hides the
         -- Windows one).
         mouse_cursor = true,
@@ -73,6 +76,7 @@ local defaults = T{
         mouse_cursor_color = T{ 1.00, 0.10, 0.75, 1.00 },
         mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 },
         mouse_cursor_shadow = true,
+        esc_close = true,   -- Esc closes every MogSuite window (the game still gets Esc too)
         keys = T{
             character = T{ enabled = true, key = 0x43, ctrl = false, alt = false, shift = false }, -- C
             inventory = T{ enabled = true, key = 0x42, ctrl = false, alt = false, shift = false }, -- B
@@ -155,6 +159,7 @@ local function inject(name)
         section_header = theme.section_header, help_marker = theme.help_marker, tip = theme.tip,
         text_w = theme.text_w, align_label = theme.align_label, begin_child = theme.begin_child,
         color_edit = theme.color_edit, draw_fx_text = theme.draw_fx_text,
+        ui = cfgui,   -- settings-page widgets (search-aware), see core/cfgui.lua
     };
     for _, n in ipairs({ 'UI_TITLE', 'UI_TITLE_ACTIVE', 'UI_POPUP', 'UI_BORDER', 'UI_CONTROL', 'UI_CONTROL_HOVER',
         'UI_CONTROL_ACTIVE', 'UI_TEXT', 'UI_MUTED', 'UI_ACCENT', 'UI_ACCENT_TEXT', 'UI_TRANSPARENT', 'UI_WHITE', 'UI_DANGER' }) do
@@ -260,8 +265,36 @@ end);
 -- Keys
 -- ============================================================================
 
+-- Esc closes every open MogSuite window: the settings window plus each
+-- module's windows. Modules opt in by defining module_close_all() (every
+-- module should; see the README's "Writing a module"). The key is never
+-- blocked, so the game's own Esc (closing its menus) still works.
+-- Ignored while you type (chat line open or a text box active) and while a
+-- keybind is being captured.
+local function close_all_windows()
+    configwindow.open[1] = false;
+    for _, env in ipairs(modules) do
+        if type(env.module_close_all) == 'function' then
+            call(env, 'module_close_all');
+        end
+    end
+    mark_global_dirty();
+end
+
+local function is_esc_press(e)
+    if (tonumber(e.wparam) or 0) ~= 0x1B then return false; end
+    local lparam = tonumber(e.lparam) or 0;
+    if bit.band(lparam, 0x80000000) ~= 0 then return false; end   -- key up
+    if bit.band(lparam, 0x40000000) ~= 0 then return false; end   -- held (repeat)
+    return true;
+end
+
 ashita.events.register('key', 'mogsuite_key_cb', function(e)
     if e == nil then return; end
+    if cfg.global.esc_close ~= false and keys.listening == nil and is_esc_press(e) and not keys.typing() then
+        close_all_windows();
+        return;   -- not blocked: the game handles Esc as usual
+    end
     local blocked = keys.handle(e, cfg.global.keys,
         function(name)
             local env = by_key[name];

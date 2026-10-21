@@ -27,6 +27,8 @@ local NOTIFY_EVENT_TYPES = {
     zone_change = true,
     wear_warning = true,
     low_hp = true,
+    status_removed = true,
+    food_warning = true,
 };
 
 local function routes_to_notify(event_type)
@@ -126,6 +128,7 @@ local function event_symbol(ev)
     if ev.event_type == 'status_positive' then return '[+] '; end
     if ev.event_type == 'status_negative' then return '[!] '; end
     if ev.event_type == 'status_removed' then return '[-] '; end
+    if ev.event_type == 'food_warning' then return '[!] '; end
     if ev.event_type == 'incoming_damage' then return ''; end
     if ev.event_type == 'incoming_abilities' then return '[!] '; end
     if ev.event_type == 'defenses' then return '[DEF] '; end
@@ -281,9 +284,23 @@ local function add_event(direction, kind, text, event_type, opts)
         };
         state.next_id = state.next_id + 1;
     end
+    -- The cap applies to each lane on its own, so a burst of outgoing hits
+    -- can't push an incoming line (a skill-up, a reward) out before it shows.
     local cap = math.floor(clamp(tonumber(settings.max_visible_events) or 14, 4, MAX_EVENTS));
-    while #state.events > cap do
-        table.remove(state.events, 1);
+    local counts = {};
+    for _, ev in ipairs(state.events) do
+        counts[ev.lane] = (counts[ev.lane] or 0) + 1;
+    end
+    for lane_key, n in pairs(counts) do
+        local i = 1;
+        while n > cap and i <= #state.events do
+            if state.events[i].lane == lane_key then
+                table.remove(state.events, i);
+                n = n - 1;
+            else
+                i = i + 1;
+            end
+        end
     end
 end
 

@@ -68,11 +68,22 @@ function module_toggle(force)
     mark_dirty();
 end
 
+-- Esc (core): close the Actions window.
+function module_close_all()
+    if state.visible[1] then
+        state.visible[1] = false;
+        mark_dirty();
+    end
+end
+
 function module_reset_position()
     config.window.x, config.window.y, config.window.w, config.window.h = 260, 160, 470, 620;
     state.apply_geometry = true;
     mark_dirty();
 end
+
+-- Settings window sidebar: is the Actions window showing?
+function module_is_open() return state.visible[1] == true; end
 
 function module_is_locked() return config.locked == true; end
 function module_set_locked(v) config.locked = v == true; mark_dirty(); end

@@ -44,6 +44,7 @@ end
 
 function use_row(row, target)
     if row == nil or row.status ~= 'ready' then return; end
+    if row.k == 'trait' then return; end   -- passive, nothing to use
     AshitaCore:GetChatManager():QueueCommand(1, macro_line(row, target));
 end
 

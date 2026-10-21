@@ -1,12 +1,17 @@
 # ScrollingCombatLog
 
-**Version:** 1.3.2  
+**Version:** 1.3.4  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
 ScrollingCombatLog (SCL) is a self-focused scrolling combat text addon for Final Fantasy XI. It is designed to show **what you do** and **what happens to you** without becoming a full party/alliance damage parser.
 
 It separates combat into configurable **Outgoing** and **Incoming** lanes and supports combat damage, abilities, spells, healing, statuses, progression/rewards, and several FFXI-specific combat mechanics.
+
+## Changes in 1.3.4
+
+- **Skill-ups no longer go missing in busy fights.** Maximum Visible Events now applies to each lane on its own. Before, it counted the Outgoing and Incoming lanes together, so a burst of your own hits could push a skill-up (or another incoming line) out before it was shown.
+- **Nothing shows on the title / character select screen** any more: no combat text, session window or Move Mode anchors. The settings window still opens there.
 
 ## HorizonXI compliance: completed actions only
 
@@ -153,7 +158,7 @@ Controls display/content behavior such as:
 - Display Time
 - Scroll Speed
 - Global Font scale
-- Maximum Visible Events
+- Maximum Visible Events (per lane)
 - Event Symbols / Prefixes
 - Show Outgoing Target Names
 - Show Incoming Source Names
@@ -505,6 +510,8 @@ Each can be switched on/off under **Display -> Notifications**:
 - Magic Bursts
 - Zone change
 - Buff wearing off (the game's own "about to wear off" message)
+- Buff wore off: `[-] Haste wore off` whenever a buff or status on you wears off (Protect, Shell, Haste, Food, ...)
+- Food running out: `[!] Food wears off in 20s`, then again at 15, 10 and 5 seconds
 - Big hits: a copy of any outgoing damage at or above the Big Hit Threshold
 
 Move it with `/scl unlock` (the "Notifications (center)" handle marks the
@@ -540,6 +547,11 @@ HorizonXI-specific messages.
 - Critical Pop: crits briefly grow then settle (Performance renderer).
 - Element Colors: spells and additional effects use their element's color.
 - Combine AoE Hits: one line such as `Firaga III  1840 (4 targets)`.
+
+## Changes in 1.3.3
+
+- **Buffs wearing off** now show in the center Notifications lane: `[-] Protect wore off` (was "Protect removed" in the incoming lane). Switch it back under Display -> Notifications -> Buff Wore Off.
+- **Food warning:** `[!] Food wears off in 20s`, then every 5 seconds (15, 10, 5), in the Notifications lane. Read from your own status timers; toggle / color under Rewards -> Food Running Out and Display -> Notifications.
 
 ## Changes in 1.3.2
 

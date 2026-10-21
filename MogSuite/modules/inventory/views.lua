@@ -128,12 +128,23 @@ function draw_list_view(rows, show_bag)
             x = x + r * 2 + 5;
         end
         local name_col = row.equipped ~= nil and UI_ACCENT_TEXT or config.name_color;
+        if row.mirror then name_col = EQUIP_USE_BLUE; end
         draw_fx_text(dl, x, ty, dim_color(name_col, dim), row.info.name);
         x = x + text_w(row.info.name);
         local q = qty_text(row, false);
         if q ~= nil then
             draw_fx_text(dl, x, ty, dim_color(config.qty_color, dim), q);
             x = x + text_w(q);
+        end
+        -- Enchanted gear: charges "(19/30)" and the time until usable.
+        local ch, timer = enchant_suffix(row);
+        if ch ~= nil then
+            draw_fx_text(dl, x, ty, dim_color(EQUIP_USE_BLUE, dim), ch);
+            x = x + text_w(ch);
+        end
+        if timer ~= nil then
+            draw_fx_text(dl, x, ty, dim_color({ 0.92, 0.70, 0.32, 1.0 }, dim), timer);
+            x = x + text_w(timer);
         end
 
         -- Right side: tags, split marker and (All / Characters) the bag.
@@ -193,7 +204,10 @@ function draw_grid_view(rows)
             dl:AddRect({ sx, sy }, { sx + cell, sy + cell }, imgui.GetColorU32(accent(strength)), 4.0, 0, 2.0);
         end
         if row.equipped ~= nil then
-            dl:AddCircleFilled({ sx + 6, sy + 6 }, 3.0, imgui.GetColorU32(UI_ACCENT), 10);
+            dl:AddCircleFilled({ sx + 6, sy + 6 }, 3.0, imgui.GetColorU32(row.mirror and EQUIP_USE_BLUE or UI_ACCENT), 10);
+        end
+        if row.mirror then
+            dl:AddRect({ sx, sy }, { sx + cell, sy + cell }, imgui.GetColorU32(EQUIP_USE_BLUE), 4.0, 0, 1.5);
         end
         if is_favorite(row) then
             local r = math.max(4, cell * 0.12);

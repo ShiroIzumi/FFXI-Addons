@@ -9,7 +9,7 @@
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
 | **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
 
-**Version:** 1.2.1
+**Version:** 1.3.0
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -131,15 +131,26 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 
 ## Settings (`/ms`)
 
-One window with a tab for each part of the suite:
+One window for the whole suite:
 
-| Tab | Sections |
+- **Search:** type in the box at the top and every matching setting, in every module, shows right away, grouped by page. It searches each setting's name and its help text, so "color", "lock", "size" or "key" all find what you want.
+- **Sidebar:** one group per module, in its own color, plus **Global**.
+  - Click a page to open it.
+  - The dot next to a module's name shows whether its window is open. Click the dot to open or close that window.
+- **Pages:** each page starts with one line about what it is for.
+  - Options that only matter when another one is on sit indented under it.
+  - Hover the **(?)** after a setting for what it does.
+  - Buttons that can't be undone, like forgetting learned prices or clearing pins, need two clicks.
+- **Theme swatches** in the top-right corner switch the theme instantly.
+- The window remembers where you put it, its size and the last page you had open.
+
+| Group | Pages |
 |---|---|
-| **Character** | Window (lock, border, title bar, UI scale), Tabs (which skills to show, zero stats, zero currencies), Colors |
-| **Inventory** | Window and layout, Items (quantity format, favorites, warnings, new items), Colors, Value (price list, learned prices), Categories (section order), Bags (hide tabs) |
-| **Actions** | Window and layout, Colors, Lists (support abilities, relic / mythic weapon skills, spells, sorting) |
-| **Requests** | Which popups to show, auto-close time, size, lock, title bar, border, center on screen, test popups |
-| **Global** | Appearance (theme, background, opacity, config window size, mouse pointer), Text effect, Keybinds, Windows (lock all, reset all), About |
+| **Character** | Window (lock, border, title bar, UI scale), Tabs (which skills to show, zero stats, zero currencies), Colors (with a preview) |
+| **Inventory** | Window (view, sizes, tags), Items (quantity format, favorites, full-inventory warning, new items), Colors, Value (price list, learned prices), Categories (section order), Bags (hide tabs) |
+| **Actions** | Window (size, rows, bars, pins, details pane), Lists (support abilities, job traits, HorizonXI "H" marks, relic weapon skills, spells, sorting), Colors |
+| **Requests** | Popups: which requests, auto-close time, size, lock, title bar, border, center on screen, test popups |
+| **Global** | Appearance (theme, background, opacity, settings window size, mouse pointer), Text effect, Keybinds (including Esc closes all windows), Windows (open, lock all, reset all), About |
 
 <table>
   <tr>
@@ -172,7 +183,16 @@ MogSuite/
   screenshots/          the pictures in this README
 ```
 
-Each module folder has an `init.lua` (how the suite talks to it), a `config.lua` (its settings tab) and a `defaults.lua` (its default settings). The files of one module share one module scope, so they can use each other's functions; modules are separate from each other.
+Each module folder has an `init.lua` (how the suite talks to it), a `config.lua` (its settings pages) and a `defaults.lua` (its default settings). The files of one module share one module scope, so they can use each other's functions; modules are separate from each other.
+
+**Writing a module:** besides the usual `module_*` functions:
+
+- Every module with a window should define `module_close_all()`, which closes all of its windows. The Esc key calls it on every module (and closes the settings window), so new modules get Esc-to-close for free.
+- Define `module_is_open()` so the sidebar dot shows whether the window is open.
+- Settings pages:
+  - `module_config_sections` is a list of `{ key, label, desc, draw }`.
+  - `module_config_dirty` is how the module saves a change.
+  - Build the pages with the `ui` widgets (`ui.section`, `ui.check`, `ui.slider_f` / `ui.slider_i`, `ui.color`, `ui.choice`, `ui.button`, `ui.danger`, `ui.info`, `ui.block`, `ui.sub`; see `core/cfgui.lua`) so the search box finds every setting.
 
 ## Credits
 
@@ -180,6 +200,21 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.4.0
+- **New settings window:** a search box that finds any setting in any module, and a sidebar with each module in its own color. A dot next to each module's name shows whether its window is open; click it to open or close the window.
+- Each page starts with a line about what it is for. Settings line up in two columns, with a **(?)** for help. Dependent options sit indented under the one they depend on.
+- New previews for the Character colors, the Inventory colors (with gil) and the text effect (light and dark backgrounds).
+- Two-click confirm on Forget learned prices, Clear pinned actions and Reset all positions.
+- Theme swatches in the top-right corner of the settings window.
+- The settings window remembers the last page you had open, and the window is a little wider to fit the sidebar.
+
+### 1.3.0
+- **Esc closes MogSuite windows:** pressing Esc closes every open MogSuite window (Character, Inventory and its pop-outs, Actions, the settings window and a Requests popup). The game still gets Esc, so its own menus close as usual. Ignored while you're typing. Turn it off in Settings > Global > Keybinds.
+- **Inventory: use equipped gear with charges.** Gear like Chariot Band or Warp Cudgel gets a **Use** option on right-click once it's equipped, showing charges left and time until it's ready (greyed out until then). Equipped usable gear that sits in a Mog Wardrobe also shows in the Inventory tab, in blue, so you can use it from there. Every copy of an enchanted item (worn or not) shows its charges after the name, like `Warp Cudgel (19/30)`, and a countdown while it can't be used yet (for example right after you equip it); the countdown goes away once it's usable.
+- **Actions: HorizonXI data.** Job abilities, Phantom Roll levels, blood pacts and weapon skill levels now follow the HorizonXI wiki (for example Velocity Shot at 45, Retaliation at 50, Focus at 15, Starlight at skill 40, Corsair's Roll at 75). Abilities HorizonXI doesn't have are gone, and mythic weapon skills are no longer listed.
+- **Actions: job traits.** Your main and support job traits are listed (HorizonXI levels) after the abilities.
+- **Actions: "H" marks.** Anything HorizonXI changed has a small gold **H**; hover it to see what changed.
 
 ### 1.2.1
 - Actions: **Starlight** and **Moonlight** are now used on yourself (`<me>`) instead of your target.

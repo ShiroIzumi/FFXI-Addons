@@ -1,238 +1,231 @@
 --[[
     MogSuite - core/globalconfig.lua
 
-    The Global tab of the config window: theme and background, text effect,
-    open keys, all windows at once, and About.
+    The Global pages of the settings window: Appearance (theme, background,
+    settings window size, mouse pointer), Text (the text effect every list
+    uses), Keybinds (open keys, Esc), Windows (open / lock / reset every
+    window) and About (commands).
+
+    Every setting goes through core/cfgui.lua so the search box finds it.
 ]]
 
 require('common');
 local imgui = require('imgui');
 local theme = require('core.theme');
 local keys = require('core.keys');
+local ui = require('core.cfgui');
 
 local globalconfig = {};
 
-local tip, section_header, align_label = theme.tip, theme.section_header, theme.align_label;
+local tip = theme.tip;
+local ARMED = {};
 
--- ctx: { G = global settings, modules = { env, ... }, dirty = fn, version = '' }
+local SCALES = { 0.85, 1.00, 1.25, 1.50, 1.75, 2.00 };
+
+-- ctx: { G = global settings, modules = { env, ... }, dirty = fn, version = '', state = {} }
 local function appearance(ctx)
     local G = ctx.G;
-    section_header('Theme');
-    local current = theme.key(G.theme);
-    imgui.PushItemWidth(220);
-    if imgui.BeginCombo('Theme##ms_theme', theme.THEMES[current].label) then
-        for _, key in ipairs(theme.ORDER) do
+
+    ui.section('THEME');
+    if ui.want('Theme', 'Colors every MogSuite window: accents, tabs, borders and title bars. Copper Garnet Silver Amethyst Emerald Midnight') then
+        ui.label('Theme', 'Colors every MogSuite window: accents, tabs, borders and title bars.');
+        local current = theme.key(G.theme);
+        for i, key in ipairs(theme.ORDER) do
             local t = theme.THEMES[key];
-            if imgui.Selectable(t.label .. '##ms_theme_' .. key, key == current) then
+            if i > 1 then imgui.SameLine(0, 4); end
+            if theme.toggle_button(t.label, 'ms_theme_' .. key, key == current) then
                 G.theme = key;
                 theme.applied = nil;
                 ctx.dirty();
             end
         end
-        imgui.EndCombo();
-    end
-    imgui.PopItemWidth();
-    tip('Colors every MogSuite window: accents, tabs, borders and title bars.');
-
-    -- Swatches: click one to pick it.
-    for i, key in ipairs(theme.ORDER) do
-        local t = theme.THEMES[key];
-        if i > 1 then imgui.SameLine(0, 6); end
-        local a = t.accent;
-        imgui.PushStyleColor(ImGuiCol_Button, { a[1] / 255, a[2] / 255, a[3] / 255, 1.0 });
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, { a[1] / 255, a[2] / 255, a[3] / 255, 0.85 });
-        imgui.PushStyleColor(ImGuiCol_ButtonActive, { a[1] / 255, a[2] / 255, a[3] / 255, 0.70 });
-        if imgui.Button('##ms_swatch_' .. key, { 26, 18 }) then
-            G.theme = key;
-            theme.applied = nil;
-            ctx.dirty();
+        -- Swatches under the names.
+        imgui.SetCursorPosX(ui.LABEL_W * ui.scale);
+        local dl = imgui.GetWindowDrawList();
+        local x, y = imgui.GetCursorScreenPos();
+        x, y = tonumber(x) or 0, tonumber(y) or 0;
+        for i, key in ipairs(theme.ORDER) do
+            local a = theme.THEMES[key].accent;
+            local bx = x + (i - 1) * 30 * ui.scale;
+            dl:AddRectFilled({ bx, y }, { bx + 24 * ui.scale, y + 6 * ui.scale }, imgui.GetColorU32({ a[1] / 255, a[2] / 255, a[3] / 255, 1 }), 2);
         end
-        imgui.PopStyleColor(3);
-        tip(t.label);
-        if key == current then theme.draw_item_underline({ 1, 1, 1, 0.9 }); end
+        imgui.Dummy({ 1, 8 * ui.scale });
     end
 
-    imgui.Spacing();
-    section_header('Background');
-    local use = { G.use_theme_bg ~= false };
-    if imgui.Checkbox("Use the theme's background##ms_usebg", use) then G.use_theme_bg = use[1]; ctx.dirty(); end
-    tip('Each theme has its own dark background (Midnight is deep navy). Turn this off to pick your own color.');
-    if G.use_theme_bg == false then
-        G.background = G.background or T{ 0.035, 0.035, 0.040 };
-        if imgui.ColorEdit3('Background color##ms_bg', G.background, ImGuiColorEditFlags_NoInputs or 0) then ctx.dirty(); end
-        tip('Window background color for every MogSuite window.');
+    ui.section('BACKGROUND');
+    ui.check("Use the theme's background", G, 'use_theme_bg', 'Each theme has its own dark background (Midnight is deep navy). Turn this off to pick your own color.', { default_on = true });
+    if G.use_theme_bg == false or ui.searching() then
+        ui.sub(function()
+            G.background = G.background or T{ 0.035, 0.035, 0.040 };
+            ui.color('Background color', G.background, 'Window background color for every MogSuite window.', false);
+        end);
     end
-    imgui.PushItemWidth(220);
-    local op = { tonumber(G.opacity) or 0.94 };
-    if imgui.SliderFloat('Opacity##ms_opacity', op, 0.20, 1.00, '%.2f', ImGuiSliderFlags_AlwaysClamp) then G.opacity = op[1]; ctx.dirty(); end
-    tip('How see-through the window backgrounds are. Text and icons stay solid.');
-    imgui.PopItemWidth();
+    ui.slider_f('Opacity', G, 'opacity', 0.20, 1.00, '%.2f', 'How see-through the window backgrounds are. Text and icons stay solid.');
 
-    imgui.Spacing();
-    section_header('Config window');
-    imgui.PushItemWidth(220);
-    local cs = { tonumber(G.config_scale) or 1.0 };
-    if imgui.SliderFloat('Size##ms_cfgscale', cs, 0.80, 2.00, '%.2fx', ImGuiSliderFlags_AlwaysClamp) then G.config_scale = cs[1]; ctx.dirty(); end
-    tip('Text size of this config window.');
-    imgui.PopItemWidth();
-
-    imgui.Spacing();
-    section_header('Mouse pointer');
-    local mc = { G.mouse_cursor ~= false };
-    if imgui.Checkbox('Show a mouse pointer over MogSuite windows##ms_cursor', mc) then G.mouse_cursor = mc[1]; ctx.dirty(); end
-    tip('FFXI hides the Windows mouse pointer. This draws one while the mouse is over any MogSuite window. Turn it off if you already use a pointer tool (such as YoloMouse).');
-    if G.mouse_cursor ~= false then
-        imgui.PushItemWidth(220);
-        local ms = { tonumber(G.mouse_cursor_size) or 1.4 };
-        if imgui.SliderFloat('Pointer size##ms_cursor_size', ms, 0.60, 3.00, '%.2fx', ImGuiSliderFlags_AlwaysClamp) then G.mouse_cursor_size = ms[1]; ctx.dirty(); end
-        tip('How big the pointer is (1.00 is about the size of the Windows pointer).');
-        imgui.PopItemWidth();
-        G.mouse_cursor_color = G.mouse_cursor_color or T{ 1.00, 0.10, 0.75, 1.00 };
-        G.mouse_cursor_outline = G.mouse_cursor_outline or T{ 0.05, 0.00, 0.05, 1.00 };
-        if theme.color_edit('Pointer color##ms_cursor_color', G.mouse_cursor_color, true) then ctx.dirty(); end
-        tip('Fill color of the pointer (with transparency).');
-        imgui.SameLine(0, 18);
-        if theme.color_edit('Outline##ms_cursor_outline', G.mouse_cursor_outline, true) then ctx.dirty(); end
-        tip('Edge color of the pointer.');
-        local sh = { G.mouse_cursor_shadow ~= false };
-        if imgui.Checkbox('Drop shadow##ms_cursor_shadow', sh) then G.mouse_cursor_shadow = sh[1]; ctx.dirty(); end
-        tip('A soft shadow under the pointer so it stands out on bright backgrounds.');
-        imgui.SameLine(0, 18);
-        if imgui.Button('Default pointer##ms_cursor_reset') then
-            G.mouse_cursor_size = 1.4;
-            G.mouse_cursor_color = T{ 1.00, 0.10, 0.75, 1.00 };
-            G.mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 };
-            G.mouse_cursor_shadow = true;
-            ctx.dirty();
+    ui.section('SETTINGS WINDOW');
+    if ui.want('Settings window size', 'Text size of this settings window. scale') then
+        ui.label('Size', 'Text size of this settings window.');
+        local cur = tonumber(G.config_scale) or 1.0;
+        for i, v in ipairs(SCALES) do
+            if i > 1 then imgui.SameLine(0, 4); end
+            if theme.toggle_button(('%d%%'):format(math.floor(v * 100 + 0.5)), 'ms_cfgscale_' .. i, math.abs(cur - v) < 0.01) then
+                G.config_scale = v;
+                ctx.dirty();
+            end
         end
-        tip('Back to the fuchsia pointer at 1.40x.');
+    end
+
+    ui.section('MOUSE POINTER');
+    ui.check('Show a mouse pointer over MogSuite windows', G, 'mouse_cursor',
+        'FFXI hides the Windows mouse pointer. This draws one while the mouse is over any MogSuite window. Turn it off if you already use a pointer tool (such as YoloMouse).',
+        { default_on = true });
+    if G.mouse_cursor ~= false or ui.searching() then
+        ui.sub(function()
+            ui.slider_f('Pointer size', G, 'mouse_cursor_size', 0.60, 3.00, '%.2fx', 'How big the pointer is (1.00 is about the size of the Windows pointer).');
+            G.mouse_cursor_color = G.mouse_cursor_color or T{ 1.00, 0.10, 0.75, 1.00 };
+            G.mouse_cursor_outline = G.mouse_cursor_outline or T{ 0.05, 0.00, 0.05, 1.00 };
+            ui.color('Pointer color', G.mouse_cursor_color, 'Fill color of the pointer (with transparency).', true);
+            ui.color('Pointer outline', G.mouse_cursor_outline, 'Edge color of the pointer.', true);
+            ui.check('Pointer drop shadow', G, 'mouse_cursor_shadow', 'A soft shadow under the pointer so it stands out on bright backgrounds.', { default_on = true });
+            if ui.button('Default pointer', 'ms_cursor_reset', 'Back to the fuchsia pointer at 1.40x.') then
+                G.mouse_cursor_size = 1.4;
+                G.mouse_cursor_color = T{ 1.00, 0.10, 0.75, 1.00 };
+                G.mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 };
+                G.mouse_cursor_shadow = true;
+                ctx.dirty();
+            end
+        end);
     end
 end
 
 local function text(ctx)
     local G = ctx.G;
-    section_header('Text effect');
-    imgui.TextDisabled('Used by the Inventory and Actions lists.');
-    imgui.PushItemWidth(220);
-    local cur = 'Shadow';
-    for _, e in ipairs(theme.EFFECTS) do if e.key == G.text_effect then cur = e.label; end end
-    if imgui.BeginCombo('Effect##ms_fx', cur) then
-        for _, e in ipairs(theme.EFFECTS) do
-            if imgui.Selectable(e.label, e.key == G.text_effect) then G.text_effect = e.key; ctx.dirty(); end
-        end
-        imgui.EndCombo();
-    end
-    tip('Makes names readable on any background: a drop shadow, an outline, both, or a soft glow.');
-    local eo = { tonumber(G.effect_opacity) or 0.85 };
-    if imgui.SliderFloat('Effect opacity##ms_fxo', eo, 0.0, 1.0, '%.2f', ImGuiSliderFlags_AlwaysClamp) then G.effect_opacity = eo[1]; ctx.dirty(); end
-    tip('How strong the effect is.');
-    imgui.PopItemWidth();
+    ui.section('TEXT EFFECT');
+    ui.info('Used by the Inventory and Actions lists.');
+    ui.choice('Effect', G, 'text_effect', theme.EFFECTS,
+        'Makes names readable on any background: a drop shadow, an outline, both, or a soft glow.', { default = 'shadow' });
+    ui.slider_f('Effect opacity', G, 'effect_opacity', 0.0, 1.0, '%.2f', 'How strong the effect is.');
     G.effect_color = G.effect_color or T{ 0, 0, 0 };
-    if imgui.ColorEdit3('Effect color##ms_fxc', G.effect_color, ImGuiColorEditFlags_NoInputs or 0) then ctx.dirty(); end
-    tip('Color of the shadow / outline / glow.');
+    ui.color('Effect color', G.effect_color, 'Color of the shadow / outline / glow.', false);
 
-    imgui.Spacing();
-    section_header('Preview');
-    local dl = imgui.GetWindowDrawList();
-    local sx, sy = imgui.GetCursorScreenPos();
-    local h = imgui.GetTextLineHeight() + 12;
-    dl:AddRectFilled({ sx, sy }, { sx + 300, sy + h }, imgui.GetColorU32({ 0.52, 0.55, 0.46, 1.0 }), 4.0);
-    theme.draw_fx_text(dl, sx + 10, sy + 6, { 0.95, 0.95, 0.97, 1.0 }, 'Pot of Honey');
-    theme.draw_fx_text(dl, sx + 10 + theme.text_w('Pot of Honey'), sy + 6, { 0.96, 0.80, 0.45, 1.0 }, ' x12');
-    imgui.Dummy({ 300, h + 2 });
+    if ui.preview() then
+        ui.section('PREVIEW');
+        local dl = imgui.GetWindowDrawList();
+        local sx, sy = imgui.GetCursorScreenPos();
+        local h = imgui.GetTextLineHeight() + 12;
+        local w = 320 * ui.scale;
+        dl:AddRectFilled({ sx, sy }, { sx + w, sy + h }, imgui.GetColorU32({ 0.52, 0.55, 0.46, 1.0 }), 4.0);
+        theme.draw_fx_text(dl, sx + 10, sy + 6, { 0.95, 0.95, 0.97, 1.0 }, 'Pot of Honey');
+        theme.draw_fx_text(dl, sx + 10 + theme.text_w('Pot of Honey'), sy + 6, { 0.96, 0.80, 0.45, 1.0 }, ' x12');
+        local bx = sx + w + 8;
+        dl:AddRectFilled({ bx, sy }, { bx + w * 0.6, sy + h }, imgui.GetColorU32({ 0.10, 0.10, 0.12, 1.0 }), 4.0);
+        theme.draw_fx_text(dl, bx + 10, sy + 6, { 0.95, 0.95, 0.97, 1.0 }, 'Cure IV');
+        imgui.Dummy({ w, h + 2 });
+    end
 end
 
 local function keybinds(ctx)
     local G = ctx.G;
-    section_header('Open keys');
-    imgui.TextWrapped('Each window has its own key. Click a key to change it, then press the new key (hold Ctrl, Alt or Shift for a combination; Esc cancels). Keys do nothing while the chat box is open or you are typing in a text box.');
+    ui.section('OPEN KEYS');
+    ui.info('Each window has its own key. Click a key to change it, then press the new key (hold Ctrl, Alt or Shift for a combination; Esc cancels). Keys do nothing while the chat box is open or you are typing in a text box.');
     imgui.Spacing();
     for _, env in ipairs(ctx.modules) do
         local info = env.module_info;
         local bind = G.keys[info.key];
-        if bind ~= nil then
-        local en = { bind.enabled ~= false };
-        if imgui.Checkbox('##ms_key_en_' .. info.key, en) then bind.enabled = en[1]; ctx.dirty(); end
-        tip(('Turn the %s key on / off.'):fmt(info.label));
-        imgui.SameLine();
-        align_label();
-        imgui.TextColored(info.color, info.label);
-        imgui.SameLine(150);
-        local label;
-        if keys.listening == info.key then label = 'Press a key...'; else label = keys.text(bind); end
-        if theme.toggle_button(label, 'ms_bind_' .. info.key, keys.listening == info.key, { 170, 0 }) then
-            if keys.listening == info.key then keys.listening = nil; else keys.listening = info.key; end
-        end
-        tip('Click, then press the key you want.');
-        imgui.SameLine();
-        if imgui.Button('Clear##ms_key_clear_' .. info.key) then
-            bind.key = 0; bind.ctrl = false; bind.alt = false; bind.shift = false;
-            ctx.dirty();
-        end
-        tip('No key for this window (the command still works).');
+        if bind ~= nil and ui.want(info.label .. ' key', 'keybind open key shortcut ' .. info.label) then
+            theme.align_label();
+            imgui.TextColored(info.color, info.label);
+            imgui.SameLine();
+            imgui.SetCursorPosX(ui.LABEL_W * ui.scale);
+            local en = { bind.enabled ~= false };
+            if imgui.Checkbox('##ms_key_en_' .. info.key, en) then bind.enabled = en[1]; ctx.dirty(); end
+            tip(('Turn the %s key on / off.'):format(info.label));
+            imgui.SameLine();
+            local label;
+            if keys.listening == info.key then label = 'Press a key...'; else label = keys.text(bind); end
+            if theme.toggle_button(label, 'ms_bind_' .. info.key, keys.listening == info.key, { 150 * ui.scale, 0 }) then
+                if keys.listening == info.key then keys.listening = nil; else keys.listening = info.key; end
+            end
+            tip('Click, then press the key you want.');
+            imgui.SameLine();
+            if imgui.Button('Clear##ms_key_clear_' .. info.key) then
+                bind.key = 0; bind.ctrl = false; bind.alt = false; bind.shift = false;
+                ctx.dirty();
+            end
+            tip('No key for this window (the command still works).');
         end
     end
     imgui.Spacing();
-    imgui.TextDisabled('Defaults: Character C, Inventory B, Actions P.');
-    if imgui.Button('Default keys##ms_keys_default') then
+    if ui.button('Default keys', 'ms_keys_default', 'C, B and P with no Ctrl / Alt / Shift.') then
         G.keys.character.key, G.keys.inventory.key, G.keys.actions.key = 0x43, 0x42, 0x50;
         for _, b in pairs(G.keys) do b.enabled = true; b.ctrl = false; b.alt = false; b.shift = false; end
         ctx.dirty();
     end
-    tip('C, B and P with no Ctrl / Alt / Shift.');
+    if not ui.searching() then
+        imgui.SameLine();
+        imgui.TextColored(theme.UI_MUTED, 'Character C, Inventory B, Actions P');
+    end
+
+    ui.section('ESC KEY');
+    ui.check('Esc closes all MogSuite windows', G, 'esc_close',
+        'Pressing Esc closes every open MogSuite window, including this one. The game still gets Esc too, so its own menus close as usual. Ignored while you are typing.',
+        { default_on = true });
 end
 
 local function windows(ctx)
-    section_header('Windows');
-    local first = true;
-    for _, env in ipairs(ctx.modules) do
-        local info = env.module_info;
-        if not info.no_window then
-            if not first then imgui.SameLine(0, 6); end
-            first = false;
-            if theme.color_tab(info.label, 'ms_open_' .. info.key, false, info.color, 'Open / close the ' .. info.label .. ' window') then
-                env.module_toggle();
+    ui.section('OPEN / CLOSE');
+    if ui.want('Open or close windows', 'Character Inventory Actions window open close toggle') then
+        ui.label('Windows', 'Open / close a window. The dot next to each module in the sidebar does the same.');
+        local first = true;
+        for _, env in ipairs(ctx.modules) do
+            local info = env.module_info;
+            if not info.no_window then
+                if not first then imgui.SameLine(0, 6); end
+                first = false;
+                local open = false;
+                if type(env.module_is_open) == 'function' then
+                    local ok, r = pcall(env.module_is_open);
+                    open = ok and r == true;
+                end
+                if theme.color_tab(info.label, 'ms_open_' .. info.key, open, info.color, (open and 'Close' or 'Open') .. ' the ' .. info.label .. ' window') then
+                    env.module_toggle();
+                end
             end
         end
     end
 
-    imgui.Spacing();
-    local all_locked = true;
-    for _, env in ipairs(ctx.modules) do
-        if not env.module_is_locked() then all_locked = false; end
-    end
-    if imgui.Button((all_locked and 'Unlock all windows' or 'Lock all windows') .. '##ms_lockall') then
-        for _, env in ipairs(ctx.modules) do env.module_set_locked(not all_locked); end
-    end
-    tip('Locks (or unlocks) the position and size of every MogSuite window.');
-    imgui.SameLine();
-    local armed = ctx.state.reset_armed ~= nil and os.clock() - ctx.state.reset_armed < 3.0;
-    if armed then imgui.PushStyleColor(ImGuiCol_Button, { 0.72, 0.16, 0.16, 1.0 }); end
-    local clicked = imgui.Button((armed and 'Click again to reset' or 'Reset all positions') .. '##ms_resetall');
-    if armed then imgui.PopStyleColor(1); end
-    tip('Moves every MogSuite window back to its default place and size (click twice).');
-    if clicked then
-        if armed then
-            for _, env in ipairs(ctx.modules) do env.module_reset_position(); end
-            ctx.state.reset_armed = nil;
-        else
-            ctx.state.reset_armed = os.clock();
+    ui.section('POSITION');
+    if ui.want('Lock all windows', 'Locks (or unlocks) the position and size of every MogSuite window.') then
+        local all_locked = true;
+        for _, env in ipairs(ctx.modules) do
+            if not env.module_is_locked() then all_locked = false; end
         end
+        ui.label('Lock', 'Locks (or unlocks) the position and size of every MogSuite window.');
+        if theme.toggle_button(all_locked and 'All locked - click to unlock' or 'Lock all windows', 'ms_lockall', all_locked) then
+            for _, env in ipairs(ctx.modules) do env.module_set_locked(not all_locked); end
+        end
+    end
+    if ui.danger('Reset all positions', 'ms_resetall', ARMED,
+        'Moves every MogSuite window back to its default place and size (click twice).') then
+        for _, env in ipairs(ctx.modules) do env.module_reset_position(); end
     end
 end
 
 local function about(ctx)
-    section_header('MogSuite');
-    imgui.TextColored(theme.UI_ACCENT_TEXT, 'MogSuite');
-    imgui.SameLine();
-    imgui.TextDisabled('v' .. ctx.version);
-    imgui.Text('by Izumi (ShiroIzumi) and Kyrias (.kyri)');
-    imgui.TextWrapped('Your character, your bags and everything you can do, in one place. Made for HorizonXI (level 75 era) on Ashita v4.');
+    ui.section('MOGSUITE');
+    if ui.want('About MogSuite', 'version authors') then
+        imgui.TextColored(theme.UI_ACCENT_TEXT, 'MogSuite');
+        imgui.SameLine();
+        imgui.TextDisabled('v' .. ctx.version);
+        imgui.Text('by Izumi (ShiroIzumi) and Kyrias (.kyri)');
+        imgui.PushTextWrapPos(0);
+        imgui.TextColored(theme.UI_MUTED, 'Your character, your bags and everything you can do, in one place. Made for HorizonXI (level 75 era) on Ashita v4.');
+        imgui.PopTextWrapPos();
+    end
 
-    imgui.Spacing();
-    section_header('Commands');
+    ui.section('COMMANDS');
     local cmds = {
-        { '/ms', 'Open / close this config window' },
+        { '/ms', 'Open / close this settings window' },
         { '/ms char', 'Open / close the Character window' },
         { '/ms inv', 'Open / close the Inventory window' },
         { '/ms act', 'Open / close the Actions window' },
@@ -241,24 +234,25 @@ local function about(ctx)
         { '/ms help', 'List the commands in chat' },
     };
     for _, c in ipairs(cmds) do
-        imgui.TextColored(theme.UI_ACCENT_TEXT, c[1]);
-        imgui.SameLine(120);
-        imgui.TextDisabled(c[2]);
+        if ui.want(c[1], c[2] .. ' command') then
+            imgui.TextColored(theme.UI_ACCENT_TEXT, c[1]);
+            imgui.SameLine(130 * ui.scale);
+            imgui.TextDisabled(c[2]);
+        end
     end
-    imgui.TextDisabled('/mog and /mogsuite work the same as /ms.');
+    ui.info('/mog and /mogsuite work the same as /ms.');
 
-    imgui.Spacing();
-    section_header('Good to know');
-    imgui.TextWrapped('Nothing is ever done for you: items, abilities and spells are only used when you click them. MogSuite only shows information after the game has sent it.');
-    imgui.TextWrapped('Settings are saved per character. Your characters\' bags, learned vendor prices and key item marks are shared, in addons\\MogSuite\\data\\.');
+    ui.section('GOOD TO KNOW');
+    ui.info('Nothing is ever done for you: items, abilities and spells are only used when you click them. MogSuite only shows information after the game has sent it.');
+    ui.info('Settings are saved per character. Your characters\' bags, learned vendor prices and key item marks are shared, in addons\\MogSuite\\data\\.');
 end
 
 globalconfig.sections = {
-    { key = 'appearance', label = 'Appearance', draw = appearance },
-    { key = 'text', label = 'Text', draw = text },
-    { key = 'keys', label = 'Keybinds', draw = keybinds },
-    { key = 'windows', label = 'Windows', draw = windows },
-    { key = 'about', label = 'About', draw = about },
+    { key = 'appearance', label = 'Appearance', draw = appearance, desc = 'The theme and background of every MogSuite window, the size of this window, and the mouse pointer.' },
+    { key = 'text', label = 'Text', draw = text, desc = 'The effect behind names in the Inventory and Actions lists, so they read on any background.' },
+    { key = 'keys', label = 'Keybinds', draw = keybinds, desc = 'The key that opens each window, and what Esc does.' },
+    { key = 'windows', label = 'Windows', draw = windows, desc = 'Open, lock or reset every MogSuite window at once.' },
+    { key = 'about', label = 'About', draw = about, desc = 'Who made MogSuite, the chat commands, and good to know.' },
 };
 
 return globalconfig;

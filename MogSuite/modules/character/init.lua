@@ -106,12 +106,23 @@ function module_toggle(force)
     toggle_sheet();
 end
 
+-- Esc (core): close the character sheet.
+function module_close_all()
+    if state.open[1] then
+        state.open[1] = false;
+        state.settings_dirty = true;
+    end
+end
+
 function module_reset_position()
     state.last_x, state.last_y = 120, 100;
     state.last_w, state.last_h = 600 * state.ui_scale[1], 660 * state.ui_scale[1];
     state.apply_saved_geometry = true;
     state.settings_dirty = true;
 end
+
+-- Settings window sidebar: is the Character window showing?
+function module_is_open() return state.open[1] == true; end
 
 function module_is_locked() return state.locked[1] == true; end
 function module_set_locked(v) state.locked[1] = v == true; state.settings_dirty = true; end

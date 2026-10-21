@@ -69,13 +69,52 @@ function build_abilities(me)
             sections[#sections + 1] = { key = 'ja_sub', title = (JOB_NAMES[me.sub] or '?') .. '  (support)', tag = JOB_SHORT[me.sub], rows = rows };
         end
     end
+    -- Job traits (passive; HorizonXI levels). Shown after the abilities.
+    local function trait_rows(job, lvl, cap)
+        local rows = {};
+        for _, t in ipairs(JOB_TRAITS[job] or {}) do
+            local name, need, tag = t[1], t[2], t[3];
+            if need <= cap and not (tag == 'merit' and cap < LEVEL_CAP) then
+                local row = { k = 'trait', name = name, kind = 'trait', level = need, job = job, tag = tag };
+                if tag == 'merit' then
+                    row.status, row.note = 'na', 'Merit';
+                elseif lvl >= need then
+                    row.status = 'ready';
+                else
+                    row.status, row.note = 'locked', ('Lv %d'):fmt(need);
+                end
+                rows[#rows + 1] = row;
+            end
+        end
+        return rows;
+    end
+    if config.show_traits ~= false then
+        local tm = trait_rows(me.job, me.lvl, LEVEL_CAP);
+        if #tm > 0 then
+            sections[#sections + 1] = { key = 'tr_main', title = (JOB_NAMES[me.job] or '?') .. ' traits', tag = 'TRT', rows = tm, traits = true };
+        end
+        if me.sub ~= nil and me.sub > 0 then
+            local ts = trait_rows(me.sub, me.sublvl, SUB_MAX_LEVEL);
+            if #ts > 0 then
+                sections[#sections + 1] = { key = 'tr_sub', title = (JOB_NAMES[me.sub] or '?') .. ' traits  (support)', tag = 'TRT', rows = ts, traits = true };
+            end
+        end
+    end
+
     for _, s in ipairs(sections) do
+        if s.traits then
+            table.sort(s.rows, function(a, b)
+                if a.level ~= b.level then return a.level < b.level; end
+                return a.name < b.name;
+            end);
+        else
         table.sort(s.rows, function(a, b)
             if (a.kind == 'sp') ~= (b.kind == 'sp') then return a.kind == 'sp'; end
             if (a.kind == 'merit') ~= (b.kind == 'merit') then return b.kind == 'merit'; end
             if a.level ~= b.level then return a.level < b.level; end
             return a.name < b.name;
         end);
+        end
     end
     return sections;
 end
@@ -186,6 +225,12 @@ function build_spell_cache(me)
             if (SCHOOL_OF[stype] ~= nil) and name ~= '' and name ~= '.' and not NOT_ON_SERVER[name] then
                 local lm = spell_level(s, me.job);
                 local ls = spell_level(s, me.sub);
+                -- HorizonXI level changes (the client data has retail levels).
+                local fix = SPELL_LEVEL_FIX[name];
+                if fix ~= nil then
+                    if fix[me.job] ~= nil then lm = fix[me.job]; end
+                    if me.sub ~= nil and fix[me.sub] ~= nil then ls = fix[me.sub]; end
+                end
                 if lm ~= nil and lm > LEVEL_CAP then lm = nil; end
                 if ls ~= nil and ls > SUB_MAX_LEVEL then ls = nil; end
                 if (lm ~= nil or ls ~= nil) and not seen_names[name] then

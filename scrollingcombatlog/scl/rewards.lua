@@ -223,7 +223,7 @@ local function emit_message_packet(msg)
         if target == self_id then
             local status_name = safe_status_name(param1) or ('Status #' .. tostring(param1));
             state.status_removed_at[status_name:lower()] = os.clock();
-            add_event('incoming', 'ability', status_name .. ' removed', 'status_removed');
+            add_event('incoming', 'ability', status_name .. ' wore off', 'status_removed');
         end
         return;
     end
@@ -499,7 +499,7 @@ local function handle_text_in(e)
         removed = removed:gsub('%.$', '');
         local seen = state.status_removed_at[removed:lower()];
         if not seen or (os.clock() - seen) > 2.0 then
-            add_event('incoming', 'ability', removed .. ' removed', 'status_removed', text_opts);
+            add_event('incoming', 'ability', removed .. ' wore off', 'status_removed', text_opts);
         end
         return;
     end

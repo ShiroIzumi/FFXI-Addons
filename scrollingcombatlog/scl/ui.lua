@@ -469,6 +469,8 @@ local function add_test_events()
     add_event('outgoing', 'ability', 'Blizzard  98' .. target_suffix('Diving Beetle'), 'spells', { element = 1 });
     add_event('outgoing', 'ability', 'Firaga  840 (4 targets)', 'spells', { element = 0 });
     add_event('incoming', 'ability', 'Protect wearing off', 'wear_warning');
+    add_event('incoming', 'ability', 'Haste wore off', 'status_removed');
+    add_event('incoming', 'ability', 'Food wears off in 20s', 'food_warning');
     add_event('incoming', 'xp', 'Level 31', 'level_up');
     add_event('outgoing', 'ability', 'Savage Blade  1120' .. target_suffix('Diving Beetle'), 'weapon_skills', { amount = 1120 });
 end
@@ -645,6 +647,8 @@ local function draw_display_config_tab()
     draw_notify_option('Buff Wearing Off', 'wear_warning');
     draw_notify_option('Big Hits (copy of large outgoing damage)', 'big_hits');
     draw_notify_option('Low HP Warning', 'low_hp');
+    draw_notify_option('Buff Wore Off (Protect, Haste, ...)', 'status_removed');
+    draw_notify_option('Food Running Out (20s, then every 5s)', 'food_warning');
 
     imgui.PushItemWidth(235);
     local threshold = { math.floor(tonumber(settings.big_hit_threshold) or 500) };
@@ -901,7 +905,7 @@ local function draw_incoming_config_tab()
     draw_event_option('Defenses (Evade/Parry/Block/Shadows)', 'defenses');
     draw_event_option('Positive Status', 'status_positive');
     draw_event_option('Negative Status', 'status_negative');
-    draw_event_option('Status Removed', 'status_removed');
+    draw_event_option('Buff Wore Off', 'status_removed');
     draw_event_option('Healing Received', 'healing_received');
     draw_event_option('MP Recovery', 'mp_recovery');
     draw_event_option('Resting (/heal) Ticks', 'resting');
@@ -933,6 +937,7 @@ local function draw_incoming_config_tab()
     draw_event_option('Items Obtained (received)', 'item_obtained');
     draw_event_option('Zone Change (=== Area ===)', 'zone_change');
     draw_event_option('Buff Wearing Off Warning', 'wear_warning');
+    draw_event_option('Food Running Out (20s, then every 5s)', 'food_warning');
 end
 
 

@@ -68,6 +68,49 @@ end
 
 -- Reads every bag. Runs on inventory packets, about once a second while the
 -- window is open, and every few seconds in the background (loot log / gil).
+-- Enchanted gear (Chariot Band, Warp Cudgel...): charges left and when it can
+-- be used next, read the same way as Ashita's own libs\ffxi\itemdata.lua:
+-- item.Extra is a string of raw bytes; byte 0 = 1 (timer item), byte 1 =
+-- charges left, bytes 2-3 flags, bytes 4-7 next-use time, bytes 8-11
+-- usable-after-equip time (game timestamps). The equip delay only counts
+-- while the item is equipped. Returns charges, ready_at (os.time) or nil.
+local FFXI_EPOCH = 0x3C307D70;
+local timelib = nil;
+pcall(function() timelib = require('ffxi.time'); end);
+
+local function xbyte(x, o)
+    if type(x) == 'string' then return string.byte(x, o + 1) or 0; end
+    return tonumber(x[o]) or 0;   -- cdata (0-based)
+end
+local function xu32(x, o)
+    return xbyte(x, o) + xbyte(x, o + 1) * 0x100 + xbyte(x, o + 2) * 0x10000 + xbyte(x, o + 3) * 0x1000000;
+end
+-- Seconds from now until a game timestamp (0 when it has passed).
+local function secs_until(raw)
+    if raw == nil or raw == 0 then return 0; end
+    if timelib ~= nil and timelib.game_time_diff ~= nil then
+        local ok, d = pcall(timelib.game_time_diff, raw);
+        if ok and d ~= nil then return math.max(0, tonumber(d) or 0); end
+    end
+    return math.max(0, raw + FFXI_EPOCH - os.time());
+end
+
+function read_enchant(item, equipped)
+    local ok, charges, ready = pcall(function()
+        local x = item.Extra;
+        if x == nil then return nil, nil; end
+        if xbyte(x, 0) ~= 1 then return nil, nil; end
+        local c = xbyte(x, 1);
+        local wait = secs_until(xu32(x, 4));
+        if equipped then wait = math.max(wait, secs_until(xu32(x, 8))); end
+        local r = nil;
+        if c > 0 and wait > 0 and wait < 8 * 86400 then r = os.time() + math.ceil(wait); end
+        return c, r;
+    end);
+    if not ok then return nil, nil; end
+    return charges, ready;
+end
+
 function scan_bags()
     local inv = get_inventory();
     if inv == nil then return; end
@@ -101,6 +144,7 @@ function scan_bags()
 
     local bags, order = {}, {};
     local counts, totals, mh_totals = {}, {}, {};
+    local equip_use_rows = {};
     for bag = 0, BAG_MAX_ID do
         local ok_max, max = pcall(function() return inv:GetContainerCountMax(bag); end);
         max = ok_max and (tonumber(max) or 0) or 0;
@@ -116,11 +160,18 @@ function scan_bags()
                         used = used + 1;
                         local info = get_item_info(id);
                         if info ~= nil then
-                            rows[#rows + 1] = {
+                            local row = {
                                 bag = bag, index = index, id = id, count = count, info = info,
                                 equipped = equipped[('%d:%d'):fmt(bag, index)],
                                 uid = ('live_%d_%d'):fmt(bag, index),
                             };
+                            if info.enchanted then
+                                -- Charges (and the usable-again time) for every copy, worn or not.
+                                row.charges, row.ready_at = read_enchant(item, row.equipped ~= nil);
+                                -- Equipped from a wardrobe: also shown (blue) in Inventory.
+                                if row.equipped ~= nil and bag ~= 0 then equip_use_rows[#equip_use_rows + 1] = row; end
+                            end
+                            rows[#rows + 1] = row;
                             counts[bag][id] = (counts[bag][id] or 0) + count;
                             if CARRIED_BAG[bag] then totals[id] = (totals[id] or 0) + count; end
                             if VIEW_ONLY_BAG[bag] then mh_totals[id] = (mh_totals[id] or 0) + count; end
@@ -236,6 +287,16 @@ function scan_bags()
 
     state.bags = bags;
     state.bag_order = order;
+    -- Mirror rows for the Inventory tab: equipped usable gear from other bags.
+    local mirrors = {};
+    for _, r in ipairs(equip_use_rows) do
+        local m = {};
+        for k, v in pairs(r) do m[k] = v; end
+        m.mirror = true;
+        m.uid = 'mirror_' .. r.uid;
+        mirrors[#mirrors + 1] = m;
+    end
+    state.equip_use_rows = mirrors;
     state.view_gen = state.view_gen + 1;
     state.rows_dirty = false;
     state.last_scan = now;
@@ -295,6 +356,9 @@ function get_view_rows()
         end
     else
         add_bag(V.bag);
+        -- Inventory tab: equipped gear with a Use (charges) that sits in a
+        -- wardrobe or other bag also shows here, in blue, so you can use it.
+        if V.bag == 0 then add_rows(state.equip_use_rows or {}); end
     end
 
     local mode, desc = V.sort, V.sort_desc == true;

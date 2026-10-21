@@ -80,6 +80,12 @@ end
 
 function module_toggle() end
 
+-- Esc (core): dismiss an open invite / trade popup. Nothing is sent; the
+-- request stays open in the game's own menu.
+function module_close_all()
+    if state.popup ~= nil and state.popup.active then close_popup(); end
+end
+
 function module_reset_position()
     config.window.x, config.window.y = -1, -1;
     state.apply_geometry = true;

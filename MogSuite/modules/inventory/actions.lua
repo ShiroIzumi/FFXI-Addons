@@ -50,7 +50,52 @@ end
 
 -- Live rows only (not snapshots or other characters).
 function can_use(row)
-    return row.source == nil and row.info.type == TYPE_USABLE and (row.bag == 0 or row.bag == 3);
+    if row.source ~= nil then return false; end
+    -- Enchanted gear (charges): usable while equipped, from any bag.
+    if row.info.enchanted and row.equipped ~= nil then return true; end
+    return row.info.type == TYPE_USABLE and (row.bag == 0 or row.bag == 3);
+end
+
+-- Enchanted gear in the list: " (19/30)" and, while it can't be used yet
+-- (just equipped, or recharging), the time left like "3:20". The timer
+-- disappears once the item is usable.
+function enchant_suffix(row)
+    if row == nil or row.info == nil or not row.info.enchanted or row.charges == nil then return nil, nil; end
+    local charges = nil;
+    if (row.info.charges or 0) > 0 then charges = (' (%d/%d)'):fmt(row.charges, row.info.charges); end
+    local timer = nil;
+    if row.ready_at ~= nil then
+        local left = row.ready_at - os.time();
+        if left > 0 then
+            local h, m, s = math.floor(left / 3600), math.floor((left % 3600) / 60), left % 60;
+            if h > 0 then timer = ('  %d:%02d:%02d'):fmt(h, m, s); else timer = ('  %d:%02d'):fmt(m, s); end
+        end
+    end
+    return charges, timer;
+end
+
+-- Enchanted gear: (label, ready). Label like "Use  (2/5, ready in 3:20)".
+function use_label(row)
+    if not (row.info.enchanted and row.equipped ~= nil) then return 'Use', true; end
+    local parts = {};
+    if row.charges ~= nil and (row.info.charges or 0) > 0 then
+        parts[#parts + 1] = ('%d/%d charges'):fmt(row.charges, row.info.charges);
+    end
+    local ready = true;
+    if row.charges ~= nil and row.charges <= 0 then ready = false; end
+    if row.ready_at ~= nil then
+        local left = row.ready_at - os.time();
+        if left > 0 then
+            ready = false;
+            local h, m, s = math.floor(left / 3600), math.floor((left % 3600) / 60), left % 60;
+            if h > 0 then parts[#parts + 1] = ('ready in %d:%02d:%02d'):fmt(h, m, s);
+            else parts[#parts + 1] = ('ready in %d:%02d'):fmt(m, s); end
+        else
+            parts[#parts + 1] = 'ready';
+        end
+    end
+    if #parts == 0 then return 'Use', true; end
+    return 'Use  (' .. table.concat(parts, ', ') .. ')', ready;
 end
 
 function can_equip(row)

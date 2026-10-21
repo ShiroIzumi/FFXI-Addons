@@ -81,6 +81,9 @@ local defaults = T{
         wear_warning = true,
         big_hits = true,
         low_hp = true,
+        -- 1.3.3: buffs / statuses wearing off, and food about to run out.
+        status_removed = true,
+        food_warning = true,
     },
     -- Low HP warning when your HP drops to this percent or below.
     low_hp_percent = 25,
@@ -144,6 +147,7 @@ local defaults = T{
         item_obtained      = T{ show = true, color = { 0.98, 0.90, 0.62, 1.00 } },
         zone_change        = T{ show = true, color = { 0.72, 0.84, 1.00, 1.00 } },
         low_hp             = T{ show = true, color = { 1.00, 0.26, 0.26, 1.00 } },
+        food_warning       = T{ show = true, color = { 1.00, 0.66, 0.30, 1.00 } },
     },
 
     -- Legacy colors are retained so older saved settings migrate cleanly.
@@ -228,7 +232,7 @@ for _, key in ipairs({
     'drain_aspir', 'buffs', 'status_positive', 'status_negative',
     'status_removed', 'incoming_damage', 'incoming_abilities', 'defenses',
     'ko', 'exp', 'gil', 'level_up', 'skill_ups', 'item_drops', 'item_obtained',
-    'zone_change', 'wear_warning', 'low_hp'
+    'zone_change', 'wear_warning', 'low_hp', 'food_warning'
 }) do
     ensure_event_option(key);
 end
@@ -279,7 +283,7 @@ local function normalize_loaded_settings()
         'drain_aspir', 'buffs', 'status_positive', 'status_negative',
         'status_removed', 'incoming_damage', 'incoming_abilities', 'defenses',
         'ko', 'exp', 'gil', 'level_up', 'skill_ups', 'item_drops', 'item_obtained',
-        'zone_change', 'wear_warning', 'low_hp'
+        'zone_change', 'wear_warning', 'low_hp', 'food_warning'
     }) do
         ensure_event_option(key);
     end

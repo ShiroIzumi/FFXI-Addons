@@ -15,7 +15,9 @@ function draw_context_menu()
     if row == nil then imgui.EndPopup(); return; end
     imgui.TextColored(UI_ACCENT_TEXT, row.name);
     imgui.Separator();
-    if row.status == 'ready' then
+    if row.k == 'trait' then
+        imgui.TextDisabled((row.status == 'ready') and 'Job trait (always on)' or (row.note or 'Job trait'));
+    elseif row.status == 'ready' then
         if imgui.Selectable(('Use  (%s)##ab_ctx_use'):fmt(default_target(row))) then use_row(row); end
         if row.k ~= 'ws' and can_target_self(row) and default_target(row) ~= '<me>' then
             if imgui.Selectable('Use on me##ab_ctx_me') then use_row(row, '<me>'); end
@@ -95,6 +97,25 @@ function draw_row(dl, row, i, sec_key, width, row_h)
         dl:AddCircleFilled({ px, sy + row_h * 0.5 }, 2.5, imgui.GetColorU32(accent(0.9)), 10);
         x = px + 6;
     end
+    -- "H": changed on HorizonXI (hover it for what changed).
+    local hz = (config.show_horizon_marks ~= false) and horizon_note(row) or nil;
+    if hz ~= nil then
+        local hx = x + 6;
+        local hh = math.floor(line_h * 0.80);
+        local hw = draw_badge(dl, hx, sy + (row_h - hh) * 0.5, hh, 'H', HORIZON_MARK_COLOR, dim);
+        local mx, my = imgui.GetMousePos();
+        mx, my = tonumber(mx) or -1, tonumber(my) or -1;
+        if hovered and mx >= hx and mx <= hx + hw and my >= sy and my <= sy + row_h and not imgui.IsPopupOpen('##ab_ctx') then
+            imgui.BeginTooltip();
+            imgui.TextColored(HORIZON_MARK_COLOR, 'Changed on HorizonXI');
+            imgui.PushTextWrapPos(math.floor(320 * (tonumber(config.font_scale) or 1.0)));
+            imgui.TextWrapped(hz);
+            imgui.PopTextWrapPos();
+            imgui.EndTooltip();
+            hz = 'shown';
+        end
+        x = hx + hw + 2;
+    end
 
     -- Right side, from the edge inwards.
     local right = sx + width - 8;
@@ -130,7 +151,7 @@ function draw_row(dl, row, i, sec_key, width, row_h)
         end
     end
 
-    if hovered and config.show_details == false and not imgui.IsPopupOpen('##ab_ctx') then
+    if hovered and hz ~= 'shown' and config.show_details == false and not imgui.IsPopupOpen('##ab_ctx') then
         imgui.BeginTooltip();
         draw_details(row, true);
         imgui.EndTooltip();

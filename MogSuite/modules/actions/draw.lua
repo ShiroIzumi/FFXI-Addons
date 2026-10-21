@@ -100,6 +100,7 @@ end
 -- ============================================================================
 
 function target_text(row)
+    if row.k == 'trait' then return ('%s Lv %d'):fmt(JOB_SHORT[row.job] or '?', row.level or 0); end
     if row.k == 'ws' then return 'Enemy'; end
     if row.k == 'pet' then return PET_ENEMY[row.name] and 'Enemy' or 'Pet'; end
     local t = tonumber(res_field(row.res, 'Targets')) or 0;
@@ -116,7 +117,7 @@ function draw_details(row, as_tooltip)
     imgui.SameLine(0, 10);
     local kind = ({ ja = 'Job ability', sp = 'Special ability (two-hour)', merit = 'Merit ability', pet = 'Pet command',
         roll = 'Phantom Roll', shot = 'Quick Draw', man = 'Maneuver', ws = 'Weapon skill', ma = 'Magic',
-        rage = 'Blood Pact: Rage', ward = 'Blood Pact: Ward', af = 'Blood Pact (Astral Flow)' })[row.kind] or '';
+        rage = 'Blood Pact: Rage', ward = 'Blood Pact: Ward', af = 'Blood Pact (Astral Flow)', trait = 'Job trait (passive)' })[row.kind] or '';
     if row.k == 'ma' then
         local school = SCHOOL_OF[row.type];
         kind = school and school.label or 'Magic';
@@ -128,6 +129,12 @@ function draw_details(row, as_tooltip)
     if desc ~= '' then
         imgui.PushTextWrapPos(as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0);
         imgui.TextWrapped(desc);
+        imgui.PopTextWrapPos();
+    end
+    local hz = horizon_note(row);
+    if hz ~= nil then
+        imgui.PushTextWrapPos(as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0);
+        imgui.TextColored(HORIZON_MARK_COLOR, 'Horizon change: ' .. hz);
         imgui.PopTextWrapPos();
     end
 
