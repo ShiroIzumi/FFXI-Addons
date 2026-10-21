@@ -1,6 +1,6 @@
 --[[
     Azure Codex (orig BLUSpells) - Ashita v4 / HorizonXI
-    Version 1.19.2
+    Version 1.19.3
 
     Commands:
       /azurecodex
@@ -49,7 +49,7 @@
 
 addon.name      = 'azurecodex';
 addon.author    = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version   = '1.19.2';
+addon.version   = '1.19.3';
 addon.desc      = 'Azure Codex (orig BLUSpells) - HorizonXI Blue Magic learning, location, build, trait, and spell-set toolkit.';
 addon.link      = '';
 

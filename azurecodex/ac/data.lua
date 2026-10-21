@@ -34,16 +34,16 @@ end
 -- ----------------------------------------------------------------------------
 -- Blue Magic traits, HorizonXI / LandSandBoat 75-era rules.
 --
--- Each set spell adds its weight (1 for almost every spell) to the trait
--- named in spells.lua. A trait tier unlocks at the thresholds below, in
--- weight units. Shown x4 so a normal tier reads as 8 trait points.
+-- Each set spell adds its trait points (4 for almost every spell) to the
+-- trait named in spells.lua. Internally that is a weight of points / 4
+-- (TRAIT_POINT_SCALE), and a trait tier unlocks at the thresholds below,
+-- in weight units, so a normal tier reads as 8 trait points.
 --   * most traits: a tier every 2 spells (8 pts)
 --   * Auto Refresh, Auto Regen, Conserve MP: one tier only (Tier I at 8 pts;
 --     the ToAU-era cap on HorizonXI)
 --   * Resist Gravity: 2 / 3 / 4 weight
--- Heavier spells (LandSandBoat weights): Self-Destruct, Frightful Roar,
--- Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge,
--- Winds of Promyvion x4. HorizonXI may differ for a few spells.
+-- Spells that give other than 4 points are listed in TRAIT_POINTS below
+-- (HorizonXI's current values, 2026-10).
 -- ----------------------------------------------------------------------------
 TRAIT_POINT_SCALE = 4;
 
@@ -75,16 +75,24 @@ TRAIT_TIERS = {
     magicaccuracy = { 2, 4, 6 },
 };
 
-TRAIT_WEIGHTS = {
-    selfdestruct = 2,
+-- Trait points per spell, for spells that don't give the usual 4.
+-- (Geist Wall, Blood Saber, Actinic Burst and Plasma Charge give 4.)
+TRAIT_POINTS = {
+    stinkinggas = 1,
+    coldwave = 1,
     frightfulroar = 2,
-    lightofpenance = 2,
+    selfdestruct = 2,
+    windsofpromy = 2,
+    windsofpromyvion = 2,
+    lightofpenance = 3,
     voracioustrunk = 3,
-    actinicburst = 4,
-    plasmacharge = 4,
-    windsofpromy = 4,
-    windsofpromyvion = 4,
 };
+
+-- The same as weights (points / 4); a spell not listed weighs 1.
+TRAIT_WEIGHTS = {};
+for key, pts in pairs(TRAIT_POINTS) do
+    TRAIT_WEIGHTS[key] = pts / TRAIT_POINT_SCALE;
+end
 
 ROMAN = { 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII' };
 
@@ -160,12 +168,13 @@ function get_trait_totals()
     return compute_traits(selected_spells), selected_spells;
 end
 
--- Weighted spells show their weight next to the trait, e.g. "Auto Refresh x2".
+-- Spells that give other than 4 trait points show their points next to
+-- the trait, like the in-game description, e.g. "Auto Refresh (1)".
 function get_spell_trait_badge(spell)
     local name = tostring(spell and spell.trait or 'None');
     if name:lower() == 'none' then return name; end
-    local weight = TRAIT_WEIGHTS[spell._key or ''] or 1;
-    if weight > 1 then return ('%s x%d'):fmt(name, weight); end
+    local pts = TRAIT_POINTS[spell._key or ''];
+    if pts ~= nil and pts ~= TRAIT_POINT_SCALE then return ('%s (%d)'):fmt(name, pts); end
     return name;
 end
 

@@ -1057,9 +1057,9 @@ function draw_bluprints_companion_window()
         if imgui.IsItemHovered() then
             imgui.BeginTooltip();
             imgui.PushTextWrapPos(420);
-            imgui.TextUnformatted('HorizonXI / LandSandBoat 75-era rules: each spell gives 4 points to its trait (some give more: '
-                .. 'Self-Destruct, Frightful Roar, Light of Penance x2; Voracious Trunk x3; Actinic Burst, Plasma Charge, '
-                .. 'Winds of Promyvion x4). Most traits gain a tier every 8 points; Auto Refresh and Conserve MP unlock at 8 points and have only Tier I; Resist Gravity '
+            imgui.TextUnformatted('HorizonXI 75-era rules: each spell gives 4 points to its trait (some give fewer: '
+                .. 'Stinking Gas, Cold Wave 1; Frightful Roar, Self-Destruct, Winds of Promyvion 2; Light of Penance, '
+                .. 'Voracious Trunk 3). Most traits gain a tier every 8 points; Auto Refresh and Conserve MP unlock at 8 points and have only Tier I; Resist Gravity '
                 .. 'tiers are 8 / 12 / 16. Each trait has its own maximum tier.');
             imgui.PopTextWrapPos();
             imgui.EndTooltip();

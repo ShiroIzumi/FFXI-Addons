@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.19.2  
+**Version:** 1.19.3  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -158,7 +158,7 @@ The **Trait Calculator** (BLUPrints side panel) shows each trait in the build wi
 
 The **Trait Planner** (side panel) lists the cheapest spells you know that would reach each trait's next tier. When those spells fit your limits, an **Add** button selects them for you. Tick **All traits** to plan traits that aren't in the build yet.
 
-Spells that count extra toward their trait show the multiplier, e.g. *Auto Refresh x2*.
+Spells that give other than 4 trait points show their points next to the trait, like the in-game description, e.g. *Auto Refresh (1)*.
 
 ---
 
@@ -231,7 +231,7 @@ Search boxes are skipped by the Tab key, so pressing Tab in game to target never
 - Each set spell gives **4 trait points** to its trait. The in-game description shows this as e.g. "Job Trait: Auto Refresh (4)".
 - Most traits gain a tier every **8 points**.
 - **Auto Refresh**, **Auto Regen** and **Conserve MP** stop at **Tier I** (8 points), the ToAU-era cap. **Resist Gravity** tiers are 8 / 12 / 16.
-- Spells that count extra: Self-Destruct, Frightful Roar, Light of Penance **x2** · Voracious Trunk **x3** · Actinic Burst, Plasma Charge, Winds of Promyvion **x4**.
+- Spells that give fewer points: Stinking Gas, Cold Wave **1** · Frightful Roar, Self-Destruct, Winds of Promyvion **2** · Light of Penance, Voracious Trunk **3**. Geist Wall, Blood Saber, Actinic Burst and Plasma Charge give the usual **4**.
 - Each trait has its own maximum tier.
 
 ---
@@ -255,6 +255,10 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.19.3
+- Trait points updated to HorizonXI's current values: Stinking Gas and Cold Wave 1; Frightful Roar, Self-Destruct and Winds of Promyvion 2; Light of Penance and Voracious Trunk 3; Geist Wall, Blood Saber, Actinic Burst and Plasma Charge 4. The Trait Calculator and Trait Planner use the new values.
+- Spells that give other than 4 points now show their points after the trait, e.g. *Auto Refresh (1)*, instead of *x2*.
 
 ### 1.19.2
 - Fixed "and has been used!" carrying over to a freshly respawned mob: the record is cleared when the mob is defeated or when you target it unclaimed at full HP.
