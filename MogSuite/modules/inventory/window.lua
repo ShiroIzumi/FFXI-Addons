@@ -183,6 +183,46 @@ function close_popout(bag)
     mark_dirty();
 end
 
+-- 1.5.3: "Stack & Resize" on a pop-out: the same size as the main window,
+-- placed right next to the last window you stacked that is still open and
+-- still in place (or the main window when there is none). Clicking one that
+-- is already stacked keeps its place in the row. Moving a stacked window by
+-- hand takes it out of the row.
+function stack_target(p)
+    local best = nil;
+    local mine = tonumber(p.stack_order);
+    for _, o in ipairs(config.popouts or {}) do
+        local n = tonumber(o.stack_order);
+        if o ~= p and n ~= nil and o.window ~= nil and (mine == nil or n < mine) then
+            if best == nil or n > tonumber(best.stack_order) then best = o; end
+        end
+    end
+    return best;
+end
+
+function align_popout(bag)
+    local p = find_popout(bag);
+    if p == nil then return; end
+    local main = config.window;
+    local prev = stack_target(p);
+    local target = prev and prev.window or main;
+    if p.stack_order == nil then
+        config.stack_counter = (tonumber(config.stack_counter) or 0) + 1;
+        p.stack_order = config.stack_counter;
+    end
+    -- Applied at the start of the next frame (the window saves where it is
+    -- at the end of this one, which would undo it).
+    local rt = pop_rt(bag);
+    rt.align_to = {
+        x = (tonumber(target.x) or 0) + (tonumber(target.w) or 380) + 4,
+        y = tonumber(target.y) or 0,
+        w = tonumber(main.w) or 380,
+        h = tonumber(main.h) or 460,
+    };
+    rt.apply_geometry = true;
+    mark_dirty();
+end
+
 -- Draws the main window (popout == nil) or one pop-out window. V is the
 -- settings table for the window (config for main, the pop-out entry
 -- otherwise); VS holds its runtime bits.
@@ -202,6 +242,13 @@ function draw_inventory_window(popout)
     end
     V.filter = V.filter or 'all';
 
+    if VS.align_to ~= nil then
+        local a = VS.align_to;
+        VS.geom.x, VS.geom.y, VS.geom.w, VS.geom.h = a.x, a.y, a.w, a.h;
+        VS.align_to = nil;
+        VS.stack_at = { x = a.x, y = a.y, frames = 3 };
+        VS.apply_geometry = true;
+    end
     if VS.apply_geometry ~= false then
         imgui.SetNextWindowPos({ VS.geom.x, VS.geom.y }, { 0, 0 });
         imgui.SetNextWindowSize({ VS.geom.w, VS.geom.h });
@@ -314,10 +361,24 @@ function draw_inventory_window(popout)
                 end
             end
             imgui.PopStyleVar(1);
-        elseif not config.title_bar then
-            -- Pop-out header: its tab name (no title bar to show it).
+        else
+            -- Pop-out header: its tab name (no title bar to show it), and
+            -- Stack & Resize at the right.
             imgui.AlignTextToFramePadding();
-            imgui.TextColored(UI_ACCENT_TEXT, tab_label(V.bag));
+            if not config.title_bar then
+                imgui.TextColored(UI_ACCENT_TEXT, tab_label(V.bag));
+                imgui.SameLine();
+            end
+            local bl = 'Stack & Resize';
+            local bw = text_w(bl) + 16;
+            local room = tonumber((imgui.GetContentRegionAvail())) or 0;
+            if room > bw then imgui.SetCursorPosX(imgui.GetCursorPosX() + room - bw); end
+            if imgui.Button(bl .. '##nai_align_' .. tostring(popout.bag)) then align_popout(popout.bag); end
+            if imgui.IsItemHovered() then
+                local prev = stack_target(popout);
+                imgui.SetTooltip(('Same size as the main window, right next to %s.\nMoving it by hand takes it out of the row.'):fmt(
+                    prev and ('the ' .. tab_label(prev.bag) .. ' window') or 'the main window'));
+            end
         end
 
         local key_items = V.bag == -3;
@@ -341,7 +402,9 @@ function draw_inventory_window(popout)
         local filter_w = compact and (text_w(filter_label) + 18) or 0;
         local close_w = config.title_bar and 0 or (frame_h + 6);
         local row_w = tonumber((imgui.GetContentRegionAvail())) or 400;
-        imgui.PushItemWidth(math.max(80, row_w - sort_w - view_w - filter_w - log_w - cfg_w - close_w - 48));
+        -- 1.5.3: on the main window Log / Stacks / Config / X sit on their own line below.
+        local side_w = (popout == nil) and 0 or close_w;
+        imgui.PushItemWidth(math.max(80, row_w - sort_w - view_w - filter_w - side_w - 48));
         imgui.InputText('##nai_search', VS.search, 64);
         if (VS.search[1] or '') == '' then draw_search_hint(key_items and 'Search key items' or 'Search items'); end
         imgui.PopItemWidth();
@@ -403,15 +466,22 @@ function draw_inventory_window(popout)
         end
 
         if popout == nil then
-            imgui.SameLine();
             if imgui.Button('Log##nai_logbtn') then state.log_visible[1] = not state.log_visible[1]; end
             if imgui.IsItemHovered() then imgui.SetTooltip('Session loot log and gil'); end
+            imgui.SameLine();
+            if imgui.Button('Stacks##nai_stkbtn') then stacks.open[1] = not stacks.open[1]; end
+            if imgui.IsItemHovered() then imgui.SetTooltip('Items you could stack together, across your bags and characters'); end
             imgui.SameLine();
             if imgui.Button('Config##nai_cfg') then MS.open_config('inventory'); end
             tip('Inventory settings');
         end
         if not config.title_bar then
             imgui.SameLine();
+            if popout == nil then
+                -- Right end of the button line.
+                local room = tonumber((imgui.GetContentRegionAvail())) or 0;
+                if room > frame_h then imgui.SetCursorPosX(imgui.GetCursorPosX() + room - frame_h); end
+            end
             if imgui.Button('X##nai_close', { frame_h, frame_h }) then open_ref[1] = false; end
             tip((popout == nil) and 'Close the inventory' or 'Close this window');
         end
@@ -560,6 +630,17 @@ function draw_inventory_window(popout)
 
         imgui.PopFont();
         if not config.locked then capture_geometry(VS.geom); end
+        -- A stacked pop-out moved by hand leaves the row.
+        if popout ~= nil and popout.stack_order ~= nil then
+            local sa = VS.stack_at;
+            if sa ~= nil and sa.frames > 0 then
+                sa.frames = sa.frames - 1;
+            elseif sa ~= nil and (math.abs((VS.geom.x or 0) - sa.x) > 3 or math.abs((VS.geom.y or 0) - sa.y) > 3) then
+                popout.stack_order = nil;
+                VS.stack_at = nil;
+                mark_dirty();
+            end
+        end
     end
     imgui.End();
     pop_theme();

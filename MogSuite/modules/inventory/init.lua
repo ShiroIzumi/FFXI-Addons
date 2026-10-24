@@ -51,6 +51,17 @@ function module_packet_in(e)
         state.baseline_until = os.clock() + 8.0;
         state.rows_dirty = true;
         if id == 0x00B then save_chars(true); end
+        if id == 0x00A then
+            -- 1.5.3: a fresh key item list for whoever just logged in / zoned
+            -- (the name comes from this packet, so another character's key
+            -- items are never filed under you).
+            state.ki_session = {};
+            state.ki_login_name = nil;
+            pcall(function()
+                local n = tostring(e.data:sub(0x84 + 1, 0x84 + 16)):gsub('%z.*', '');
+                if n:match('^%a%a%a+$') and #n <= 15 then state.ki_login_name = n; end
+            end);
+        end
     elseif id == 0x055 then
         -- Key item list: 64 bytes of "have" bits for one table of 512 ids.
         pcall(function()
@@ -69,7 +80,7 @@ function module_packet_in(e)
                 end
             end
             -- Kept for this session even if your name isn't known yet (login).
-            local name = state.player_name or get_player_name();
+            local name = state.ki_login_name or get_player_name() or state.player_name;
             state.ki_session = state.ki_session or {};
             state.ki_session[tbl] = { owner = name, ids = ids };
             if name ~= nil then
@@ -123,6 +134,7 @@ function module_present()
     draw_main_window();
     draw_log_window();
     draw_watch_window();
+    draw_stacks_window();
     if config.warn_full ~= false then draw_full_warning(); end
 
     if state.settings_dirty and (os.clock() - state.last_save) > 0.6 and not imgui.IsAnyItemActive() then
@@ -152,6 +164,7 @@ end
 -- Esc (core): hide the main window and every pop-out (same as the open key;
 -- pop-outs you didn't close with X come back next time).
 function module_close_all()
+    if stacks ~= nil then stacks.open[1] = false; end
     local showing = (not state.hidden) and (state.visible[1] or #(config.popouts or {}) > 0);
     if showing then
         state.hidden = true;

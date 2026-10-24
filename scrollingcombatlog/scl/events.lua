@@ -250,6 +250,22 @@ local function add_event(direction, kind, text, event_type, opts)
     local now = os.clock();
     local lane = routes_to_notify(event_type) and 'notify' or direction;
 
+    -- 1.4.0: the History window keeps the last events of each lane.
+    local H = settings.history;
+    if H ~= nil and H.enabled ~= false then
+        state.history = state.history or { outgoing = {}, incoming = {}, notify = {} };
+        local list = state.history[lane];
+        if list ~= nil then
+            list[#list + 1] = {
+                direction = direction, lane = lane, kind = kind, event_type = event_type,
+                text = text, element = opts and opts.element or nil, at = os.time(),
+            };
+            local keep = math.floor(clamp(tonumber(H.size) or 50, 10, 500));
+            while #list > keep do table.remove(list, 1); end
+            state.history_rev = (state.history_rev or 0) + 1;
+        end
+    end
+
     state.events[#state.events + 1] = {
         id = state.next_id,
         direction = direction,

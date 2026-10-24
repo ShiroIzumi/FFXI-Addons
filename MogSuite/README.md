@@ -9,7 +9,7 @@
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
 | **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
 
-**Version:** 1.3.0
+**Version:** 1.5.3
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -200,6 +200,20 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.5.3
+- **Stacks window** (the Stacks button next to Log on the inventory window) lists the items you could stack together, across every bag of every character MogSuite has seen.
+  - For each item it shows where the copies are, which spot to keep them in (the one with the most), and what to move there. It also shows how many slots that frees.
+  - Full stacks stay put. Moves to another character are marked "trade / delivery box". Ex and Rare items are only combined within one character.
+  - Options: All characters / This character, sort by most saved or by name, a search box, and Spread (also items in several places with no slot saved).
+  - Suggestions only: nothing is moved for you.
+- **Progress > Access:**
+  - It lists only the key items **this character** has. They're read from the game's key item list after you log in or zone, so another character's key items never show.
+  - The rest are in a "Not yet" line (hover it to see them).
+- **Fame auto-fill fixed:** MogSuite read the zone number where the event number is, so it never matched. Talking to the fame NPC now fills in the level.
+- **Inventory:**
+  - Key items are filed under the character who logged in (no mix-up when you switch characters).
+  - A bag you emptied is saved as empty, so other characters' views don't show stale items.
 
 ### 1.5.2
 - **Death Recap** no longer pops up when you zone (HP reads 0 while loading); it only opens on a real death.

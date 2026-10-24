@@ -24,7 +24,7 @@ end
 -- Ashita's HasKeyItem when that works on your build.
 function scan_key_items()
     local have = {};
-    local name = state.player_name or get_player_name();
+    local name = get_player_name() or state.player_name;
     local rec = name and chars[name] or nil;
     -- Tables seen this session win over the saved copy.
     local tables = {};

@@ -4,6 +4,8 @@ local core_mod = require('scl.core');
 local events_mod = require('scl.events');
 local render_mod = require('scl.render');
 local theme_mod = require('scl.theme');
+local uifont = require('scl.uifont');
+local history_mod = require('scl.history');
 local clamp = core_mod.clamp;
 local copy_defaults = core_mod.copy_defaults;
 local defaults = core_mod.defaults;
@@ -1239,7 +1241,7 @@ local function draw_session_items_panel(anchor)
 
     push_theme();
     if imgui.Begin('SCL Items##scl_session_items', nil, flags) then
-        imgui.PushFont(nil, imgui.GetFontSize() * font_scale);
+        uifont.push(font_scale);
 
         section_header(('ITEMS OBTAINED (%d)'):fmt(#entries), UI_ACCENT_TEXT);
 
@@ -1254,7 +1256,7 @@ local function draw_session_items_panel(anchor)
             imgui.EndGroup();
         end
 
-        imgui.PopFont();
+        uifont.pop();
 
         local w = select(1, imgui.GetWindowSize());
         state.items_panel_w = tonumber(w) or state.items_panel_w;
@@ -1290,7 +1292,7 @@ local function draw_session_window()
 
         -- Text size for the window contents (title bar keeps its size).
         local font_scale = clamp(tonumber(settings.session_font_scale) or 1.0, 0.75, 2.50);
-        imgui.PushFont(nil, imgui.GetFontSize() * font_scale);
+        uifont.push(font_scale);
 
         local data = session.get();
         local hours = data.elapsed / 3600.0;
@@ -1420,7 +1422,7 @@ local function draw_session_window()
         end
         imgui.PopItemWidth();
 
-        imgui.PopFont();
+        uifont.pop();
 
         -- Remember where the Session window is so the items panel can attach.
         local wx, wy = imgui.GetWindowPos();
@@ -1440,6 +1442,98 @@ local function draw_session_window()
     if anchor ~= nil and anchor.side ~= 'inside' then
         draw_session_items_panel(anchor);
     end
+end
+
+-- 1.4.0: History page.
+local function draw_history_config_tab()
+    local H = settings.history;
+    section_header('HISTORY WINDOW', UI_ACCENT_TEXT);
+    if imgui.Button((history_mod.open[1] and 'Close' or 'Open') .. ' the History window##scl_hist_open') then history_mod.toggle(); end
+    if imgui.IsItemHovered() then imgui.SetTooltip('Same as /scl history.'); end
+    local function chk(label, key, tip)
+        local v = { H[key] ~= false };
+        if imgui.Checkbox(label .. '##scl_hist_' .. key, v) then H[key] = v[1]; save_settings(); end
+        if tip then help_marker(tip); end
+    end
+    chk('Keep a history', 'enabled', 'Each side (Notifications, Incoming, Outgoing) keeps its last events for the History window.');
+    chk('Show the time of each line', 'show_time');
+    chk('Newest at the top', 'newest_first');
+    imgui.PushItemWidth(235);
+    local size = { math.floor(tonumber(H.size) or 50) };
+    if imgui.SliderInt('Events per side##scl_hist_size', size, 10, 200) then H.size = size[1]; save_settings(); end
+    local op = { math.floor((tonumber(H.opacity) or 0.92) * 100 + 0.5) };
+    if imgui.SliderInt('Background##scl_hist_op', op, 10, 100, '%d%%') then H.opacity = op[1] / 100; save_settings(); end
+    local nh = { math.floor((tonumber(H.notify_height) or 0.28) * 100 + 0.5) };
+    if imgui.SliderInt('Top part height##scl_hist_nh', nh, 10, 60, '%d%%') then H.notify_height = nh[1] / 100; save_settings(); end
+    imgui.PopItemWidth();
+    help_marker('How much of the window the Notifications part (top) takes. Incoming is on the left, Outgoing on the right, like the floating text.');
+
+    -- 1.4.1: text size of the History lines. - / + (hold to repeat), not a
+    -- slider: a slider in a window it resizes jumps under the mouse.
+    state.hist_hold = state.hist_hold or {};
+    local function step(label, id, dir)
+        imgui.Button(label .. '##' .. id, { 26, 0 });
+        if imgui.IsItemActive() then
+            local t = os.clock();
+            local st = state.hist_hold[id];
+            if st == nil then
+                state.hist_hold[id] = { start = t, last = t };
+                return dir;
+            end
+            if t - st.start > 0.40 and t - st.last > 0.08 then st.last = t; return dir; end
+        else
+            state.hist_hold[id] = nil;
+        end
+        return 0;
+    end
+    local pct = math.floor(clamp(tonumber(H.font_scale) or 1.0, 0.60, 2.50) * 100 + 0.5);
+    local d = step('-', 'scl_hist_fsm', -5);
+    imgui.SameLine(0, 4);
+    imgui.AlignTextToFramePadding();
+    local txt = ('%d%%'):fmt(pct);
+    local tw = tonumber((imgui.CalcTextSize('250%'))) or 40;
+    local cw = tonumber((imgui.CalcTextSize(txt))) or 30;
+    imgui.SetCursorPosX(imgui.GetCursorPosX() + math.max(0, (tw - cw) / 2));
+    imgui.Text(txt);
+    imgui.SameLine(0, 4 + math.max(0, (tw - cw) / 2));
+    d = d + step('+', 'scl_hist_fsp', 5);
+    imgui.SameLine(0, 10);
+    imgui.Text('Text size');
+    help_marker('Size of the lines in the History window (on top of Fonts & Tooltips > Text size). Hold - or + to keep going.');
+    if pct ~= 100 then
+        imgui.SameLine(0, 10);
+        if imgui.SmallButton('Reset##scl_hist_fsr') then H.font_scale = 1.0; save_settings(); end
+    end
+    if d ~= 0 then
+        H.font_scale = clamp((pct + d) / 100, 0.60, 2.50);
+        history_mod.size_dirty = os.clock();
+    end
+    if history_mod.size_dirty ~= nil and state.hist_hold.scl_hist_fsm == nil and state.hist_hold.scl_hist_fsp == nil then
+        history_mod.size_dirty = nil;
+        save_settings();
+    end
+end
+
+-- 1.4.0: the font of SCL's windows. The floating text keeps Font Style.
+local function draw_uifont_config_tab()
+    local start_x = imgui.GetCursorPosX();
+    local label_w = (tonumber((imgui.CalcTextSize('Tooltip background'))) or 140) + 18;
+    uifont.settings_page(settings.ui_font, {
+        header = function(t) section_header(t, UI_ACCENT_TEXT); end,
+        label = function(text_value)
+            imgui.AlignTextToFramePadding();
+            imgui.Text(text_value);
+            imgui.SameLine();
+            imgui.SetCursorPosX(start_x + label_w);
+        end,
+        dirty = function() save_settings(); end,
+        want = function() return true; end,
+        ctrl_w = 235,
+        accent = UI_ACCENT_TEXT,
+        muted = UI_MUTED,
+    });
+    imgui.Spacing();
+    imgui.TextDisabled('For the Config, Session and History windows. The floating combat text uses Font Style.');
 end
 
 local function draw_config()
@@ -1468,6 +1562,7 @@ local function draw_config()
 
     imgui.SetNextWindowSizeConstraints({ 620, 560 }, { 1200, 1200 });
 
+    uifont.push(1.0);
     if imgui.Begin('Scrolling Combat Text - Config##scl_config', state.config_open, ImGuiWindowFlags_NoNav) then
         capture_current_window_geometry('main');
         imgui.TextColored(UI_ACCENT_TEXT, 'SELF-ONLY COMBAT DISPLAY');
@@ -1478,11 +1573,20 @@ local function draw_config()
         imgui.Spacing();
 
         local config_tabs = {
-            { label = 'General', id = 'scl_tab_general', draw = draw_general_config_tab },
-            { label = 'Display', id = 'scl_tab_display', draw = draw_display_config_tab },
-            { label = 'Font Style', id = 'scl_tab_font', draw = draw_font_style_config_tab },
-            { label = 'Outgoing', id = 'scl_tab_outgoing', draw = draw_outgoing_config_tab },
-            { label = 'Incoming', id = 'scl_tab_incoming', draw = draw_incoming_config_tab },
+            { label = 'General', id = 'scl_tab_general', draw = draw_general_config_tab,
+              keys = 'general theme display behavior enabled lock pause test reset renderer symbols target source zero misses combine' },
+            { label = 'Display', id = 'scl_tab_display', draw = draw_display_config_tab,
+              keys = 'display lanes direction motion scroll notifications notify big hit size scale visible events' },
+            { label = 'Font Style', id = 'scl_tab_font', draw = draw_font_style_config_tab,
+              keys = 'font style floating combat text family bold italic outline shadow effect plate caps' },
+            { label = 'Outgoing', id = 'scl_tab_outgoing', draw = draw_outgoing_config_tab,
+              keys = 'outgoing melee ranged critical weapon skills spells magic burst skillchain abilities pet colors' },
+            { label = 'Incoming', id = 'scl_tab_incoming', draw = draw_incoming_config_tab,
+              keys = 'incoming damage healing mp regen refresh buffs status exp gil level skill drops zone warning food low hp colors' },
+            { label = 'History', id = 'scl_tab_history', draw = draw_history_config_tab,
+              keys = 'history window past events log notifications incoming outgoing time' },
+            { label = 'Fonts & Tooltips', id = 'scl_tab_uifont', draw = draw_uifont_config_tab,
+              keys = 'fonts tooltips window font tahoma text size' },
         };
 
         local selected_tab = tonumber(state.config_tab) or 1;
@@ -1490,28 +1594,62 @@ local function draw_config()
             selected_tab = 1;
         end
 
-        -- Flat styled tab row with a red underline on the active tab.
-        imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 14, 6 });
-        for index, tab in ipairs(config_tabs) do
-            if index > 1 then
-                imgui.SameLine(0, 4);
-            end
-            if draw_styled_tab(tab.label, tab.id, index == selected_tab) then
-                selected_tab = index;
+        -- 1.4.0: pages on the left with a search box (finds pages by keyword).
+        state.config_search = state.config_search or { '' };
+        local side_w = 160;
+        imgui.BeginChild('##scl_config_side', { side_w, 0 }, 0);
+        imgui.PushItemWidth(side_w - 6);
+        imgui.InputText('##scl_config_search', state.config_search, 48);
+        imgui.PopItemWidth();
+        if (state.config_search[1] or '') == '' and not imgui.IsItemActive() then
+            local x1, y1 = imgui.GetItemRectMin();
+            if x1 ~= nil then
+                imgui.GetWindowDrawList():AddText({ tonumber(x1) + 6, tonumber(y1) + 3 }, imgui.GetColorU32(UI_MUTED), 'Search...');
             end
         end
-        imgui.PopStyleVar(1);
-        state.config_tab = selected_tab;
-
+        local q = tostring(state.config_search[1] or ''):lower():gsub('^%s+', ''):gsub('%s+$', '');
+        imgui.Spacing();
+        for index, tab in ipairs(config_tabs) do
+            local match = q == '' or (tab.label .. ' ' .. tab.keys):lower():find(q, 1, true) ~= nil;
+            if q ~= '' and not match then
+                imgui.TextColored(UI_MUTED, tab.label);
+            else
+                local sel = (q == '' and index == selected_tab) or (q ~= '' and match);
+                if sel then imgui.PushStyleColor(ImGuiCol_Text, UI_ACCENT_TEXT); end
+                if imgui.Selectable(tab.label .. '##' .. tab.id, sel) then
+                    selected_tab = index;
+                    state.config_search[1] = '';
+                end
+                if sel then imgui.PopStyleColor(1); end
+            end
+        end
         imgui.Spacing();
         imgui.Separator();
+        imgui.Spacing();
+        if imgui.Selectable('Open History##scl_cfg_hist', history_mod.open[1]) then history_mod.toggle(); end
+        if imgui.IsItemHovered() then imgui.SetTooltip('The last events of each side (/scl history).'); end
+        imgui.EndChild();
+        state.config_tab = selected_tab;
 
-        -- Only the tab content scrolls; the header and tab row stay in place.
+        imgui.SameLine();
+        -- Only the page content scrolls.
         imgui.BeginChild('##scl_config_content', { 0, 0 });
-        config_tabs[selected_tab].draw();
+        local any = false;
+        for index, tab in ipairs(config_tabs) do
+            local show;
+            if q == '' then show = index == selected_tab; else show = (tab.label .. ' ' .. tab.keys):lower():find(q, 1, true) ~= nil; end
+            if show then
+                any = true;
+                if q ~= '' then section_header(tab.label:upper(), UI_ACCENT_TEXT); end
+                tab.draw();
+                imgui.Spacing();
+            end
+        end
+        if not any then imgui.TextColored(UI_MUTED, 'Nothing matches the search.'); end
         imgui.EndChild();
     end
     imgui.End();
+    uifont.pop();
 
     if state.config_open[1] then
         -- Grow the Tools window so the live preview always fits.

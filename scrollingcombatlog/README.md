@@ -1,12 +1,24 @@
 # ScrollingCombatLog
 
-**Version:** 1.3.4  
+**Version:** 1.4.1  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
 ScrollingCombatLog (SCL) is a self-focused scrolling combat text addon for Final Fantasy XI. It is designed to show **what you do** and **what happens to you** without becoming a full party/alliance damage parser.
 
 It separates combat into configurable **Outgoing** and **Incoming** lanes and supports combat damage, abilities, spells, healing, statuses, progression/rewards, and several FFXI-specific combat mechanics.
+
+## Changes in 1.4.1
+
+- **History text size:** Config > History > Text size (- / +, hold to repeat, 60%-250%, Reset). Sizes the lines of the History window; the title bar stays the same.
+
+## Changes in 1.4.0
+
+- **History window** (`/scl history`, or Config > Open History): one window with the last 50 events of each side, laid out like the floating text: **Notifications** across the top, **Incoming** on the left, **Outgoing** on the right. Newest first, with the time and the event colors. Pause (freeze while reading), Clear, and a filter box. Config > History: on / off, events per side (10-200), time, order, background, and how tall the top part is.
+- **Job ability names fixed:** abilities the game sends in the weapon skill category (Steal, Mug, Despoil, Larceny, Jump / High Jump / Super Jump, Shield Bash, Weapon Bash, Eagle Eye Shot, Angon, Tomahawk ...) showed as the weapon skill with the same number (Steal as Swift Blade, Mug as Atonement). They now show their own name.
+- **Steal / Mug show what you got:** "Steal: Beastcoin", "Mug: 240 gil", or "Steal  nothing stolen" / "Mug  no gil".
+- **New Config window:** pages on the left (General, Display, Font Style, Outgoing, Incoming, History, Fonts & Tooltips) with a search box.
+- **Window font:** the Config, Session and History windows use a Windows font (Tahoma by default; Config > Fonts & Tooltips). The floating combat text is unchanged (Font Style).
 
 ## Changes in 1.3.4
 
@@ -131,6 +143,7 @@ This keeps the display readable during parties and alliance content.
 | `/scl pause` | Pause/resume combat capture. |
 | `/scl clear` | Clear currently active scrolling text. |
 | `/scl session` | Open/close the Session summary window (`/scl session reset` clears it). |
+| `/scl history` | Open/close the History window (last events of each side). |
 | `/scl debug` | Log unmapped action messages to `logs\debug_YYYY-MM-DD.log`. |
 | `/scl help` | Display command help. |
 

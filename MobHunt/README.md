@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.6.0  
+**Version:** 1.6.2  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -304,6 +304,17 @@ Added a dedicated **Opacity** slider under **Config -> Window -> Background / Op
 - Saves with the existing appearance settings
 - Continues to use the existing RGB background controls independently
 
+
+## v1.6.2 Interrupted % Fix
+
+- Every ability read "100% interrupted": the finished moves were never counted (on HorizonXI the move id sits in the other half of the field MobHunt reads). Finishes are counted now.
+- "Interrupted" = the mob started the move / spell but it never went off (Stun, Silence, Paralyze, a status that stops it, or the mob died first). It only uses fights from 1.6.2 on, so older counts don't show a wrong 100%: until new kills come in, no "interrupted" is shown (Mob Details shows -- for Finished / Interrupted). Uses and shares from before stay as they are.
+
+## v1.6.1 Target Window Restyle
+
+- The target window is cleaned up: Fights / Kills / Deaths / Win as tiles across the top, Avg EXP / Avg fight / Last kill on one line, then sections for **Abilities** (one per row with a share bar, TP or spell, and how often it gets interrupted), **This Session** and **Observed Drops** (one per row with a rate bar). Nothing runs out of the window any more.
+- The "In combat" tag is a small pulsing pill next to the name. The per-job line is split in two so it fits.
+- Config > Content > Rows: how many abilities the target window lists (default 4).
 
 ## v1.6.0 Mob Abilities, Look and Settings
 

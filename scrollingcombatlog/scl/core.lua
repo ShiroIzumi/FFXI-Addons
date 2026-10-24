@@ -150,6 +150,22 @@ local defaults = T{
         food_warning       = T{ show = true, color = { 1.00, 0.66, 0.30, 1.00 } },
     },
 
+    -- 1.4.0: the History window (last events of each lane).
+    history = T{
+        enabled = true,          -- keep the history
+        size = 50,               -- events kept per lane
+        show_time = true,        -- time of day in front of each line
+        newest_first = true,
+        opacity = 0.92,
+        notify_height = 0.28,    -- share of the window the top (Notifications) part uses
+        font_scale = 1.0,        -- 1.4.1: text size of the lines (title bar keeps its size)
+        x = -1, y = -1, w = 820, h = 560,
+        visible = false,
+    },
+    -- 1.4.0: font of SCL's windows (config, session, history). The floating
+    -- combat text keeps its own font (Font Style).
+    ui_font = T{},
+
     -- Legacy colors are retained so older saved settings migrate cleanly.
     colors = T{
         outgoing = { 1.00, 0.88, 0.32, 1.00 },
@@ -211,6 +227,8 @@ local function fill_new_defaults()
     fill('notification', defaults.notification);
     fill('notify', defaults.notify);
     fill('session_window', defaults.session_window);
+    fill('history', defaults.history);
+    if type(settings.ui_font) ~= 'table' then settings.ui_font = T{}; end
 
     for _, lane in ipairs({ 'outgoing', 'incoming' }) do
         if type(settings[lane]) == 'table' and settings[lane].motion == nil then

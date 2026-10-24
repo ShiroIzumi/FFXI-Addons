@@ -1,6 +1,6 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.6.0
+    Version 1.6.2
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
@@ -38,7 +38,7 @@
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.6.0';
+addon.version   = '1.6.2';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -402,6 +402,7 @@ local defaults = T{
         -- 1.6.0
         track_abilities = true,     -- count mob TP moves / spells
         abilities_target = true,    -- top abilities in the target window
+        abilities_rows = 4,         -- how many (one per row)
         zone_highlight = true,      -- highlight this zone's mobs when All Zones is shown
     },
 
@@ -1203,11 +1204,16 @@ local function track_mob_ability(act)
     local enc = state.encounters[act.actor_id];
     if enc == nil then return; end
     local cat = tonumber(act.category) or 0;
-    local hparam = math.floor((tonumber(act.param) or 0) / 65536);
+    -- 1.6.2: MobHunt reads 32 bits there; the move / spell id can sit in
+    -- either half (HorizonXI: the low half - finishes were never counted,
+    -- so everything read "100% interrupted").
+    local p32 = tonumber(act.param) or 0;
+    local hi, lo = math.floor(p32 / 65536), p32 % 65536;
+    local hparam = (hi ~= 0) and hi or lo;
     local first = act.targets[1];
     if cat == 7 or cat == 8 then
         local kind = (cat == 7) and 'tp' or 'ma';
-        if hparam == INTERRUPTED then
+        if hi == INTERRUPTED or lo == INTERRUPTED then
             enc.casting = nil;
             return;
         end
@@ -1242,6 +1248,9 @@ local function commit_abilities(rec, enc)
         end
         r.s = (tonumber(r.s) or 0) + a.s;
         r.f = (tonumber(r.f) or 0) + a.f;
+        -- Starts counted since 1.6.2, when finishes are read right: the
+        -- interrupted % only uses these.
+        r.s2 = (tonumber(r.s2) or 0) + a.s;
     end
     rec.ability_kills = (tonumber(rec.ability_kills) or 0) + 1;
 end
@@ -1251,7 +1260,7 @@ local function sorted_abilities(rec)
     local list, total = {}, 0;
     for name, a in pairs(rec.abilities or {}) do
         total = total + (tonumber(a.s) or 0);
-        list[#list + 1] = { name = name, s = tonumber(a.s) or 0, f = tonumber(a.f) or 0, k = a.k };
+        list[#list + 1] = { name = name, s = tonumber(a.s) or 0, f = tonumber(a.f) or 0, k = a.k, s2 = tonumber(a.s2) or 0 };
     end
     for _, a in ipairs(list) do a.share = (total > 0) and (a.s * 100 / total) or 0; end
     table.sort(list, function(x, y) if x.s ~= y.s then return x.s > y.s; end return x.name < y.name; end);
@@ -2642,9 +2651,10 @@ local function draw_job_stats(rec, full)
         local j = job and rec.by_job[job] or nil;
         if j == nil then return; end
         local f, k, d, exp_text, time_text = job_line(job, j);
-        imgui.TextColored(UI_ACCENT_TEXT, ('As %s:'):fmt(job));
-        imgui.SameLine();
-        imgui.Text(('F %d  K %d  D %d  Win %.0f%%  EXP %s  Fight %s'):fmt(f, k, d, pct(k, f), exp_text, time_text));
+        imgui.TextColored(UI_ACCENT_TEXT, ('As %s'):fmt(job));
+        imgui.SameLine(0, 8);
+        imgui.Text(('F %d  K %d  D %d  Win %.0f%%'):fmt(f, k, d, pct(k, f)));
+        imgui.TextColored(state.muted, ('EXP %s  Fight %s'):fmt(exp_text, time_text));
         return;
     end
 
@@ -2688,6 +2698,81 @@ local function draw_job_stats(rec, full)
     end
 end
 
+-- ============================================================================
+-- Target window body (1.6.1 restyle): stat tiles, a details line, abilities
+-- one per row with a bar, session, drops with rate bars.
+-- ============================================================================
+
+local function tw_text(text) return tonumber((imgui.CalcTextSize(tostring(text or '')))) or 0; end
+
+-- Small section title: accent text with a thin line to the right.
+local function mini_section(title)
+    imgui.Spacing();
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    x, y = tonumber(x) or 0, tonumber(y) or 0;
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 300;
+    local lh = imgui.GetTextLineHeight();
+    imgui.TextColored(UI_ACCENT_TEXT, title);
+    local tx = x + tw_text(title) + 8;
+    dl:AddLine({ tx, y + lh * 0.55 }, { x + avail, y + lh * 0.55 }, imgui.GetColorU32(ui_accent(0.30)), 1.0);
+end
+
+-- Tiles that share the full width: { label, value, color }.
+local function wide_tiles(items)
+    local dl = imgui.GetWindowDrawList();
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 300;
+    local gap = 6;
+    local n = #items;
+    local w = (avail - gap * (n - 1)) / n;
+    local lh = imgui.GetTextLineHeight();
+    local big = imgui.GetFontSize() * 1.30;
+    local h = lh + big + 12;
+    local x0, y0 = imgui.GetCursorScreenPos();
+    x0, y0 = tonumber(x0) or 0, tonumber(y0) or 0;
+    for i, it in ipairs(items) do
+        local x = x0 + (i - 1) * (w + gap);
+        local col = it[3] or UI_TEXT;
+        dl:AddRectFilled({ x, y0 }, { x + w, y0 + h }, imgui.GetColorU32({ UI_CONTROL[1], UI_CONTROL[2], UI_CONTROL[3], 0.80 }), 5.0);
+        dl:AddRectFilled({ x, y0 + h - 2 }, { x + w, y0 + h }, imgui.GetColorU32({ col[1], col[2], col[3], 0.85 }), 2.0);
+        dl:AddText({ x + 8, y0 + 4 }, imgui.GetColorU32(state.muted), it[1]);
+        dl:AddText(imgui.GetFont(), big, { x + 8, y0 + 4 + lh }, imgui.GetColorU32(col), tostring(it[2]));
+    end
+    imgui.Dummy({ avail, h + 2 });
+end
+
+-- One row: name on the left, value on the right, a thin bar under it.
+local function bar_row(name, right_text, frac, color, sub)
+    local dl = imgui.GetWindowDrawList();
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 300;
+    local x, y = imgui.GetCursorScreenPos();
+    x, y = tonumber(x) or 0, tonumber(y) or 0;
+    local lh = imgui.GetTextLineHeight();
+    dl:AddText({ x, y }, imgui.GetColorU32(UI_TEXT), name);
+    if sub ~= nil and sub ~= '' then
+        dl:AddText({ x + tw_text(name) + 8, y }, imgui.GetColorU32(state.muted), sub);
+    end
+    dl:AddText({ x + avail - tw_text(right_text), y }, imgui.GetColorU32(color or UI_ACCENT_TEXT), right_text);
+    local by = y + lh + 2;
+    dl:AddRectFilled({ x, by }, { x + avail, by + 3 }, imgui.GetColorU32({ 0.20, 0.20, 0.22, 0.90 }), 1.5);
+    local f = math.max(0, math.min(1, tonumber(frac) or 0));
+    if f > 0 then
+        local c = color or UI_ACCENT;
+        dl:AddRectFilled({ x, by }, { x + math.max(2, avail * f), by + 3 }, imgui.GetColorU32({ c[1], c[2], c[3], 0.90 }), 1.5);
+    end
+    imgui.Dummy({ avail, lh + 7 });
+end
+
+-- Muted "label value" pairs on one line.
+local function pairs_line(items)
+    for i, it in ipairs(items) do
+        if i > 1 then imgui.SameLine(0, 14); end
+        imgui.TextColored(state.muted, it[1]);
+        imgui.SameLine(0, 5);
+        if it[3] then imgui.TextColored(it[3], it[2]); else imgui.Text(it[2]); end
+    end
+end
+
 local function draw_record_summary(rec, key, include_header)
     if rec == nil then return; end
     local s = state.session[key];
@@ -2702,63 +2787,72 @@ local function draw_record_summary(rec, key, include_header)
     local kills = tonumber(rec.kills) or 0;
     local deaths = tonumber(rec.deaths) or 0;
 
-    draw_three_stats('lifetime_' .. tostring(key), fights, kills, deaths);
+    wide_tiles({
+        { 'Fights', fights, UI_ACCENT_TEXT },
+        { 'Kills', kills, state.success },
+        { 'Deaths', deaths, deaths > 0 and state.danger or state.muted },
+        { 'Win', ('%.0f%%'):fmt(pct(kills, fights)), UI_TEXT },
+    });
 
-    imgui.Text(('Win Rate: %.1f%%'):fmt(pct(kills, fights)));
-
-    -- Camp comparison: average EXP per kill and average fight length.
+    -- Camp comparison: average EXP per kill, average fight length, last kill.
     local exp_kills = tonumber(rec.exp_kills) or 0;
     local timed = tonumber(rec.timed_kills) or 0;
     local exp_text = (exp_kills > 0)
         and ('%d'):fmt(math.floor(((tonumber(rec.exp_total) or 0) / exp_kills) + 0.5)) or '--';
     local time_text = (timed > 0)
         and format_span((tonumber(rec.fight_seconds) or 0) / timed) or '--';
-    imgui.Text(('Avg EXP / Kill: %s'):fmt(exp_text));
-    imgui.SameLine(0, 18);
-    imgui.Text(('Avg Fight: %s'):fmt(time_text));
-
-    local age = format_age(rec.last_kill);
-    imgui.TextColored(state.muted, ('Last Kill: %s'):fmt(age or 'never'));
+    pairs_line({
+        { 'Avg EXP', exp_text },
+        { 'Avg fight', time_text },
+        { 'Last kill', format_age(rec.last_kill) or 'never' },
+    });
 
     draw_job_stats(rec, include_header == true);
 
-    -- 1.6.0: its most used abilities (added when a mob of this kind dies).
+    -- Its most used abilities, one per row (added when a mob of this kind dies).
     if config.behavior.abilities_target ~= false and config.behavior.track_abilities ~= false and rec.abilities ~= nil then
         local list = sorted_abilities(rec);
         if #list > 0 then
-            imgui.TextColored(state.muted, 'Uses:');
-            for i = 1, math.min(3, #list) do
-                imgui.SameLine(0, (i == 1) and 6 or 10);
-                imgui.Text(list[i].name);
-                imgui.SameLine(0, 4);
-                imgui.TextColored(UI_ACCENT_TEXT, ('%.0f%%'):fmt(list[i].share));
+            mini_section('Abilities');
+            for i = 1, math.min(tonumber(config.behavior.abilities_rows) or 4, #list) do
+                local a = list[i];
+                -- Interrupted: started but never finished (Stun, Silence,
+                -- the mob died first ...), from 1.6.2 data only.
+                local intr = (a.s2 > 0) and math.floor(math.max(0, a.s2 - a.f) * 100 / a.s2 + 0.5) or 0;
+                bar_row(a.name, ('%.0f%%'):fmt(a.share), a.share / 100, UI_ACCENT,
+                    (a.k == 'ma' and 'spell' or 'TP') .. ((intr > 0) and ('  ' .. intr .. '% interrupted') or ''));
             end
         end
     end
 
     if state.show_session[1] then
-        imgui.Separator();
-        imgui.TextColored(UI_ACCENT_TEXT, 'This Session');
-        draw_three_stats(
-            'session_' .. tostring(key),
-            s and (tonumber(s.fights) or 0) or 0,
-            s and (tonumber(s.kills) or 0) or 0,
-            s and (tonumber(s.deaths) or 0) or 0
-        );
+        mini_section('This Session');
+        local items = {
+            { 'Fights', tostring(s and (tonumber(s.fights) or 0) or 0) },
+            { 'Kills', tostring(s and (tonumber(s.kills) or 0) or 0), state.success },
+            { 'Deaths', tostring(s and (tonumber(s.deaths) or 0) or 0), (s and (tonumber(s.deaths) or 0) or 0) > 0 and state.danger or nil },
+        };
         if state.show_kills_per_hour[1] then
-            imgui.Text(('Kills / Hour: %.1f'):fmt(session_kph(s)));
+            items[#items + 1] = { 'Kills / hr', ('%.1f'):fmt(session_kph(s)) };
         end
         local session_exp = s and (tonumber(s.exp_total) or 0) or 0;
-        if session_exp > 0 then
-            imgui.SameLine(0, 18);
-            imgui.Text(('EXP: %d'):fmt(session_exp));
-        end
+        if session_exp > 0 then items[#items + 1] = { 'EXP', tostring(session_exp) }; end
+        pairs_line(items);
     end
 
     if state.show_drops[1] then
-        imgui.Separator();
-        imgui.TextColored(UI_ACCENT_TEXT, 'Observed Drops');
-        draw_drop_table(rec, key, true);
+        mini_section('Observed Drops');
+        local drops = sorted_drops(rec);
+        if #drops == 0 then
+            imgui.TextColored(state.muted, 'No recorded drops.');
+        else
+            for _, drop in ipairs(drops) do
+                local rate = pct(drop.occurrences, rec.kills);
+                bar_row(tostring(drop.name or ('Item ' .. tostring(drop.item_id or '?'))),
+                    ('%.1f%%'):fmt(rate), rate / 100, state.success,
+                    ('x%d'):fmt(tonumber(drop.occurrences) or 0));
+            end
+        end
     end
 end
 
@@ -2817,9 +2911,20 @@ local function draw_target_window()
             local srec = state.session[key];
 
             imgui.TextColored(UI_ACCENT_TEXT, tostring(target.name));
-            imgui.SameLine();
             if state.encounters[target.id] ~= nil then
-                imgui.TextColored(state.success, '[In Combat]');
+                -- "IN COMBAT" pill.
+                imgui.SameLine(0, 10);
+                local dl = imgui.GetWindowDrawList();
+                local px, py = imgui.GetCursorScreenPos();
+                px, py = tonumber(px) or 0, tonumber(py) or 0;
+                local t = 'IN COMBAT';
+                local lh = imgui.GetTextLineHeight();
+                local w = tw_text(t) + 14;
+                local pulse = 0.55 + 0.45 * math.abs(math.sin(os.clock() * 3));
+                local c = state.success;
+                dl:AddRectFilled({ px, py }, { px + w, py + lh + 2 }, imgui.GetColorU32({ c[1], c[2], c[3], 0.18 * pulse + 0.10 }), (lh + 2) / 2);
+                dl:AddText({ px + 7, py + 1 }, imgui.GetColorU32(c), t);
+                imgui.Dummy({ w, lh + 2 });
             end
 
             if state.mini_mode[1] then
@@ -3515,11 +3620,11 @@ local function draw_detail_abilities(rec)
     local right = { false, false, true, true, false, true, true, true };
     local cells = {};
     for i, a in ipairs(list) do
-        local intr = (a.s > 0) and math.max(0, (a.s - a.f) * 100 / a.s) or 0;
+        local intr = (a.s2 > 0) and math.max(0, (a.s2 - a.f) * 100 / a.s2) or nil;
         cells[i] = {
             a.name, (a.k == 'ma') and 'Spell' or 'TP move', tostring(a.s), ('%.1f%%'):fmt(a.share), '',
-            tostring(a.f), ('%.0f%%'):fmt(intr), ('%.2f'):fmt(a.s / kills),
-            share = a.share, intr = intr,
+            (a.s2 > 0) and tostring(a.f) or '--', intr and ('%.0f%%'):fmt(intr) or '--', ('%.2f'):fmt(a.s / kills),
+            share = a.share, intr = intr or 0,
         };
     end
     local widths = {};
@@ -3950,7 +4055,14 @@ local function cfg_page_content()
         config.behavior.abilities_target = at[1];
         state.settings_dirty = true;
     end
-    help_marker('The three abilities your target uses most, with their share. The full list is in History > Mob Details.');
+    help_marker('The abilities your target uses most, one per row with their share. The full list is in History > Mob Details.');
+    local rows = { math.floor(tonumber(config.behavior.abilities_rows) or 4) };
+    imgui.PushItemWidth(180);
+    if imgui.SliderInt('Rows##mh_abil_rows', rows, 1, 10, '%d abilities') then
+        config.behavior.abilities_rows = rows[1];
+        state.settings_dirty = true;
+    end
+    imgui.PopItemWidth();
 end
 
 local function cfg_page_tracking()

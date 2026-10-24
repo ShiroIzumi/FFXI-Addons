@@ -162,9 +162,16 @@ function key_item_id(name)
     return ki_ids[name:lower()];
 end
 
+-- 1.5.3: your key items come from the game's key item list (0x055, sent
+-- when you log in and zone), only from packets after the last zone-in, so
+-- another character's key items never show. Ashita's HasKeyItem is a
+-- second source when it works.
+ki_have = {};       -- [id] = true (this character, since the last zone-in)
+ki_seen = false;
 function has_key_item(id)
+    if ki_have[id] then return true; end
     local ok, v = pcall(function() return get_player():HasKeyItem(id); end);
-    return ok and v == true;
+    return ok and (v == true or v == 1);
 end
 
 -- ============================================================================
@@ -207,12 +214,17 @@ FAME_NPCS = {
 };
 
 local function fame_event(data, with_nums)
+    -- 1.5.3: the event id is EventPara (EventNum is the zone), LSB
+    -- GP_SERV_COMMAND_EVENT / _EVENTNUM:
+    --   0x032  UniqueNo @0x04, ActIndex @0x08, EventNum @0x0A, EventPara @0x0C
+    --   0x034  UniqueNo @0x04, num[8] @0x08, ActIndex @0x28, EventNum @0x2A, EventPara @0x2C
     local idx, ev, p1;
     if with_nums then
-        idx, ev = u16(data, 0x28), u16(data, 0x2A);
+        idx, ev = u16(data, 0x28), u16(data, 0x2C);
         p1 = u32(data, 0x08);
+        if p1 >= 0x80000000 then p1 = p1 - 0x100000000; end
     else
-        idx, ev = u16(data, 0x08), u16(data, 0x0A);
+        idx, ev = u16(data, 0x08), u16(data, 0x0C);
     end
     local name = nil;
     pcall(function() name = AshitaCore:GetMemoryManager():GetEntity():GetName(idx); end);
@@ -245,6 +257,25 @@ function progress_packet(e)
     if data == nil then return; end
     if e.id == 0x032 or e.id == 0x034 then
         fame_event(data, e.id == 0x034);
+        return;
+    end
+    if e.id == 0x00A then
+        ki_have = {};
+        ki_seen = false;
+        return;
+    end
+    if e.id == 0x055 then
+        -- 64 bytes of "have" bits for one table of 512 ids; the table @0x84.
+        if #data < 0x85 then return; end
+        local tbl = data:byte(0x84 + 1) or 0;
+        for i = 0, 0x3F do
+            local byte = data:byte(0x04 + i + 1) or 0;
+            for bitn = 0, 7 do
+                local id = tbl * 512 + i * 8 + bitn;
+                if bit.band(byte, bit.lshift(1, bitn)) ~= 0 then ki_have[id] = true; else ki_have[id] = nil; end
+            end
+        end
+        ki_seen = true;
         return;
     end
     if e.id == 0x056 then
@@ -361,26 +392,48 @@ function draw_progress_tab(player)
             .. (at ~= nil and ((fm[a.key .. '_auto'] and '\nRead from ' .. a.npc .. ' ' or '\nSet by hand ') .. format_ago(at)) or ''));
     end
 
-    sheet_section('ACCESS', 'from your key items');
+    -- 1.5.3: only the ones this character has; the rest in one line.
+    sheet_section('ACCESS', 'from this character\'s key items');
     imgui.Spacing();
-    local shown = 0;
+    local shown, missing = 0, {};
     for _, k in ipairs(ACCESS_KEY_ITEMS) do
         local id = key_item_id(k[1]);
         if id ~= nil then
-            local have = has_key_item(id);
-            if have or k[2] ~= nil then
+            if has_key_item(id) then
                 shown = shown + 1;
-                imgui.TextColored(have and state.good_color or with_alpha(state.muted_color, 0.6), have and 'Yes' or ' - ');
+                imgui.TextColored(state.good_color, 'Yes');
                 imgui.SameLine(40 * scale);
-                imgui.TextColored(have and UI_TEXT or state.muted_color, k[1]);
+                imgui.TextColored(UI_TEXT, k[1]);
                 if k[2] ~= nil then
                     imgui.SameLine(0, 8);
                     imgui.TextColored(with_alpha(state.muted_color, 0.8), k[2]);
                 end
+            else
+                missing[#missing + 1] = k;
             end
         end
     end
-    if shown == 0 then imgui.TextColored(state.muted_color, 'Key items not read yet.'); end
+    if not ki_seen and shown == 0 then
+        imgui.TextColored(state.muted_color, 'Zone once and MogSuite reads your key items (the game sends them when you zone).');
+    elseif shown == 0 then
+        imgui.TextColored(state.muted_color, 'None of these yet.');
+    end
+    if #missing > 0 then
+        imgui.Spacing();
+        imgui.TextColored(with_alpha(state.muted_color, 0.75), ('Not yet: %d more (hover)'):format(#missing));
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.TextColored(state.muted_color, 'Key items this character doesn\'t have yet:');
+            for _, k in ipairs(missing) do
+                imgui.TextColored(UI_TEXT, k[1]);
+                if k[2] ~= nil then
+                    imgui.SameLine(0, 8);
+                    imgui.TextColored(state.muted_color, k[2]);
+                end
+            end
+            imgui.EndTooltip();
+        end
+    end
 end
 
 -- ============================================================================

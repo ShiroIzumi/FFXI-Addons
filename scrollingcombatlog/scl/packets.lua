@@ -327,9 +327,57 @@ local function parse_action_packet(e)
     return act;
 end
 
+-- Job abilities that come in category 3 (the weapon skill category) with
+-- their ability id as the param (LandSandBoat abilities.sql actionType 3):
+-- Steal 41 would otherwise read as Swift Blade (weapon skill 41), Mug 45 as
+-- Atonement, and so on. A real weapon skill uses the weapon skill messages,
+-- so an id on this list without one of those messages is the job ability.
+local CAT3_ABILITIES = {
+    [26] = true,  -- Eagle Eye Shot
+    [41] = true,  -- Steal
+    [45] = true,  -- Mug
+    [46] = true,  -- Shield Bash
+    [57] = true,  -- Shadowbind
+    [66] = true,  -- Jump
+    [67] = true,  -- High Jump
+    [68] = true,  -- Super Jump
+    [77] = true,  -- Weapon Bash
+    [150] = true, -- Tomahawk
+    [168] = true, -- Blade Bash
+    [170] = true, -- Angon
+    [228] = true, -- Despoil
+    [260] = true, -- Spirit Jump
+    [285] = true, -- Bounty Shot
+    [293] = true, -- Soul Jump
+    [328] = true, -- Larceny
+    [329] = true, -- Intervene
+};
+local WS_MESSAGES = { [185] = true, [186] = true, [187] = true, [188] = true, [189] = true, [194] = true,
+    [197] = true, [224] = true, [225] = true, [226] = true, [238] = true, [264] = true, [274] = true };
+
+-- Steal / Mug / Despoil / Larceny results.
+local STEAL_OK = { [125] = true, [453] = true };      -- param = item id
+local STEAL_FAIL = { [153] = true, [454] = true };
+local MUG_OK = { [129] = true };                       -- param = gil
+local MUG_FAIL = { [244] = true };
+
+local function is_cat3_ability(act)
+    if not act or act.category ~= 3 or not CAT3_ABILITIES[tonumber(act.param) or -1] then
+        return false;
+    end
+    local first = act.targets and act.targets[1] and act.targets[1].actions and act.targets[1].actions[1];
+    local message = first and tonumber(first.message) or -1;
+    return not WS_MESSAGES[message];
+end
+
 local function action_name(act)
     if not act then
         return nil;
+    end
+
+    -- Steal, Mug, Jump, Shield Bash ... (job abilities in category 3).
+    if act.is_ja then
+        return safe_ability_name((tonumber(act.param) or 0) + 512);
     end
 
     -- Magic finish.
@@ -362,7 +410,7 @@ end
 
 local function fallback_action_name(act)
     if act.category == 4 then return 'Spell #' .. tostring(act.param); end
-    if act.category == 3 then return 'Weapon Skill #' .. tostring(act.param); end
+    if act.category == 3 and not act.is_ja then return 'Weapon Skill #' .. tostring(act.param); end
     if act.category == 5 then return 'Item #' .. tostring(act.param); end
     if act.category == 11 or act.category == 13 then return 'Mob Ability #' .. tostring(act.param); end
     return 'Ability #' .. tostring(act.param);
@@ -685,6 +733,36 @@ local function emit_own_finish(act, action, target_is_me, target_name, display_n
             add_event('incoming', 'heal',
                 '+' .. tostring(amount) .. ' MP  <-  ' .. display_name, 'mp_recovery');
         end
+        return;
+    end
+
+    -- Job abilities that use category 3 (Steal, Mug, Jump ...).
+    if act.category == 3 and act.is_ja then
+        local event_type = 'outgoing_abilities';
+        if STEAL_OK[message] then
+            local item = safe_item_name(amount) or ('Item #' .. tostring(amount));
+            add_event('outgoing', 'ability', display_name .. ': ' .. item .. target_suffix(target_name), event_type);
+        elseif STEAL_FAIL[message] then
+            add_event('outgoing', 'miss', display_name .. '  nothing stolen' .. target_suffix(target_name), event_type);
+        elseif MUG_OK[message] then
+            add_event('outgoing', 'ability', display_name .. ': ' .. tostring(amount) .. ' gil' .. target_suffix(target_name), event_type);
+        elseif MUG_FAIL[message] then
+            add_event('outgoing', 'miss', display_name .. '  no gil' .. target_suffix(target_name), event_type);
+        elseif ACTION_MISS_MESSAGES[message] then
+            add_event('outgoing', 'ability', display_name .. '  MISS' .. target_suffix(target_name), event_type);
+        elseif DAMAGE_MESSAGES[message] or message == 110 then
+            session.record_damage(amount, 'ability', display_name, target_name);
+            local text_value = display_name;
+            if amount > 0 or settings.show_zero_damage == true then
+                text_value = text_value .. '  ' .. tostring(amount);
+            end
+            add_event('outgoing', 'ability', text_value .. target_suffix(target_name), event_type, { amount = amount });
+        else
+            local status = status_text(action);
+            local suffix = (status and status ~= display_name) and ('  (' .. status .. ')') or '';
+            add_event('outgoing', 'ability', display_name .. target_suffix(target_name) .. suffix, event_type);
+        end
+        emit_additional_effect(action, true, target_name);
         return;
     end
 
@@ -1069,7 +1147,7 @@ local function emit_aoe_summary(act, summary, display_name)
     local element = nil;
     local suffix = '';
 
-    if act.category == 3 then
+    if act.category == 3 and not act.is_ja then
         event_type = 'weapon_skills';
         suffix = sata_suffix();
         consume_sata();
@@ -1095,6 +1173,8 @@ local function emit_self_action(act)
     if START_CATEGORIES[act.category] or not FINISH_CATEGORIES[act.category] then
         return;
     end
+
+    act.is_ja = is_cat3_ability(act);
 
     local actor_id = tonumber(act.actor_id);
     local actor_is_me = actor_id == tonumber(self_id);

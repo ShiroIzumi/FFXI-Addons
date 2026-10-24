@@ -28,7 +28,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.5.2';
+addon.version = '1.5.3';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -207,7 +207,7 @@ character_inject.skilldata = loader.read('modules\\character\\skilldata.lua');
 
 local modules = {
     loader.load_module('character', { 'state', 'stats', 'layout', 'overview', 'skills', 'gearstats', 'currencies', 'recap', 'progress', 'equip', 'window', 'config', 'init' }, character_inject),
-    loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'extras', 'keyitems', 'window', 'lootlog', 'config', 'init' }, inject('inventory')),
+    loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'extras', 'keyitems', 'window', 'lootlog', 'stacks', 'config', 'init' }, inject('inventory')),
     loader.load_module('actions', { 'state', 'data', 'scdata', 'player', 'lists', 'pets', 'use', 'draw', 'skillchain', 'rows', 'window', 'config', 'init' }, inject('actions')),
     loader.load_module('requests', { 'state', 'popup', 'config', 'init' }, inject('requests')),
 };

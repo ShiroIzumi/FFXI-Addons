@@ -1,6 +1,6 @@
 addon.name    = 'scrollingcombatlog';
 addon.author  = 'Izumi (ShiroIzumi)';
-addon.version = '1.3.4';
+addon.version = '1.4.1';
 addon.desc    = 'Self-only packet-driven Ashita v4 scrolling combat text inspired by MSBT. Shows completed actions only.';
 addon.link    = '';
 
@@ -19,6 +19,8 @@ addon.link    = '';
       scl\render.lua          lane drawing (Performance + Custom Font renderers)
       scl\theme.lua           config window theme and styled widgets
       scl\ui.lua              config, Preview & Tools, Session window, move handles
+      scl\history.lua         the History window (last events of each side, 1.4.0)
+      scl\uifont.lua          the font of SCL's windows (Tahoma; not the floating text)
 
     HorizonXI rule: only COMPLETED actions are ever shown. Start-of-action
     packets ("readies", "starts casting", ...) are discarded in scl\packets.lua.
@@ -34,6 +36,8 @@ local packets   = require('scl.packets');
 local rewards   = require('scl.rewards');
 local render    = require('scl.render');
 local ui        = require('scl.ui');
+local history   = require('scl.history');
+local uifont    = require('scl.uifont');
 
 local settings = core.settings;
 local state = core.state;
@@ -104,6 +108,8 @@ ashita.events.register('command', 'scl_scroll_command_cb', function(e)
         if state.config_open[1] then
             state.config_size_initialized = false;
         end
+    elseif sub == 'history' or sub == 'log' then
+        history.toggle();
     elseif sub == 'session' then
         state.session_open[1] = not state.session_open[1];
         state.session_geometry_initialized = false;
@@ -139,6 +145,7 @@ ashita.events.register('command', 'scl_scroll_command_cb', function(e)
         print('[SCL] /scl - toggle display');
         print('[SCL] /scl config - open configuration');
         print('[SCL] /scl session - session summary window (/scl session reset)');
+        print('[SCL] /scl history - the last 50 events of each side');
         print('[SCL] /scl debug - log unmapped messages to addons\\scrollingcombatlog\\logs');
         print('[SCL] /scl test - show sample scrolling events');
         print('[SCL] /scl unlock - unlock positions and show draggable anchors');
@@ -277,7 +284,20 @@ local function logged_in()
     return r == true;
 end
 
+-- 1.4.0: the font of SCL's windows (settings.ui_font, Tahoma by default).
+uifont.addon = 'scrollingcombatlog';
+uifont.defaults(settings.ui_font);
+uifont.set_global(settings.ui_font);
+uifont.install_tooltips();
+ashita.events.register('load', 'scl_scroll_load_cb', function()
+    uifont.defaults(settings.ui_font);
+    pcall(uifont.load, settings.ui_font);
+end);
+
 ashita.events.register('d3d_present', 'scl_scroll_present_cb', function()
+    -- Settings can be replaced at login: keep the window font on them.
+    if settings.ui_font ~= nil and settings.ui_font.font_family == nil then uifont.defaults(settings.ui_font); end
+    uifont.set_global(settings.ui_font);
     -- Before you log in (title / character select) only the settings window
     -- can show: no combat text, session window or Move Mode handles.
     if not logged_in() then
@@ -292,6 +312,7 @@ ashita.events.register('d3d_present', 'scl_scroll_present_cb', function()
     render.draw_events();
     ui.draw_config();
     ui.draw_session_window();
+    pcall(history.draw);
     ui.draw_move_mode();
 end);
 

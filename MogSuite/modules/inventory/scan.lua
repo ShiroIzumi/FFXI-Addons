@@ -142,6 +142,15 @@ function scan_bags()
     end
     state.equipped = equipped;
 
+    -- 1.5.3: the inventory is loaded (gil, or anything in it): a bag that
+    -- reads empty now really is empty, so its saved copy is emptied too
+    -- (Stacks window / Characters tab).
+    local inv_ready = false;
+    pcall(function()
+        local g = inv:GetContainerItem(0, 0);
+        if g ~= nil and (tonumber(g.Count) or 0) > 0 then inv_ready = true; end
+    end);
+
     local bags, order = {}, {};
     local counts, totals, mh_totals = {}, {}, {};
     local equip_use_rows = {};
@@ -183,7 +192,7 @@ function scan_bags()
         end
 
         -- Remember this character's bags (Characters tab, Mog House snapshots).
-        if me ~= nil and used > 0 then
+        if me ~= nil and (used > 0 or (inv_ready and max > 0 and not VIEW_ONLY_BAG[bag] and me.bags[bag] ~= nil and #me.bags[bag] > 0)) then
             local list = {};
             for _, r in ipairs(rows) do list[#list + 1] = { r.id, r.count }; end
             local sig = list_signature(list);
