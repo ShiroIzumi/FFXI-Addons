@@ -48,6 +48,100 @@ local function card_begin(id, title, color, h)
     imgui.TextColored(color or UI_ACCENT_TEXT, title);
 end
 
+local function tint(c, a) return { c[1], c[2], c[3], a }; end
+local function u32(c) return imgui.GetColorU32(c); end
+
+-- Craft colors (same as the Crafting module).
+local GUILD_COLORS = {
+    Woodworking = COLORS.wind, Smithing = COLORS.fire, Goldsmithing = COLORS.light, Clothcraft = COLORS.ice,
+    Leathercraft = COLORS.earth, Bonecraft = COLORS.dark, Alchemy = COLORS.thunder, Cooking = COLORS.water,
+    Fishing = { 0.40, 0.86, 0.82, 1.0 },
+};
+local GROUP_COLORS = { Airships = COLORS.water, Ferry = COLORS.ice, Manaclipper = COLORS.wind, Barge = COLORS.earth };
+local GROUP_NOTES = {
+    Airships = 'Needs an airship pass.', Ferry = 'Selbina and Mhaura, about 10 min a crossing.',
+    Manaclipper = 'Bibiki Bay (Purgonorgo Isle and the tour).', Barge = 'Phanauet Channel.',
+};
+
+-- Section header: a colored bar, the title and a faint line to the right.
+local function header(title, col, note)
+    col = col or UI_ACCENT_TEXT;
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local w = avail_w();
+    local h = lh();
+    dl:AddRectFilled({ x, y + 1 }, { x + 3, y + h - 1 }, u32(col), 1.0);
+    dl:AddText({ x + 9, y }, u32(col), title);
+    local tx = x + 9 + text_w(title) + 10;
+    if note ~= nil then
+        dl:AddText({ tx, y }, u32(UI_MUTED), note);
+        tx = tx + text_w(note) + 10;
+    end
+    if tx < x + w then dl:AddRectFilled({ tx, y + h / 2 }, { x + w, y + h / 2 + 1 }, u32(tint(col, 0.22)), 0); end
+    imgui.Dummy({ w, h + 3 });
+end
+
+-- A soft stripe behind the row that starts at the cursor (every other row).
+local function row_bg(i, extra)
+    if i % 2 == 0 then return; end
+    local x, y = imgui.GetCursorScreenPos();
+    imgui.GetWindowDrawList():AddRectFilled({ x - 4, y - 1 }, { x + avail_w(), y + lh() + 1 + (extra or 0) }, u32({ 1, 1, 1, 0.03 }), 3.0);
+end
+
+-- Small rounded label with a tinted back.
+local function pill(text, col)
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local tw = text_w(text);
+    dl:AddRectFilled({ x, y }, { x + tw + 12, y + lh() }, u32(tint(col, 0.18)), lh() / 2);
+    dl:AddText({ x + 6, y }, u32(col), text);
+    imgui.Dummy({ tw + 12, lh() });
+end
+
+-- Thin progress bar at the cursor (w wide), sits in the middle of a text line.
+local function mini_bar(w, frac, col)
+    local dl = imgui.GetWindowDrawList();
+    local x, y = imgui.GetCursorScreenPos();
+    local h = math.max(4, math.floor(lh() * 0.30));
+    local yy = y + (lh() - h) / 2;
+    frac = math.max(0, math.min(1, frac or 0));
+    dl:AddRectFilled({ x, yy }, { x + w, yy + h }, u32({ 1, 1, 1, 0.07 }), h / 2);
+    if frac > 0 then dl:AddRectFilled({ x, yy }, { x + math.max(h, w * frac), yy + h }, u32(tint(col, 0.85)), h / 2); end
+    imgui.Dummy({ w, lh() });
+end
+
+-- Tinted button in one color (thin outline in that color).
+local function color_button(label, id, col, size)
+    imgui.PushStyleVar(ImGuiStyleVar_FrameRounding, 4.0);
+    imgui.PushStyleColor(ImGuiCol_Button, tint(col, 0.14));
+    imgui.PushStyleColor(ImGuiCol_ButtonHovered, tint(col, 0.28));
+    imgui.PushStyleColor(ImGuiCol_ButtonActive, tint(col, 0.40));
+    imgui.PushStyleColor(ImGuiCol_Text, { math.min(1, col[1] * 0.35 + 0.65), math.min(1, col[2] * 0.35 + 0.65), math.min(1, col[3] * 0.35 + 0.65), 1 });
+    local clicked;
+    if size ~= nil then clicked = imgui.Button(label .. '##' .. id, size); else clicked = imgui.Button(label .. '##' .. id); end
+    local hovered = imgui.IsItemHovered();
+    imgui.PopStyleColor(4);
+    imgui.PopStyleVar(1);
+    if imgui.GetItemRectMin ~= nil then
+        local x1, y1 = imgui.GetItemRectMin();
+        local x2, y2 = imgui.GetItemRectMax();
+        x1, y1, x2, y2 = tonumber(x1), tonumber(y1), tonumber(x2), tonumber(y2);
+        if x1 and y1 and x2 and y2 then
+            imgui.GetWindowDrawList():AddRect({ x1, y1 }, { x2, y2 }, u32(tint(col, hovered and 0.75 or 0.40)), 4.0, 0, 1.0);
+        end
+    end
+    return clicked;
+end
+
+-- Where a ship is in its run: 0..1 toward docking (at sea) or leaving (boarding).
+local function route_frac(r, st)
+    local run = r.runs[1];
+    local dock = (run[2] - run[1]) % r.every;
+    if st.boarding then return 1 - st.leaves / math.max(1, dock); end
+    local sea = math.max(1, r.every / #r.runs - dock);
+    return 1 - st.arrives / math.max(sea, st.arrives);
+end
+
 -- ============================================================================
 -- Today
 -- ============================================================================
@@ -57,43 +151,81 @@ local function draw_today()
     local now = os.time();
     local scale = tonumber(config.font_scale) or 1;
     local dl = imgui.GetWindowDrawList();
-
-    -- Header: big Vana'diel time, the day, the moon.
-    local x, y = imgui.GetCursorScreenPos();
     local col = VDAY_COLORS[v.weekday];
-    local big = imgui.GetFontSize() * 1.9;
-    local t = ('%02d:%02d'):format(v.hour, v.minute);
-    dl:AddText(imgui.GetFont(), big, { x, y }, imgui.GetColorU32(UI_TEXT), t);
-    local tw = text_w(t) * 1.9;
-    dl:AddText(imgui.GetFont(), imgui.GetFontSize() * 1.25, { x + tw + 14, y + 2 }, imgui.GetColorU32(col), VDAYS[v.weekday]);
-    dl:AddText({ x + tw + 14, y + big * 0.62 }, imgui.GetColorU32(UI_MUTED),
-        ("Vana'diel %d/%d/%d  -  next day in %s"):fmt(v.year, v.month, v.day, span(v.to_next)));
-    local mr = big * 0.42;
-    local mx = x + avail_w() - mr - 6;
-    draw_moon(dl, mx, y + big * 0.5, mr, v.moon_pct, v.moon_waxing);
-    local ml = ('%s %d%%'):fmt(v.moon_name, v.moon_pct);
-    dl:AddText({ mx - mr - 10 - text_w(ml), y + big * 0.5 - lh() / 2 }, imgui.GetColorU32({ 0.96, 0.94, 0.80, 1 }), ml);
-    imgui.Dummy({ 1, big + 6 });
-    imgui.TextColored(UI_MUTED, ('%s element, strong against %s.  Earth time %s.'):fmt(VDAY_SHORT[v.weekday], VDAY_BEATS[v.weekday], os.date(config.time24 and '%H:%M' or '%I:%M %p')));
-    imgui.Separator();
 
-    local half = (avail_w() - 8) / 2;
+    -- Header: a panel tinted with the day's element.
+    local big = imgui.GetFontSize() * 1.9;
+    local hh = big + lh() * 1.4 + 18;
+    local x, y = imgui.GetCursorScreenPos();
+    local W = avail_w();
+    local ok = pcall(function()
+        dl:AddRectFilledMultiColor({ x, y }, { x + W, y + hh }, u32(tint(col, 0.20)), u32(tint(col, 0.03)), u32(tint(col, 0.03)), u32(tint(col, 0.14)));
+    end);
+    if not ok then dl:AddRectFilled({ x, y }, { x + W, y + hh }, u32(tint(col, 0.10)), 6.0); end
+    dl:AddRectFilled({ x, y }, { x + 4, y + hh }, u32(col), 2.0);
+    dl:AddRect({ x, y }, { x + W, y + hh }, u32(tint(col, 0.30)), 6.0, 0, 1.0);
+    local px, py = x + 16, y + 8;
+    local t = ('%02d:%02d'):format(v.hour, v.minute);
+    dl:AddText(imgui.GetFont(), big, { px, py }, u32(UI_TEXT), t);
+    local tw = text_w(t) * 1.9;
+    dl:AddText(imgui.GetFont(), imgui.GetFontSize() * 1.25, { px + tw + 16, py + 1 }, u32(col), VDAYS[v.weekday]);
+    dl:AddText({ px + tw + 16, py + big * 0.62 }, u32(UI_MUTED),
+        ("Vana'diel %d/%d/%d  -  next day in %s"):fmt(v.year, v.month, v.day, span(v.to_next)));
+    -- How far into the day (thin bar under the clock).
+    local frac = 1 - (v.to_next / VDAY);
+    local by = py + big + 6;
+    dl:AddRectFilled({ px, by }, { px + tw, by + 3 }, u32({ 1, 1, 1, 0.08 }), 1.5);
+    dl:AddRectFilled({ px, by }, { px + tw * math.max(0, math.min(1, frac)), by + 3 }, u32(col), 1.5);
+    -- Element line.
+    local ey = by + 8;
+    local ex = px;
+    dl:AddText({ ex, ey }, u32(col), VDAY_SHORT[v.weekday]);
+    ex = ex + text_w(VDAY_SHORT[v.weekday]);
+    dl:AddText({ ex, ey }, u32(UI_MUTED), ' element, strong against ');
+    ex = ex + text_w(' element, strong against ');
+    local beats_col = COLORS[({ Ice = 'ice', Lightning = 'thunder', Fire = 'fire', Earth = 'earth', Wind = 'wind', Water = 'water', Dark = 'dark', Light = 'light' })[VDAY_BEATS[v.weekday]]] or UI_TEXT;
+    dl:AddText({ ex, ey }, u32(beats_col), VDAY_BEATS[v.weekday]);
+    ex = ex + text_w(VDAY_BEATS[v.weekday]);
+    dl:AddText({ ex, ey }, u32(UI_MUTED), ('.   Earth time %s'):fmt(os.date(config.time24 and '%H:%M' or '%I:%M %p')));
+    -- Moon.
+    local mr = big * 0.46;
+    local mx = x + W - mr - 16;
+    local my = y + hh / 2;
+    dl:AddCircleFilled({ mx, my }, mr + 5, u32({ 0.96, 0.94, 0.80, 0.06 }), 28);
+    draw_moon(dl, mx, my, mr, v.moon_pct, v.moon_waxing);
+    local ml = v.moon_name;
+    local mp = ('%d%%'):fmt(v.moon_pct);
+    dl:AddText({ mx - mr - 14 - text_w(ml), my - lh() }, u32({ 0.96, 0.94, 0.80, 1 }), ml);
+    dl:AddText({ mx - mr - 14 - text_w(mp), my }, u32(UI_MUTED), mp);
+    imgui.Dummy({ W, hh + 6 });
+
+    local half = (avail_w() - 10) / 2;
     imgui.BeginGroup();
     begin_child('##caltoday_l', { half, 0 }, 0);
 
     -- Coming up.
-    imgui.TextColored(UI_ACCENT_TEXT, 'COMING UP');
+    header('COMING UP', COLORS.light);
+    local row = 0;
     if config.conquest.enabled ~= false then
         local c = next_conquest(now);
-        pair('Conquest results', ('in %s'):fmt(span(c - now)), COLORS.earth, half * 0.45);
+        row_bg(row);
+        pair('Conquest results', ('in %s'):fmt(span(c - now)), COLORS.earth, half * 0.50);
         if imgui.IsItemHovered() then imgui.SetTooltip(when_at(c)); end
+        row = row + 1;
     end
     local items = items_between(now, now + 7 * 86400);
     local shown = 0;
     for _, it in ipairs(items) do
         if it.kind ~= 'conquest' and shown < 8 then
             shown = shown + 1;
-            pair(it.title, 'in ' .. span(it.t - now), it.color, half * 0.45);
+            row_bg(row);
+            row = row + 1;
+            local cx, cy = imgui.GetCursorScreenPos();
+            imgui.GetWindowDrawList():AddCircleFilled({ cx + 4, cy + lh() / 2 }, 3, u32(it.color), 10);
+            imgui.SetCursorPosX(imgui.GetCursorPosX() + 12);
+            imgui.TextColored(UI_TEXT, it.title);
+            imgui.SameLine(half * 0.50);
+            imgui.TextColored(it.color, 'in ' .. span(it.t - now));
             if imgui.IsItemHovered() then imgui.SetTooltip(when_at(it.t)); end
         end
     end
@@ -101,64 +233,97 @@ local function draw_today()
     imgui.Spacing();
 
     -- Timers.
-    imgui.TextColored(UI_ACCENT_TEXT, 'TIMERS');
+    header('TIMERS', COLORS.wind);
     if #(config.timers or {}) == 0 then imgui.TextDisabled('None yet (Timers tab).'); end
-    for _, tm in ipairs(config.timers or {}) do
+    for i, tm in ipairs(config.timers or {}) do
         local st, left = timer_status(tm);
-        if st == 'ready' then pair(tm.name, 'Ready', GOOD, half * 0.45);
-        elseif st == 'waiting' then pair(tm.name, span(left), WARN, half * 0.45);
-        else pair(tm.name, 'not started', UI_MUTED, half * 0.45); end
+        row_bg(i);
+        imgui.TextColored(UI_TEXT, tm.name);
+        imgui.SameLine(half * 0.50);
+        if st == 'ready' then
+            pill('Ready', GOOD);
+        elseif st == 'waiting' then
+            local total = math.max(1, (tonumber(tm.hours) or 1) * 3600);
+            mini_bar(half * 0.18, 1 - left / total, WARN);
+            imgui.SameLine(0, 8);
+            imgui.TextColored(WARN, span(left));
+        else
+            imgui.TextColored(UI_MUTED, 'not started');
+        end
     end
     imgui.Spacing();
 
     -- The next Vana'diel days.
-    imgui.TextColored(UI_ACCENT_TEXT, 'NEXT DAYS');
+    header('NEXT DAYS', COLORS.water);
     for k = 1, 8 do
         local td = v.total_days + k;
         local wd = td % 8;
         local start = vday_start(td);
-        local name, pct = moon_of(td);
+        local name, pct, _, waxing = moon_of(td);
+        row_bg(k);
+        local cx, cy = imgui.GetCursorScreenPos();
+        local d2 = imgui.GetWindowDrawList();
+        d2:AddRectFilled({ cx, cy + 3 }, { cx + 6, cy + lh() - 3 }, u32(VDAY_COLORS[wd]), 2.0);
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + 12);
         imgui.TextColored(VDAY_COLORS[wd], VDAYS[wd]);
-        imgui.SameLine(half * 0.33);
+        imgui.SameLine(half * 0.36);
         imgui.TextColored(UI_TEXT, clock_at(start));
-        imgui.SameLine(half * 0.56);
+        imgui.SameLine(half * 0.58);
+        local mx2, my2 = imgui.GetCursorScreenPos();
+        local r = lh() * 0.36;
+        draw_moon(d2, mx2 + r, my2 + lh() / 2, r, pct, waxing);
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + r * 2 + 6);
         imgui.TextColored(UI_MUTED, ('%s %d%%'):fmt(name, pct));
     end
     imgui.EndChild();
     imgui.EndGroup();
 
-    imgui.SameLine(0, 8);
+    imgui.SameLine(0, 10);
     begin_child('##caltoday_r', { 0, 0 }, 0);
-    imgui.TextColored(UI_ACCENT_TEXT, 'GUILDS');
-    for _, g in ipairs(GUILDS) do
+    local rw = avail_w();
+    header('GUILDS', COLORS.earth);
+    for i, g in ipairs(GUILDS) do
         local open, secs, why = guild_status(g, v);
-        imgui.TextColored(open and UI_TEXT or UI_MUTED, g.name);
-        imgui.SameLine(half * 0.40);
+        local gc = GUILD_COLORS[g.name] or UI_TEXT;
+        row_bg(i);
+        local cx, cy = imgui.GetCursorScreenPos();
+        imgui.GetWindowDrawList():AddCircleFilled({ cx + 4, cy + lh() / 2 }, 3.5, u32(open and gc or tint(gc, 0.45)), 10);
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + 12);
+        imgui.TextColored(open and gc or UI_MUTED, g.name);
+        imgui.SameLine(rw * 0.40);
         if open then
-            imgui.TextColored(GOOD, 'open');
-            imgui.SameLine();
+            pill('open', GOOD);
+            imgui.SameLine(0, 8);
             imgui.TextColored(UI_MUTED, 'closes in ' .. span(secs));
         else
-            imgui.TextColored(why == 'holiday' and WARN or BAD, why == 'holiday' and 'holiday' or 'closed');
-            imgui.SameLine();
+            pill(why == 'holiday' and 'holiday' or 'closed', why == 'holiday' and WARN or BAD);
+            imgui.SameLine(0, 8);
             imgui.TextColored(UI_MUTED, 'opens in ' .. span(secs));
         end
         if imgui.IsItemHovered() then imgui.SetTooltip(('%s  -  %02d:00 to %02d:00, closed on %s'):fmt(g.where, g.open, g.close, VDAYS[g.holiday])); end
     end
     imgui.Spacing();
-    imgui.TextColored(UI_ACCENT_TEXT, 'NEXT SHIPS');
+    header('NEXT SHIPS', COLORS.ice);
     local raw = vraw();
+    local n = 0;
     for _, r in ipairs(ROUTES) do
         if r.group == 'Airships' or r.group == 'Ferry' then
+            n = n + 1;
             local st = route_status(r, raw);
+            local gc = GROUP_COLORS[r.group] or UI_ACCENT;
+            row_bg(n);
             imgui.TextColored(UI_TEXT, r.name);
-            imgui.SameLine(half * 0.52);
+            imgui.SameLine(rw * 0.44);
+            mini_bar(rw * 0.12, route_frac(r, st), st.boarding and GOOD or gc);
+            imgui.SameLine(0, 8);
             if st.boarding then
-                imgui.TextColored(GOOD, 'boarding');
-                imgui.SameLine();
+                pill('boarding', GOOD);
+                imgui.SameLine(0, 6);
                 imgui.TextColored(UI_MUTED, 'leaves in ' .. span(st.leaves));
             else
-                imgui.TextColored(UI_MUTED, 'docks in ' .. span(st.arrives));
+                imgui.TextColored(UI_MUTED, 'docks in ');
+                imgui.SameLine(0, 0);
+                imgui.TextColored(st.arrives < 120 and WARN or UI_TEXT, span(st.arrives));
             end
         end
     end
@@ -181,20 +346,27 @@ local function draw_vana()
     imgui.SameLine(0, 14);
     local year, month = math.floor(m / 12), m % 12 + 1;
     local first = year * 360 + (month - 1) * 30;      -- day number of the 1st
+    align_label();
     imgui.TextColored(UI_ACCENT_TEXT, ("Vana'diel  %d / %02d"):fmt(year, month));
     imgui.SameLine();
     imgui.TextColored(UI_MUTED, ('  %s  to  %s'):fmt(when_at(vday_start(first)), when_at(vday_start(first + 30) - 60)));
+    imgui.Spacing();
 
     -- 8 columns, one per weekday; the 1st sits under its own weekday.
+    local GAP = 6;
+    local PAD = 8;
     local w = avail_w();
-    local cw = (w - 7 * 4) / 8;
-    local ch = math.max(lh() * 3.3, cw * 0.52);
+    local cw = (w - 7 * GAP) / 8;
+    local ch = math.max(lh() * 3 + PAD * 2 + 2, cw * 0.55);
     local dl = imgui.GetWindowDrawList();
     local x0, y0 = imgui.GetCursorScreenPos();
+    local top = y0;
     for wd = 0, 7 do
-        dl:AddText({ x0 + wd * (cw + 4) + 4, y0 }, imgui.GetColorU32(VDAY_COLORS[wd]), VDAYS[wd]);
+        local hx = x0 + wd * (cw + GAP);
+        dl:AddRectFilled({ hx, y0 + lh() + 3 }, { hx + cw, y0 + lh() + 5 }, u32(tint(VDAY_COLORS[wd], 0.55)), 1.0);
+        dl:AddText({ hx + PAD, y0 }, u32(VDAY_COLORS[wd]), VDAYS[wd]);
     end
-    y0 = y0 + lh() + 4;
+    y0 = y0 + lh() + 10;
     local lead = first % 8;
     local rows = math.ceil((lead + 30) / 8);
     local mx, my = imgui.GetMousePos();
@@ -202,32 +374,37 @@ local function draw_vana()
     for i = 0, 29 do
         local td = first + i;
         local slot = lead + i;
-        local cx = x0 + (slot % 8) * (cw + 4);
-        local cy = y0 + math.floor(slot / 8) * (ch + 4);
+        local cx = x0 + (slot % 8) * (cw + GAP);
+        local cy = y0 + math.floor(slot / 8) * (ch + GAP);
         local wd = td % 8;
         local c = VDAY_COLORS[wd];
         local is_now = (td == v.total_days);
         local past = td < v.total_days;
-        dl:AddRectFilled({ cx, cy }, { cx + cw, cy + ch }, imgui.GetColorU32({ c[1], c[2], c[3], past and 0.06 or 0.13 }), 4.0);
-        if is_now then dl:AddRect({ cx, cy }, { cx + cw, cy + ch }, imgui.GetColorU32(c), 4.0, 0, 2.0); end
-        dl:AddText({ cx + 5, cy + 3 }, imgui.GetColorU32(past and UI_MUTED or UI_TEXT), tostring(i + 1));
+        local mxn, myn = tonumber(mx) or -1, tonumber(my) or -1;
+        local hov = mxn >= cx and mxn <= cx + cw and myn >= cy and myn <= cy + ch and imgui.IsWindowHovered();
+        dl:AddRectFilled({ cx, cy }, { cx + cw, cy + ch }, u32(tint(c, past and 0.05 or (hov and 0.22 or 0.13))), 5.0);
+        dl:AddRectFilled({ cx, cy }, { cx + 3, cy + ch }, u32(tint(c, past and 0.25 or 0.70)), 2.0);
+        if is_now then
+            dl:AddRect({ cx - 1, cy - 1 }, { cx + cw + 1, cy + ch + 1 }, u32(tint(c, 0.35)), 6.0, 0, 4.0);
+            dl:AddRect({ cx, cy }, { cx + cw, cy + ch }, u32(c), 5.0, 0, 2.0);
+        end
+        dl:AddText({ cx + PAD, cy + PAD - 2 }, u32(past and UI_MUTED or (is_now and c or UI_TEXT)), tostring(i + 1));
         local start = vday_start(td);
-        dl:AddText({ cx + 5, cy + 3 + lh() }, imgui.GetColorU32(UI_MUTED), os.date('%a ', start) .. clock_at(start));
+        dl:AddText({ cx + PAD, cy + PAD - 2 + lh() }, u32(UI_MUTED), os.date('%a ', start) .. clock_at(start));
         if config.show.moon ~= false then
             local _, pct, phase, waxing = moon_of(td);
             local r = lh() * 0.42;
-            draw_moon(dl, cx + cw - r - 6, cy + r + 5, r, pct, waxing);
+            draw_moon(dl, cx + cw - r - PAD, cy + r + PAD - 1, r, pct, waxing);
             if phase == 4 or phase == 0 then
-                dl:AddText({ cx + 5, cy + 3 + lh() * 2 }, imgui.GetColorU32({ 0.96, 0.94, 0.80, 1 }), (phase == 4) and 'Full moon' or 'New moon');
+                dl:AddText({ cx + PAD, cy + PAD - 2 + lh() * 2 }, u32({ 0.96, 0.94, 0.80, past and 0.5 or 1 }), (phase == 4) and 'Full moon' or 'New moon');
             end
         end
         if config.show.holidays ~= false and #holiday_guilds(wd) > 0 then
-            dl:AddCircleFilled({ cx + cw - 7, cy + ch - 7 }, 3, imgui.GetColorU32(WARN), 8);
+            dl:AddCircleFilled({ cx + cw - PAD, cy + ch - PAD }, 3, u32(WARN), 8);
         end
-        local mxn, myn = tonumber(mx) or -1, tonumber(my) or -1;
-        if mxn >= cx and mxn <= cx + cw and myn >= cy and myn <= cy + ch and imgui.IsWindowHovered() then hovered = td; end
+        if hov then hovered = td; end
     end
-    imgui.Dummy({ w, rows * (ch + 4) });
+    imgui.Dummy({ w, (y0 - top) + rows * (ch + GAP) });
     if hovered ~= nil then
         local wd = hovered % 8;
         local name, pct = moon_of(hovered);
@@ -239,6 +416,7 @@ local function draw_vana()
         for _, it in ipairs(items_between(s, s + VDAY)) do lines = lines .. '\n' .. clock_at(it.t) .. '  ' .. it.title; end
         imgui.SetTooltip(lines);
     end
+    imgui.Spacing();
     imgui.TextColored(UI_MUTED, 'A Vana\'diel day lasts 57 min 36 s of Earth time. The dot marks a guild holiday. Hover a day for details.');
 end
 
@@ -358,67 +536,120 @@ end
 -- Timers
 -- ============================================================================
 
+local PRESET_COLORS = { COLORS.dark, COLORS.thunder, COLORS.earth, COLORS.fire, COLORS.water, COLORS.wind, COLORS.light };
+
 local function draw_timers()
     imgui.TextColored(UI_MUTED, 'Add one, then click Start when you do the thing (enter Dynamis, get the key item...). It counts down to Ready.');
-    imgui.TextColored(UI_MUTED, 'Add:');
+    imgui.Spacing();
+    -- Add buttons (wrap when the window is narrow).
+    local line_x = imgui.GetCursorPosX();
+    local line_w = avail_w();
+    align_label();
+    imgui.TextColored(UI_ACCENT_TEXT, 'ADD');
     for i, p in ipairs(TIMER_PRESETS) do
-        imgui.SameLine(0, 4);
-        if imgui.Button(p.name .. '##caltp' .. i) then add_timer(p); end
+        local label = '+  ' .. p.name;
+        local bw = text_w(label) + 20;
+        imgui.SameLine(0, 6);
+        if imgui.GetCursorPosX() + bw > line_x + line_w then imgui.NewLine(); end
+        if color_button(label, 'caltp' .. i, PRESET_COLORS[i] or UI_ACCENT, { bw, 0 }) then add_timer(p); end
         if imgui.IsItemHovered() then imgui.SetTooltip(('%s  -  %g hours\n%s'):fmt(p.name, p.hours, p.note or '')); end
     end
+    imgui.Spacing();
     imgui.Separator();
+    imgui.Spacing();
+
     local list = config.timers or {};
     if #list == 0 then imgui.TextDisabled('No timers yet.'); end
-    local w = avail_w();
+    local dl = imgui.GetWindowDrawList();
+    local fh = imgui.GetFrameHeight();
+    local PAD = 8;
     local remove = nil;
     for i, tm in ipairs(list) do
         imgui.PushID('caltm' .. tostring(tm.id));
         local st, left = timer_status(tm);
+        local col = (st == 'ready') and GOOD or ((st == 'waiting') and WARN or UI_MUTED);
+        local has_note = tm.note ~= nil and tm.note ~= '';
+        local row_h = PAD * 2 + fh + (has_note and (lh() + 4) or 0);
+        local x, y = imgui.GetCursorScreenPos();
+        local w = avail_w();
+
+        -- Card.
+        dl:AddRectFilled({ x, y }, { x + w, y + row_h }, u32({ 1, 1, 1, 0.035 }), 6.0);
+        dl:AddRect({ x, y }, { x + w, y + row_h }, u32(tint(col, 0.25)), 6.0, 0, 1.0);
+        dl:AddRectFilled({ x, y }, { x + 4, y + row_h }, u32(col), 2.0);
+        imgui.SetCursorScreenPos({ x + PAD + 6, y + PAD });
+
+        -- Name.
         local name = { tostring(tm.name or '') };
-        imgui.PushItemWidth(w * 0.28);
+        imgui.PushItemWidth(math.max(120, w * 0.24));
         if imgui.InputText('##name', name, 48) then tm.name = name[1]; mark_dirty(); end
         imgui.PopItemWidth();
-        imgui.SameLine();
+
+        -- Hours: [-] [ 168.0 h ] [+]
+        imgui.SameLine(0, 12);
+        if color_button('-', 'hdn', UI_ACCENT, { fh, fh }) then tm.hours = math.max(1, math.floor((tonumber(tm.hours) or 1) - 1 + 0.5)); mark_dirty(); end
+        if imgui.IsItemHovered() then imgui.SetTooltip('1 hour less'); end
+        imgui.SameLine(0, 3);
         local hrs = { tonumber(tm.hours) or 1 };
-        imgui.PushItemWidth(90);
-        if imgui.InputFloat('##hours', hrs, 1, 24, '%.1f h') then tm.hours = math.max(0.1, hrs[1]); mark_dirty(); end
+        imgui.PushItemWidth(text_w('9999.9 h') + 14);
+        if imgui.InputFloat('##hours', hrs, 0, 0, '%.1f h') then tm.hours = math.max(0.1, hrs[1]); mark_dirty(); end
         imgui.PopItemWidth();
-        if imgui.IsItemHovered() then imgui.SetTooltip('Length in Earth hours.'); end
-        imgui.SameLine();
-        -- Status + bar.
+        if imgui.IsItemHovered() then imgui.SetTooltip('Length in Earth hours (type a number).'); end
+        imgui.SameLine(0, 3);
+        if color_button('+', 'hup', UI_ACCENT, { fh, fh }) then tm.hours = math.floor((tonumber(tm.hours) or 0) + 1 + 0.5); mark_dirty(); end
+        if imgui.IsItemHovered() then imgui.SetTooltip('1 hour more'); end
+
+        -- Buttons on the right; the bar takes the room between.
+        local b1 = (st == 'idle') and 'Start' or 'Restart';
+        local armed = (state.confirm['tm' .. tm.id] or 0) > os.clock();
+        local b3 = armed and 'Sure?' or 'X';
+        local w1 = text_w('Restart') + 20;
+        local w2 = text_w('Clear') + 20;
+        local w3 = text_w('Sure?') + 16;
+        imgui.SameLine(0, 12);
         local bx, by = imgui.GetCursorScreenPos();
-        local bw = w * 0.30;
-        local dl = imgui.GetWindowDrawList();
-        local frac = 0;
-        local label, col;
-        if st == 'ready' then frac, label, col = 1, 'Ready', GOOD;
+        local bw = (x + w - PAD) - bx - (w1 + w2 + w3 + 3 * 6);
+        bw = math.max(80, bw);
+        local frac, label = 0, 'Not started';
+        if st == 'ready' then frac, label = 1, 'Ready';
         elseif st == 'waiting' then
             local total = math.max(1, (tonumber(tm.hours) or 1) * 3600);
             frac = 1 - left / total;
-            label, col = ('%s  (%s)'):fmt(span(left), when_at(timer_ready_at(tm))), WARN;
-        else frac, label, col = 0, 'Not started', UI_MUTED; end
-        local fh = imgui.GetFrameHeight();
-        dl:AddRectFilled({ bx, by }, { bx + bw, by + fh }, imgui.GetColorU32(UI_CONTROL), 3.0);
-        dl:AddRectFilled({ bx, by }, { bx + bw * math.max(0, math.min(1, frac)), by + fh }, imgui.GetColorU32({ col[1], col[2], col[3], 0.35 }), 3.0);
-        dl:AddText({ bx + 6, by + (fh - lh()) / 2 }, imgui.GetColorU32(col), label);
+            label = ('%s left  -  %s'):fmt(span(left), when_at(timer_ready_at(tm)));
+        end
+        frac = math.max(0, math.min(1, frac));
+        dl:AddRectFilled({ bx, by }, { bx + bw, by + fh }, u32({ 0, 0, 0, 0.35 }), 4.0);
+        if frac > 0 then dl:AddRectFilled({ bx, by }, { bx + math.max(8, bw * frac), by + fh }, u32(tint(col, 0.30)), 4.0); end
+        dl:AddRect({ bx, by }, { bx + bw, by + fh }, u32(tint(col, 0.35)), 4.0, 0, 1.0);
+        local lab = label;
+        while #lab > 3 and text_w(lab) > bw - 16 do lab = lab:sub(1, #lab - 2); end
+        if lab ~= label then lab = lab .. '..'; end
+        dl:AddText({ bx + 8, by + (fh - lh()) / 2 }, u32(st == 'idle' and UI_MUTED or col), lab);
         imgui.Dummy({ bw, fh });
-        imgui.SameLine();
-        if imgui.Button((st == 'idle') and 'Start' or 'Restart') then start_timer(tm); end
+        if lab ~= label and imgui.IsItemHovered() then imgui.SetTooltip(label); end
+
+        imgui.SameLine(0, 6);
+        if color_button(b1, 'start', GOOD, { w1, fh }) then start_timer(tm); end
         if imgui.IsItemHovered() then imgui.SetTooltip('Starts counting now.'); end
-        imgui.SameLine();
-        if st ~= 'idle' and imgui.Button('Clear') then tm.started = 0; mark_dirty(); end
-        imgui.SameLine();
-        local armed = (state.confirm['tm' .. tm.id] or 0) > os.clock();
-        if imgui.Button(armed and 'Sure?' or 'X') then
+        imgui.SameLine(0, 6);
+        if st ~= 'idle' then
+            if imgui.Button('Clear', { w2, fh }) then tm.started = 0; mark_dirty(); end
+        else
+            imgui.Dummy({ w2, fh });
+        end
+        imgui.SameLine(0, 6);
+        if color_button(b3, 'del', BAD, { w3, fh }) then
             if armed then remove = i; else state.confirm['tm' .. tm.id] = os.clock() + 3; end
         end
         if imgui.IsItemHovered() then imgui.SetTooltip('Delete this timer (click twice).'); end
-        if tm.note ~= nil and tm.note ~= '' then
-            imgui.SetCursorPosX(imgui.GetCursorPosX() + 6);
+
+        if has_note then
+            imgui.SetCursorScreenPos({ x + PAD + 6, y + PAD + fh + 4 });
             imgui.TextColored(UI_MUTED, tm.note);
         end
+        imgui.SetCursorScreenPos({ x, y + row_h });
+        imgui.Dummy({ w, 6 });
         imgui.PopID();
-        imgui.Spacing();
     end
     if remove ~= nil then table.remove(list, remove); mark_dirty(); end
 end
@@ -547,37 +778,66 @@ local function draw_travel()
     local raw = vraw();
     local w = avail_w();
     for _, grp in ipairs(ROUTE_GROUPS) do
-        imgui.TextColored(UI_ACCENT_TEXT, grp:upper());
+        local gc = GROUP_COLORS[grp] or UI_ACCENT;
+        header(grp:upper(), gc, GROUP_NOTES[grp]);
+        local n = 0;
         for _, r in ipairs(ROUTES) do
             if r.group == grp then
+                n = n + 1;
                 local st = route_status(r, raw);
-                imgui.TextColored(UI_TEXT, r.name);
-                imgui.SameLine(w * 0.36);
+                row_bg(n);
+                local cx, cy = imgui.GetCursorScreenPos();
+                imgui.GetWindowDrawList():AddRectFilled({ cx, cy + 3 }, { cx + 3, cy + lh() - 3 }, u32(st.boarding and GOOD or tint(gc, 0.6)), 1.0);
+                imgui.SetCursorPosX(imgui.GetCursorPosX() + 10);
+                imgui.TextColored(st.boarding and UI_TEXT or { 0.86, 0.86, 0.88, 1 }, r.name);
+                imgui.SameLine(w * 0.34);
+                if st.boarding then pill('boarding', GOOD); else pill('at sea', gc); end
+                imgui.SameLine(w * 0.46);
+                mini_bar(w * 0.14, route_frac(r, st), st.boarding and GOOD or gc);
+                imgui.SameLine(w * 0.64);
                 if st.boarding then
-                    imgui.TextColored(GOOD, 'boarding');
-                    imgui.SameLine(w * 0.50);
-                    imgui.TextColored(UI_MUTED, 'leaves in ' .. span(st.leaves));
+                    imgui.TextColored(UI_MUTED, 'leaves in ');
+                    imgui.SameLine(0, 0);
+                    imgui.TextColored(st.leaves < 60 and BAD or GOOD, span(st.leaves));
                 else
-                    imgui.TextColored(UI_MUTED, 'at sea');
-                    imgui.SameLine(w * 0.50);
-                    imgui.TextColored(UI_MUTED, ('docks in %s, leaves in %s'):fmt(span(st.arrives), span(st.leaves)));
+                    imgui.TextColored(UI_MUTED, 'docks in ');
+                    imgui.SameLine(0, 0);
+                    imgui.TextColored(st.arrives < 120 and WARN or UI_TEXT, span(st.arrives));
+                    imgui.SameLine(0, 0);
+                    imgui.TextColored(UI_MUTED, ',  leaves in ' .. span(st.leaves));
                 end
             end
         end
         imgui.Spacing();
     end
     local v = vana_at();
-    imgui.TextColored(UI_ACCENT_TEXT, 'GUILDS');
-    for _, g in ipairs(GUILDS) do
+    header('GUILDS', COLORS.earth, 'Vana\'diel hours, closed one day a week.');
+    for i, g in ipairs(GUILDS) do
         local open, secs, why = guild_status(g, v);
-        imgui.TextColored(open and UI_TEXT or UI_MUTED, g.name);
-        imgui.SameLine(w * 0.20);
+        local gc = GUILD_COLORS[g.name] or UI_TEXT;
+        row_bg(i);
+        local cx, cy = imgui.GetCursorScreenPos();
+        imgui.GetWindowDrawList():AddCircleFilled({ cx + 4, cy + lh() / 2 }, 3.5, u32(open and gc or tint(gc, 0.45)), 10);
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + 12);
+        imgui.TextColored(open and gc or tint(gc, 0.70), g.name);
+        imgui.SameLine(w * 0.18);
         imgui.TextColored(UI_MUTED, g.where);
-        imgui.SameLine(w * 0.50);
-        if open then imgui.TextColored(GOOD, 'open, closes in ' .. span(secs));
-        else imgui.TextColored(why == 'holiday' and WARN or BAD, (why == 'holiday' and 'holiday' or 'closed') .. ', opens in ' .. span(secs)); end
-        imgui.SameLine(w * 0.78);
-        imgui.TextColored(UI_MUTED, ('%02d-%02d, off %s'):fmt(g.open, g.close, VDAYS[g.holiday]));
+        imgui.SameLine(w * 0.40);
+        if open then
+            pill('open', GOOD);
+            imgui.SameLine(0, 8);
+            imgui.TextColored(UI_MUTED, 'closes in ' .. span(secs));
+        else
+            pill(why == 'holiday' and 'holiday' or 'closed', why == 'holiday' and WARN or BAD);
+            imgui.SameLine(0, 8);
+            imgui.TextColored(UI_MUTED, 'opens in ' .. span(secs));
+        end
+        imgui.SameLine(w * 0.70);
+        imgui.TextColored(UI_TEXT, ('%02d:00 - %02d:00'):fmt(g.open, g.close));
+        imgui.SameLine(0, 12);
+        imgui.TextColored(UI_MUTED, 'off');
+        imgui.SameLine(0, 4);
+        imgui.TextColored(VDAY_COLORS[g.holiday], VDAYS[g.holiday]);
     end
 end
 

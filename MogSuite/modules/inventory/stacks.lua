@@ -322,3 +322,7 @@ function MS.item_icon(id)
     return info and get_icon(info) or nil;
 end
 function MS.bag_name(bag) return BAG_NAMES[bag] or ('Bag ' .. tostring(bag)); end
+
+-- Where an item drops ({ zone id, "Monster", ... }) and a zone's name (Crafting).
+function MS.drops_of(id) return drops_of and drops_of(id) or nil; end
+function MS.zone_name(zid) return zone_name and zone_name(zid) or ('Zone ' .. tostring(zid)); end

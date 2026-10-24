@@ -79,6 +79,7 @@ function pick_bag(value)
         if find_popout(value) ~= nil then close_popout(value); else open_popout(value); end
     else
         V.bag = value;
+        V.bag_wanted = nil;
         if value == -3 then state.key_items = nil; end
         mark_dirty();
     end
@@ -278,7 +279,15 @@ function draw_inventory_window(popout)
             -- Header: bag tabs, then Characters and Key Items.
             -- Shift+Click a tab opens it in its own window.
             if V.bag == -2 and next(chars) == nil then V.bag = -1; end
+            -- 1.6.1: while a bag is not loaded (zoning / warping) another tab
+            -- shows for the moment, but the one you picked comes back as soon
+            -- as it is loaded again (it used to stay on Safe).
+            if V.bag_wanted ~= nil and state.bags[V.bag_wanted] ~= nil then
+                V.bag = V.bag_wanted;
+                V.bag_wanted = nil;
+            end
             if state.bag_order[1] ~= nil and V.bag >= 0 and state.bags[V.bag] == nil then
+                V.bag_wanted = V.bag_wanted or V.bag;
                 V.bag = state.bag_order[1];
             end
             imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 9, 4 });

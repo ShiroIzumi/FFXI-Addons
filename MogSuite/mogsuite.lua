@@ -32,7 +32,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.6.0';
+addon.version = '1.6.4';
 addon.desc    = 'MogSuite: your character, inventory, actions, calendar and crafting in one suite.';
 addon.link    = '';
 
@@ -219,7 +219,7 @@ local modules = {
     loader.load_module('actions', { 'state', 'data', 'scdata', 'player', 'lists', 'pets', 'use', 'draw', 'skillchain', 'rows', 'window', 'config', 'init' }, inject('actions')),
     loader.load_module('requests', { 'state', 'popup', 'config', 'init' }, inject('requests')),
     loader.load_module('calendar', { 'state', 'time', 'events', 'window', 'config', 'init' }, inject('calendar')),
-    loader.load_module('crafting', { 'state', 'data', 'ledger', 'window', 'config', 'init' }, inject('crafting')),
+    loader.load_module('crafting', { 'state', 'data', 'ledger', 'advice', 'window', 'config', 'init' }, inject('crafting')),
 };
 local by_key = {};
 for _, env in ipairs(modules) do by_key[env.module_info.key] = env; end

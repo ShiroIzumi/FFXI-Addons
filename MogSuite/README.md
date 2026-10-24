@@ -11,7 +11,7 @@
 | **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
 | **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.6.0
+**Version:** 1.6.4
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -227,6 +227,26 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.6.4
+- **Calendar, a fresh look:**
+  - **Today:** the header is a panel tinted with the day's element, with a bar showing how far into the day it is, the element it beats in its own color, and a bigger moon. Each section has a colored header; rows are striped; guilds show in their craft's color with open / closed / holiday tags; timers and ships show small progress bars; the next days show their moon.
+  - **Vana'diel:** more room inside each day box, a colored edge on each day, a glow around today, and the line at the bottom no longer runs over the boxes.
+  - **Timers:** each timer is its own card with a colored edge (ready / counting / not started). The hours box has its own - and + buttons and no longer covers the number. The Add buttons are colored, one color per kind, and wrap on narrow windows.
+  - **Travel:** each kind of ship has its own color, with a short note. Every route shows a boarding / at sea tag and a bar for where the ship is in its run, and times turn yellow or red when it is about to dock or leave. Guilds show in their craft's color, with their hours and their day off in that day's color.
+
+### 1.6.3
+- Crafting: the craft drop-down has a fixed width, so My skill / Have materials / Desynth stay in the window.
+
+### 1.6.2
+- **Crafting, "just tell me what to do":**
+  - **Tips** (each recipe): your odds right now (break %, HQ % with HQ2 / HQ3), or "you are N under it", and how many levels until better HQ odds; whether it is good for skill-ups ("Good for skill-ups", "Too easy", "Too hard"); and its guild, open now or when it opens (and its holiday). The odds follow the server's own synthesis rules (LandSandBoat).
+  - **Missing materials:** "Make it" (opens the recipe that makes it) and where it drops.
+  - **Make x N:** what you still need for N synths, after what you own in every bag.
+  - **Skills tab, Next:** the best recipes to skill up on for each craft: ones you can make now first, then the fewest missing materials. Click one to open it.
+
+### 1.6.1
+- The inventory window stays on the tab you picked when you warp or zone (it used to jump to Safe while your bags reloaded).
 
 ### 1.6.0
 - **Calendar** module (`L`): Today, a Vana'diel month, an Earth month, timers, your events, travel; a login summary and notices.
