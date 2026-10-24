@@ -111,7 +111,7 @@ function draw_context_menu()
         local watched = config.watch ~= nil and config.watch[row.id] ~= nil;
         if imgui.Selectable((watched and 'Stop watching this item' or 'Watch this item') .. '##nai_watch') then
             watch_toggle(row);
-            if not watched then MS.open_config('inventory'); end
+            if not watched then MS.show_config('inventory'); end
         end
         if imgui.IsItemHovered() then
             imgui.SetTooltip(watched and 'No more running-low alerts for it.'

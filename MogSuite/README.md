@@ -201,6 +201,16 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 
 ## Changelog
 
+### 1.5.2
+- **Death Recap** no longer pops up when you zone (HP reads 0 while loading); it only opens on a real death.
+- **Fame fills in by itself** when you talk to an area's fame NPC (Namonutice, Flaco, Zabirego-Hajigo, Mendi, Waylea, Vaultimand). San d'Oria and Jeuno also show your fame points in the tooltip. You can still set it by hand.
+
+### 1.5.1
+- **Actions:** details now show as a hover tooltip (styled by Fonts & Tooltips) instead of the pane at the bottom. The pane is still in Settings > Actions > Window.
+- **Gear panel:** search box over names, descriptions and stats. `dex & str` = items with both, `dex | agi` = items with either (they can be mixed).
+- **Gear panel:** Usable / Usable later / Unusable sections collapse with a click and stay that way after a reload.
+- **Config buttons** toggle: clicking a window's Config again closes the settings window.
+
 ### 1.5.0
 - **Fonts & Tooltips** (Settings > Global): use a Windows font (Tahoma by default) instead of Ashita's pixel font, so text stays smooth at any size and on 4K. Pick the text size, override the text and label colors, and style every tooltip (font, size, width, padding, border, colors) with a live preview. A new font needs a reload; the page has a button for it.
 - **Character: gear panel.** Double-click a slot on the equipment strip (or right-click > Change) and a panel opens beside the Character window with every item for that slot in your Inventory and Wardrobes: Usable, Usable later (level too low, level sync counts) and Unusable (wrong job or race), with the reason, icon, level and stats. Double-click (or right-click > Equip) sends the game's `/equip`. Right-click a slot > Remove unequips it.

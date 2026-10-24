@@ -485,7 +485,7 @@ function draw_watch_window()
         imgui.Spacing();
         if imgui.Button('Dismiss##nai_watch_ok') then watch.open[1] = false; end
         imgui.SameLine();
-        if imgui.Button('Settings##nai_watch_cfg') then MS.open_config('inventory'); end
+        if imgui.Button('Settings##nai_watch_cfg') then MS.show_config('inventory'); end
         imgui.PopFont();
         local x, y = imgui.GetWindowPos();
         x, y = tonumber(x), tonumber(y);

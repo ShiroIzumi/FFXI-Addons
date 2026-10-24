@@ -220,6 +220,17 @@ end
 function recap_watch()
     local hp = tonumber(safe_call(get_party(), 'GetMemberHP', 0));
     if hp == nil then return; end
+    -- HP also reads 0 while zoning: only a real death counts (your
+    -- character's status is dead). Until then the last HP is kept.
+    if hp == 0 then
+        local dead = false;
+        pcall(function()
+            local idx = tonumber(get_party():GetMemberTargetIndex(0)) or 0;
+            local st = tonumber(AshitaCore:GetMemoryManager():GetEntity():GetStatus(idx)) or 0;
+            dead = idx > 0 and (st == 2 or st == 3);
+        end);
+        if not dead then return; end
+    end
     if recap.last_hp ~= nil and recap.last_hp > 0 and hp == 0 then
         local n = math.max(1, tonumber(config.recap.count) or 10);
         local list = {};

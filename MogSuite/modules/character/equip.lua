@@ -107,6 +107,7 @@ function ensure_equip_config()
     if e.show_later == nil then e.show_later = true; end
     if e.show_stats == nil then e.show_stats = true; end
     if e.width == nil then e.width = 380; end
+    if e.collapsed == nil then e.collapsed = T{}; end
 end
 ensure_equip_config();
 
@@ -310,7 +311,41 @@ end
 -- The side panel
 -- ============================================================================
 
-equip_panel = { slot = nil, open = { false } };
+equip_panel = { slot = nil, open = { false }, search = { '' } };
+
+-- Search (1.5.1): matches the name, description and stats.
+--   dex & str & agi   items with all of them
+--   dex | str | agi   items with any of them
+--   both can mix: "dex & agi | str" = (dex and agi) or str
+function parse_gear_query(q)
+    q = tostring(q or ''):lower();
+    local groups = {};
+    for part in (q .. '|'):gmatch('([^|]*)|') do
+        local terms = {};
+        for t in (part .. '&'):gmatch('([^&]*)&') do
+            t = t:gsub('^%s+', ''):gsub('%s+$', '');
+            if t ~= '' then terms[#terms + 1] = t; end
+        end
+        if #terms > 0 then groups[#groups + 1] = terms; end
+    end
+    return groups;
+end
+
+function gear_matches(e, groups)
+    if #groups == 0 then return true; end
+    local it = e.item;
+    if it.hay == nil then
+        it.hay = (it.name .. ' ' .. tostring(it.desc or '') .. ' ' .. stat_text_plain(e.stats)):lower();
+    end
+    for _, terms in ipairs(groups) do
+        local all = true;
+        for _, t in ipairs(terms) do
+            if not it.hay:find(t, 1, true) then all = false; break; end
+        end
+        if all then return true; end
+    end
+    return false;
+end
 
 EQUIP_LAYOUT_LABEL = {};
 for _, s in ipairs(EQUIP_LAYOUT or {}) do EQUIP_LAYOUT_LABEL[s[1]] = s[2]; end
@@ -319,6 +354,46 @@ function open_equip_panel(slot)
     equip_panel.slot = slot;
     equip_panel.open[1] = true;
     refresh_equip_scan(true);
+end
+
+function stat_text_plain(stats)
+    local parts = {};
+    for _, def in ipairs(STAT_DEFS) do
+        if stats[def[1]] ~= nil then parts[#parts + 1] = def[1] .. ' ' .. def[2]; end
+    end
+    return table.concat(parts, ' ');
+end
+
+-- Collapsible section header; remembers its state (config.equip.collapsed).
+local function gear_section(key, title, count, scale)
+    local collapsed = config.equip.collapsed[key] == true;
+    local x, y = screen_xy();
+    local w = avail_width();
+    local lh = line_height();
+    local h = lh + 6 * scale;
+    if imgui.InvisibleButton('##ms_eq_sec_' .. key, { math.max(1, w), h }) then
+        collapsed = not collapsed;
+        config.equip.collapsed[key] = collapsed or nil;
+        state.settings_dirty = true;
+    end
+    local hovered = imgui.IsItemHovered();
+    local dl = imgui.GetWindowDrawList();
+    if hovered then dl:AddRectFilled({ x, y }, { x + w, y + h }, imgui.GetColorU32({ 1, 1, 1, 0.05 }), 3.0); end
+    dl:AddLine({ x, y + h - 1 }, { x + w, y + h - 1 }, imgui.GetColorU32({ UI_ACCENT[1], UI_ACCENT[2], UI_ACCENT[3], 0.45 }), 1.0);
+    local ax, ay, a = x + 7 * scale, y + h * 0.5, math.max(3, lh * 0.2);
+    local acol = imgui.GetColorU32(UI_ACCENT_TEXT);
+    if collapsed then
+        dl:AddTriangleFilled({ ax - a * 0.6, ay - a }, { ax + a * 0.8, ay }, { ax - a * 0.6, ay + a }, acol);
+    else
+        dl:AddTriangleFilled({ ax - a, ay - a * 0.6 }, { ax + a, ay - a * 0.6 }, { ax, ay + a * 0.8 }, acol);
+    end
+    text_at(x + 18 * scale, y + 3 * scale, UI_ACCENT_TEXT, title);
+    local c = tostring(count);
+    text_at(x + w - text_width(c) - 6 * scale, y + 3 * scale, state.muted_color, c);
+    if hovered then imgui.SetTooltip(collapsed and 'Click to show' or 'Click to hide'); end
+    imgui.SetCursorScreenPos({ x, y + h + 3 * scale });
+    imgui.Dummy({ 1, 0 });
+    return not collapsed;
 end
 
 local function stat_line(stats)
@@ -416,6 +491,29 @@ function draw_equip_panel()
         if imgui.Button('X##ms_eq_close', { 22 * scale, 0 }) then equip_panel.open[1] = false; end
         tip('Close');
         local groups = gear_for_slot(slot);
+        -- Search: name, description and stats; & = all of, | = any of.
+        imgui.PushItemWidth(-1);
+        imgui.InputText('##ms_eq_search', equip_panel.search, 96);
+        imgui.PopItemWidth();
+        local sactive = imgui.IsItemActive();
+        if imgui.IsItemHovered() and not sactive then
+            imgui.SetTooltip('Search names and stats.  dex & str = has both.  dex | agi = has either.');
+        end
+        if (equip_panel.search[1] or '') == '' and not sactive then
+            local x1, y1 = imgui.GetItemRectMin();
+            if x1 ~= nil then
+                imgui.GetWindowDrawList():AddText({ tonumber(x1) + 6 * scale, tonumber(y1) + 2 * scale },
+                    imgui.GetColorU32(with_alpha(state.muted_color, 0.6)), 'Search  (dex & str,  dex | agi)');
+            end
+        end
+        local query = parse_gear_query(equip_panel.search[1]);
+        if #query > 0 then
+            for _, k in ipairs({ 'usable', 'later', 'unusable' }) do
+                local keep = {};
+                for _, e in ipairs(groups[k]) do if gear_matches(e, query) then keep[#keep + 1] = e; end end
+                groups[k] = keep;
+            end
+        end
         imgui.Separator();
         local width = avail_width();
         local dl = imgui.GetWindowDrawList();
@@ -430,13 +528,17 @@ function draw_equip_panel()
             local list = groups[sec[1]];
             if sec[3] and #list > 0 then
                 any = true;
-                sheet_section(sec[2], tostring(#list));
-                imgui.Spacing();
                 -- Wardrobes with nothing for this slot are simply not listed.
-                for _, e in ipairs(list) do draw_entry(dl, e, slot, avail_width(), scale); end
+                if gear_section(sec[1], sec[2], #list, scale) then
+                    for _, e in ipairs(list) do draw_entry(dl, e, slot, avail_width(), scale); end
+                end
+                imgui.Spacing();
             end
         end
-        if not any then imgui.TextColored(state.muted_color, 'Nothing for this slot in your Inventory or Wardrobes.'); end
+        if not any then
+            imgui.TextColored(state.muted_color, (#query > 0) and 'Nothing matches the search.'
+                or 'Nothing for this slot in your Inventory or Wardrobes.');
+        end
         if imgui.BeginPopup('##ms_eq_ctx') then
             local e = equip_panel.ctx;
             if e ~= nil then

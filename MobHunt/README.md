@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.5.3  
+**Version:** 1.6.0  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -304,6 +304,15 @@ Added a dedicated **Opacity** slider under **Config -> Window -> Background / Op
 - Saves with the existing appearance settings
 - Continues to use the existing RGB background controls independently
 
+
+## v1.6.0 Mob Abilities, Look and Settings
+
+- **Mob abilities:** every TP move and spell a mob **starts** is counted, even when it gets interrupted (hits, Stun, Silence, Paralyze), plus how many it **finished**. Nothing is shown during the fight: a fight's list is only added to the mob's record once the mob is dead. Mob Details has an **Abilities** table (uses, share of all its uses with a bar, finished, interrupted %, per fight); the target window shows the top three ("Uses: Bomb Toss 31%  Goblin Rush 22% ..."). Config > Content turns either off.
+- **History / Mob Details opacity:** Config > Look > "History and Mob Details have their own opacity".
+- **This zone's mobs:** with **All Zones** selected in History, the mobs of the zone you are in are written in their own color (Config > Look, on by default).
+- **Nicer History and Mob Details:** totals as chips (Mobs, Kills, Deaths); Mob Details opens with stat tiles (Kills, Deaths, Win rate, Avg fight).
+- **New Config window:** pages on the left (Windows, Look, Content, Tracking, Data, Fonts & Tooltips, Diagnostics) with a search box. Every setting is kept.
+- **Font:** the windows use a Windows font (Tahoma by default). Config > Fonts & Tooltips picks the font, text size and the tooltip look (a new font needs a reload; the page has a button). Font Scale still sizes the windows on top.
 
 ## v1.5.3 Drop Tracking: Find Lines
 - Drops are now also read from the "You find <item> on the <mob>." chat line, which appears after the drop for every item. The treasure-pool scan could miss an item when it landed in a pool slot that last held the same item (for example a second Beehive Chip).

@@ -26,7 +26,7 @@ function module_packet_in(e)
     if e == nil or e.data_modified == nil then return; end
 
     if e.id == 0x028 then pcall(recap_packet, e); return; end
-    if e.id == 0x056 or e.id == 0x05E then pcall(progress_packet, e); return; end
+    if e.id == 0x056 or e.id == 0x05E or e.id == 0x032 or e.id == 0x034 then pcall(progress_packet, e); return; end
 
     -- Currencies (sent when you open Main Menu > Currencies).
     if e.id == 0x113 then

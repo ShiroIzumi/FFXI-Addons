@@ -28,7 +28,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.5.0';
+addon.version = '1.5.2';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -154,8 +154,22 @@ local MS = {
     version = addon.version,
 };
 
-function MS.open_config(tab)
+-- Always opens (never closes) the settings window.
+function MS.show_config(tab)
     configwindow.show(cfg.global, tab);
+    mark_global_dirty();
+end
+
+-- A module's Config button: opens its settings, or closes the settings
+-- window when it is already showing that module (1.5.1).
+function MS.open_config(tab)
+    local page = tostring(cfg.global.config_page or '');
+    if tab ~= nil and configwindow.open[1] and page:match('^([^:]+)') == tab then
+        configwindow.open[1] = false;
+        cfg.global.config_visible = false;
+    else
+        configwindow.show(cfg.global, tab);
+    end
     mark_global_dirty();
 end
 

@@ -137,6 +137,12 @@ function count_ready(tab)
 end
 
 function draw_main_window()
+    -- 1.5.1: details became a hover tooltip (the pane can be turned back on).
+    if config.details_tooltip_v151 == nil then
+        config.details_tooltip_v151 = true;
+        config.show_details = false;
+        mark_dirty();
+    end
     if not state.visible[1] then
         state.apply_geometry = true;
         return;

@@ -22,7 +22,7 @@ local function config_window()
     ui.section('SHOW');
     ui.check('HP / MP / TP bars', config, 'show_bars', 'Your HP, MP and TP under the job line. The TP bar has a mark at 1000.', ON);
     ui.check('Pinned actions at the top', config, 'show_pinned', 'Right-click any row > Pin to the top. Click a pinned action to use it, right-click it to unpin.', ON);
-    ui.check('Details pane at the bottom', config, 'show_details', 'Off: the details show as a tooltip when you hover a row instead.', ON);
+    ui.check('Details pane at the bottom', config, 'show_details', 'Off (default): the details show as a tooltip when you hover a row, styled by Settings > Global > Fonts & Tooltips.');
 end
 
 local function config_colors()

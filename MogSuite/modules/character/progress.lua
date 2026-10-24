@@ -180,9 +180,73 @@ local function u16(data, o)
     return (a or 0) + (b or 0) * 256;
 end
 
+-- Fame from the fame NPCs (1.5.2). When you talk to one, the server starts
+-- an event (0x032, or 0x034 with numbers) whose number or first number
+-- carries your fame (LandSandBoat NPC scripts):
+--   Namonutice  Southern San d'Oria (230)  event 31, num[1] = fame points
+--   Flaco       Port Bastok (236)          event 210 + level
+--   Zabirego    Windurst Waters (238)      event 687 + level (1-8), 784 = 9
+--   Mendi       Lower Jeuno (245)          event 82, num[1] = fame points
+--   Waylea      Rabao (247)                event 57 + level - 1
+--   Vaultimand  Norg (252)                 event 100 + level - 1
+-- Points -> level: LandSandBoat scripts/data/fame.lua.
+FAME_RANK_POINTS = { 0, 50, 125, 225, 325, 425, 488, 550, 613 };
+function fame_level_from_points(p)
+    local lv = 1;
+    for i, need in ipairs(FAME_RANK_POINTS) do if p >= need then lv = i; end end
+    return lv;
+end
+
+FAME_NPCS = {
+    Namonutice = { zone = 230, key = 'sandoria', points = 31 },
+    Mendi = { zone = 245, key = 'jeuno', points = 82 },
+    Flaco = { zone = 236, key = 'bastok', base = 210, lo = 211, hi = 219 },
+    ['Zabirego-Hajigo'] = { zone = 238, key = 'windurst', base = 687, lo = 688, hi = 695, nine = 784 },
+    Waylea = { zone = 247, key = 'selbina', base = 56, lo = 57, hi = 65 },
+    Vaultimand = { zone = 252, key = 'norg', base = 99, lo = 100, hi = 108 },
+};
+
+local function fame_event(data, with_nums)
+    local idx, ev, p1;
+    if with_nums then
+        idx, ev = u16(data, 0x28), u16(data, 0x2A);
+        p1 = u32(data, 0x08);
+    else
+        idx, ev = u16(data, 0x08), u16(data, 0x0A);
+    end
+    local name = nil;
+    pcall(function() name = AshitaCore:GetMemoryManager():GetEntity():GetName(idx); end);
+    local f = name and FAME_NPCS[name] or nil;
+    if f == nil then return; end
+    local zone = nil;
+    pcall(function() zone = tonumber(AshitaCore:GetMemoryManager():GetParty():GetMemberZone(0)); end);
+    if zone ~= nil and zone ~= f.zone then return; end
+    local lv, pts = nil, nil;
+    if f.points ~= nil then
+        if ev ~= f.points or p1 == nil then return; end
+        pts = p1;
+        lv = fame_level_from_points(p1);
+    elseif f.nine ~= nil and ev == f.nine then
+        lv = 9;
+    elseif ev >= f.lo and ev <= f.hi then
+        lv = ev - f.base;
+    end
+    if lv == nil then return; end
+    local fame = config.progress.fame;
+    fame[f.key] = lv;
+    fame[f.key .. '_points'] = pts;
+    fame[f.key .. '_at'] = os.time();
+    fame[f.key .. '_auto'] = true;
+    state.settings_dirty = true;
+end
+
 function progress_packet(e)
     local data = e.data_modified or e.data;
     if data == nil then return; end
+    if e.id == 0x032 or e.id == 0x034 then
+        fame_event(data, e.id == 0x034);
+        return;
+    end
     if e.id == 0x056 then
         local port = u16(data, 0x24);
         local m = config.progress.missions;
@@ -259,10 +323,10 @@ function draw_progress_tab(player)
         imgui.TextColored(with_alpha(state.muted_color, 0.7), 'Updated ' .. format_ago(m.at));
     end
 
-    sheet_section('FAME', 'the game never tells MogSuite your fame');
+    sheet_section('FAME', 'updates when you talk to the fame NPC');
     imgui.Spacing();
     imgui.PushTextWrapPos(0);
-    imgui.TextColored(state.warn_color, 'Talk to the fame NPC of an area, then set the level they told you here.');
+    imgui.TextColored(state.warn_color, 'Talk to the fame NPC of an area and the level fills in by itself. You can also set it by hand.');
     imgui.PopTextWrapPos();
     for _, a in ipairs(FAME_AREAS) do
         local cur = config.progress.fame[a.key];
@@ -275,6 +339,8 @@ function draw_progress_tab(player)
                 if imgui.Selectable(lv .. '##ms_fl_' .. a.key .. i, cur == v) then
                     config.progress.fame[a.key] = v;
                     config.progress.fame[a.key .. '_at'] = os.time();
+                    config.progress.fame[a.key .. '_auto'] = nil;
+                    config.progress.fame[a.key .. '_points'] = nil;
                     state.settings_dirty = true;
                 end
             end
@@ -282,8 +348,17 @@ function draw_progress_tab(player)
         end
         imgui.PopItemWidth();
         imgui.SameLine(0, 8);
-        imgui.TextColored(UI_ACCENT_TEXT, 'Ask ' .. a.npc);
-        tip(a.npc .. ': ' .. a.where .. (config.progress.fame[a.key .. '_at'] and ('\nSet ' .. format_ago(config.progress.fame[a.key .. '_at'])) or ''));
+        local fm = config.progress.fame;
+        local at = fm[a.key .. '_at'];
+        if at ~= nil and fm[a.key .. '_auto'] then
+            imgui.TextColored(state.good_color, 'from ' .. a.npc);
+        else
+            imgui.TextColored(UI_ACCENT_TEXT, 'Ask ' .. a.npc);
+        end
+        local pts = fm[a.key .. '_points'];
+        tip(a.npc .. ': ' .. a.where
+            .. (pts ~= nil and ('\nFame points: ' .. tostring(pts)) or '')
+            .. (at ~= nil and ((fm[a.key .. '_auto'] and '\nRead from ' .. a.npc .. ' ' or '\nSet by hand ') .. format_ago(at)) or ''));
     end
 
     sheet_section('ACCESS', 'from your key items');

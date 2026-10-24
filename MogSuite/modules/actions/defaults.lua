@@ -13,7 +13,7 @@ return T{
     value_color = T{ 0.80, 0.72, 1.00, 1.0 },
 
     show_bars = true,           -- HP / MP / TP bars in the header
-    show_details = true,        -- details pane at the bottom
+    show_details = false,       -- details pane at the bottom (1.5.1: tooltip by default)
     show_pinned = true,         -- pinned strip at the top
     show_sub_locked = true,     -- support job abilities you haven't reached
     show_special_ws = false,    -- relic weapon skills you don't have
