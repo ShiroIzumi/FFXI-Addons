@@ -293,3 +293,32 @@ function draw_stacks_window()
     imgui.End();
     pop_theme();
 end
+
+-- ============================================================================
+-- 1.6.0: shared with other modules (Crafting)
+-- ============================================================================
+
+-- How many of each item you have: every bag of this character (Mog House
+-- storage from its last look). counts[id] = n, and where[id][bag] = n.
+function MS.item_counts()
+    local counts, where = {}, {};
+    for bag, b in pairs(state.bags or {}) do
+        for _, r in ipairs(b.rows or {}) do
+            if not r.mirror then
+                local n = tonumber(r.count) or 0;
+                counts[r.id] = (counts[r.id] or 0) + n;
+                where[r.id] = where[r.id] or {};
+                where[r.id][bag] = (where[r.id][bag] or 0) + n;
+            end
+        end
+    end
+    return counts, where;
+end
+
+-- Item info (name, stack, flags ...) and its icon texture.
+function MS.item_info(id) return get_item_info(id); end
+function MS.item_icon(id)
+    local info = get_item_info(id);
+    return info and get_icon(info) or nil;
+end
+function MS.bag_name(bag) return BAG_NAMES[bag] or ('Bag ' .. tostring(bag)); end

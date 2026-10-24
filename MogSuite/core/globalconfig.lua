@@ -252,14 +252,16 @@ local function keybinds(ctx)
         end
     end
     imgui.Spacing();
-    if ui.button('Default keys', 'ms_keys_default', 'C, B and P with no Ctrl / Alt / Shift.') then
+    if ui.button('Default keys', 'ms_keys_default', 'C, B, P, L and J with no Ctrl / Alt / Shift.') then
         G.keys.character.key, G.keys.inventory.key, G.keys.actions.key = 0x43, 0x42, 0x50;
+        if G.keys.calendar then G.keys.calendar.key = 0x4C; end
+        if G.keys.crafting then G.keys.crafting.key = 0x4A; end
         for _, b in pairs(G.keys) do b.enabled = true; b.ctrl = false; b.alt = false; b.shift = false; end
         ctx.dirty();
     end
     if not ui.searching() then
         imgui.SameLine();
-        imgui.TextColored(theme.UI_MUTED, 'Character C, Inventory B, Actions P');
+        imgui.TextColored(theme.UI_MUTED, 'Character C, Inventory B, Actions P, Calendar L, Crafting J');
     end
 
     ui.section('ESC KEY');

@@ -8,8 +8,10 @@
 | **Inventory** | `B` | Every bag in tabs, key items, item values, a loot log and your other characters' bags |
 | **Actions** | `P` | Abilities, weapon skills, magic, pets and blood pacts, with recast timers |
 | **Requests** | | A popup when someone invites you to a party / alliance or wants to trade |
+| **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
+| **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.5.3
+**Version:** 1.6.0
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -45,6 +47,8 @@ To load it every time, add `/addon load mogsuite` to your Ashita startup script 
 | `/ms char` | Open / close the Character window |
 | `/ms inv` | Open / close the Inventory window |
 | `/ms act` | Open / close the Actions window |
+| `/ms cal` | Open / close the Calendar window |
+| `/ms craft` | Open / close the Crafting window |
 | `/ms reset` | Move every window back to its default place |
 | `/ms test party` | Show a test request popup (`party`, `alliance` or `trade`) |
 | `/ms help` | List the commands in chat |
@@ -129,6 +133,29 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 
 ---
 
+## Calendar
+
+`L` or `/ms cal`. Everything is worked out from your computer's clock (nothing is read from the server).
+
+- **Today:** the Vana'diel time, day and element, the moon (picture and %), what's coming up (conquest results, your events, timers getting ready), the next 8 Vana'diel days with the Earth time each starts, crafting guilds (open / closed / holiday) and the next ships.
+- **Vana'diel:** a month of Vana'diel days, one column per weekday, with the moon on each day, full / new moons, guild holidays (a dot) and the Earth time each day starts. Hover a day for the details.
+- **Earth:** your month: events, timers getting ready, conquest results, full / new moons. Click a day to see it and add an event.
+- **Timers:** cooldowns you start yourself. Ready-made ones: Dynamis (72 h), Limbus / Cosmo-Cleanse (72 h), ENM key item, BCNM orb, weekly, daily, custom. Click Start when you do the thing; change the name or hours any time. Per character.
+- **Events:** your own events (once, daily, weekly or monthly) with a note and a color, shared by all your characters (kept in `config\addons\mogsuite\calendar_events.lua`).
+- **Travel:** every airship, the ferry, the manaclipper and the barge, and the crafting guild hours.
+- **Login summary:** a few seconds after you log in, a small popup (and / or chat lines): the day, the moon, conquest results, timers that are ready, today's events, guild holidays.
+- **Notices:** a timer is ready, an event is about to start (15 minutes before by default) or starting: chat, popup and an optional sound (`sounds\notice.wav`).
+- **Conquest results:** Sunday 11:00 AM by default (HorizonXI, Eastern time); set the day and time in Calendar > Conquest if your computer is in another time zone.
+
+## Crafting
+
+`J` or `/ms craft`.
+
+- **Skills:** each craft's level, how many recipes you can do and how many are good for skill-ups (up to 10 levels over your skill). Click a craft for its recipes.
+- **Recipes:** every Horizon-era recipe (2,500+, from LandSandBoat). Search by result or material, pick a craft, and filter to your skill, to recipes you have every material for, or show desynthesis too. The right side shows the crystal and materials with how many you have (every bag; hover for where), the HQ results, and your own synth rates.
+- **Can make:** recipes you have every material for right now, closest to your skill first.
+- **Ledger:** every synth you make is counted per recipe (NQ / HQ1 / HQ2 / HQ3 / break) with the Vana'diel day, the moon and the way you were facing, for your own HQ and break rates. All characters, kept in `config\addons\mogsuite\synth_ledger.lua`.
+
 ## Settings (`/ms`)
 
 One window for the whole suite:
@@ -200,6 +227,11 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.6.0
+- **Calendar** module (`L`): Today, a Vana'diel month, an Earth month, timers, your events, travel; a login summary and notices.
+- **Crafting** module (`J`): skills, recipes with materials you own and HQ results, what you can make, and a synthesis ledger with your own HQ / break rates.
+- **Keys win over the game:** a MogSuite key (C, B, P, L, J or your own) no longer also does its game action (the key is taken out of the game's keyboard input while it opens a MogSuite window; never while you type).
 
 ### 1.5.3
 - **Stacks window** (the Stacks button next to Log on the inventory window) lists the items you could stack together, across every bag of every character MogSuite has seen.

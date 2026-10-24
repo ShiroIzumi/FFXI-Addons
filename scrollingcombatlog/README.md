@@ -1,12 +1,30 @@
 # ScrollingCombatLog
 
-**Version:** 1.4.1  
+**Version:** 1.5.2  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
 ScrollingCombatLog (SCL) is a self-focused scrolling combat text addon for Final Fantasy XI. It is designed to show **what you do** and **what happens to you** without becoming a full party/alliance damage parser.
 
 It separates combat into configurable **Outgoing** and **Incoming** lanes and supports combat damage, abilities, spells, healing, statuses, progression/rewards, and several FFXI-specific combat mechanics.
+
+## Changes in 1.5.2
+
+- **Centered layout keeps each lane's Growth:** a lane set to grow **Down** (Incoming / Outgoing pages) starts at the top of its band and scrolls down, fading out at the bottom; **Up** scrolls up from the bottom of the band, as before. Same place on screen either way.
+
+## Changes in 1.5.1
+
+- **Centered layout, take two:** nothing overlaps any more.
+  - **Incoming and Outgoing** scroll up inside a band (**Side lane height**, 260 px by default) and fade out at its top.
+  - **Notifications** sit just above that band (**Notifications gap**) and grow upward, so they never come down over you or the side lanes.
+- **Center handle:** a small crosshair (it no longer covers the lanes). Hover it for "Drag onto your character".
+- **Real preview while unlocked:** SCL's own text, in your font and size, keeps flowing into each lane, so you see exactly where everything lands. These preview lines are not kept in the History.
+
+## Changes in 1.5.0
+
+- **Centered layout (new default):** one center point instead of three separate lane boxes. Unlock positions and drag the **SCL CENTER** handle onto your character: Incoming sits on its left (text ends at the gap, growing toward the center), Outgoing on its right (text starts at the gap), Notifications centered above, all evenly spaced. While unlocked, guide lines and sample lines show exactly where each lane's text goes.
+- Config, Positioning section: **Layout** Centered / Free, **Side gap**, **Side lanes start** (below / above the center), **Side lane height**, **Notifications gap**, and **Center on the screen**.
+- **Free layout** (the old way) is still there. Its Incoming box now sits with its right edge on the anchor when the text ends there, so each box covers where its text appears.
 
 ## Changes in 1.4.1
 

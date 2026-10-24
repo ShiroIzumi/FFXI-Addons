@@ -252,7 +252,8 @@ local function add_event(direction, kind, text, event_type, opts)
 
     -- 1.4.0: the History window keeps the last events of each lane.
     local H = settings.history;
-    if H ~= nil and H.enabled ~= false then
+    -- 1.5.1: Move Mode preview lines are not kept in the History.
+    if H ~= nil and H.enabled ~= false and not (opts and opts.preview) then
         state.history = state.history or { outgoing = {}, incoming = {}, notify = {} };
         local list = state.history[lane];
         if list ~= nil then

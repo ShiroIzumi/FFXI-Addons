@@ -72,6 +72,16 @@ local defaults = T{
 
     -- Center Notifications lane (static, text centered on the anchor).
     notification = T{ x = 960.0, y = 300.0 },
+
+    -- 1.5.0: lane layout. 'centered': one center point (drag it onto your
+    -- character); Incoming sits left of it (text ends at the gap), Outgoing
+    -- right of it (text starts at the gap), Notifications centered above.
+    -- 'free': each lane where you dragged it (the old way).
+    -- cx / cy = -1: the middle of the screen.
+    -- 1.5.1: the side lanes scroll up inside a band 'height' tall (lines fade
+    -- out at its top); Notifications sit 'note_gap' above that band and grow
+    -- upward, so nothing overlaps.
+    layout = T{ mode = 'centered', cx = -1, cy = -1, gap = 60, up = 220, down = 40, height = 260, note_gap = 16 },
     notify_scale = 1.30,
     notify = T{
         level_up = true,
@@ -228,6 +238,7 @@ local function fill_new_defaults()
     fill('notify', defaults.notify);
     fill('session_window', defaults.session_window);
     fill('history', defaults.history);
+    fill('layout', defaults.layout);
     if type(settings.ui_font) ~= 'table' then settings.ui_font = T{}; end
 
     for _, lane in ipairs({ 'outgoing', 'incoming' }) do
@@ -356,6 +367,7 @@ local state = {
         incoming = false,
         outgoing = false,
         notification = false,
+        center = false,
     },
 
     -- Session summary window.
@@ -523,7 +535,63 @@ local function set_settings(s)
     normalize_loaded_settings();
 end
 
+-- 1.5.0: the center point of the 'centered' layout (screen pixels).
+local function layout_center()
+    local L = settings.layout or {};
+    local cx, cy = tonumber(L.cx) or -1, tonumber(L.cy) or -1;
+    if cx < 0 or cy < 0 then
+        local dw, dh = 1920, 1080;
+        pcall(function()
+            local io = require('imgui').GetIO();
+            dw = tonumber(io.DisplaySize.x) or dw;
+            dh = tonumber(io.DisplaySize.y) or dh;
+        end);
+        if cx < 0 then cx = dw / 2; end
+        if cy < 0 then cy = dh * 0.55; end
+    end
+    return cx, cy;
+end
+
+-- Where a lane's text goes: the 'centered' layout works it out from the
+-- center point; 'free' uses the lane's own saved anchor.
+local layout_cache = { incoming = {}, outgoing = {}, notify = {} };
+local function lane_anchor(lane)
+    local base;
+    if lane == 'incoming' then base = settings.incoming;
+    elseif lane == 'notify' then base = settings.notification;
+    else base = settings.outgoing; lane = 'outgoing'; end
+    local L = settings.layout;
+    if L == nil or L.mode ~= 'centered' then return base; end
+    local cx, cy = layout_center();
+    local gap = tonumber(L.gap) or 60;
+    local a = layout_cache[lane];
+    local side_y = cy + (tonumber(L.down) or 40);
+    local band = math.max(60, tonumber(L.height) or 260);
+    a.motion = base.motion;
+    -- 1.5.2: each side lane keeps its own Growth (Up / Down) inside the same
+    -- band: Up starts at the bottom of the band, Down at its top.
+    local function side(x, orientation)
+        local down = base.growth == 'down';
+        a.x, a.orientation = x, orientation;
+        a.growth = down and 'down' or 'up';
+        a.y = down and (side_y - band) or side_y;
+        a.top_limit = side_y - band;
+        a.bottom_limit = side_y;
+    end
+    if lane == 'incoming' then
+        side(cx - gap, 'left');
+    elseif lane == 'notify' then
+        a.x, a.y, a.growth = cx, side_y - band - (tonumber(L.note_gap) or 16), 'up';
+        a.top_limit, a.bottom_limit = nil, nil;
+    else
+        side(cx + gap, 'right');
+    end
+    return a;
+end
+
 return {
+    layout_center = layout_center,
+    lane_anchor = lane_anchor,
     defaults = defaults,
     settings = settings,
     state = state,

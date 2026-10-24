@@ -94,8 +94,12 @@ local function draw_move_anchor(title, key, color)
     -- The Notifications anchor is the CENTER of its text, so its handle window
     -- is centered on the anchor point instead of starting at it.
     local centered = key == 'notification';
+    -- 1.5.0: a lane whose text ends at the anchor (orientation 'left') puts
+    -- its handle's right edge on the anchor, so the box sits where the text is.
+    local right_edge = (not centered) and anchor.orientation == 'left';
     state.move_half_width = state.move_half_width or {};
     local half = centered and (state.move_half_width[key] or 130) or 0;
+    if right_edge then half = (state.move_half_width[key] or 260); end
 
     if not state.move_initialized[key] then
         imgui.SetNextWindowPos({
@@ -128,6 +132,10 @@ local function draw_move_anchor(title, key, color)
             local w = tonumber((imgui.GetWindowSize())) or 260;
             state.move_half_width[key] = w / 2;
             x = x + w / 2;
+        elseif right_edge and x then
+            local w = tonumber((imgui.GetWindowSize())) or 260;
+            state.move_half_width[key] = w;
+            x = x + w;
         end
 
         if x and y then
@@ -147,8 +155,107 @@ local function draw_move_anchor(title, key, color)
     pop_theme();
 end
 
+-- 1.5.1: the 'centered' layout in Move Mode: a small crosshair handle on
+-- the center point (it never covers the lanes) and real sample text, drawn by
+-- SCL's own renderer in your font and size, so you see exactly where each
+-- lane's text goes.
+local PREVIEW = {
+    { 'outgoing', 'outgoing', '34', 'melee_damage', 'Diving Beetle' },
+    { 'incoming', 'incoming', '-24', 'incoming_damage', 'Diving Beetle', true },
+    { 'outgoing', 'ability', 'Savage Blade  1120', 'weapon_skills', 'Diving Beetle' },
+    { 'incoming', 'miss', 'PARRY', 'defenses', 'Diving Beetle', true },
+    { 'outgoing', 'critical', '88', 'criticals', 'Diving Beetle' },
+    { 'incoming', 'heal', '+93 HP  <-  Pollen', 'healing_received' },
+};
+local function feed_preview()
+    local now = os.clock();
+    if (state.preview_next or 0) > now then return; end
+    state.preview_next = now + 0.9;
+    state.preview_step = ((state.preview_step or 0) % #PREVIEW) + 1;
+    local p = PREVIEW[state.preview_step];
+    local text = p[3];
+    if p[5] then text = text .. (p[6] and source_suffix(p[5]) or target_suffix(p[5])); end
+    add_event(p[1], p[2], text, p[4], { preview = true });
+    -- A notification now and then.
+    state.preview_note = (state.preview_note or 0) + 1;
+    if state.preview_note % 4 == 1 then
+        add_event('incoming', 'xp', 'Level 31', 'level_up', { preview = true });
+    end
+end
+
+local function draw_center_layout()
+    local L = settings.layout;
+    local cx, cy = core_mod.layout_center();
+    local size = 30;
+    if not state.move_initialized.center then
+        imgui.SetNextWindowPos({ cx - size / 2, cy - size / 2 });
+        state.move_initialized.center = true;
+    end
+    imgui.SetNextWindowSize({ size, size });
+    local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_NoResize, ImGuiWindowFlags_NoScrollbar,
+        ImGuiWindowFlags_NoCollapse, ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoSavedSettings or 0,
+        ImGuiWindowFlags_NoBackground or 0);
+    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding, { 0, 0 });
+    imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0);
+    imgui.PushStyleVar(ImGuiStyleVar_WindowMinSize, { 8, 8 });
+    local hovered = false;
+    if imgui.Begin('##scl_center_handle', nil, flags) then
+        local x, y = imgui.GetWindowPos();
+        x, y = tonumber(x), tonumber(y);
+        hovered = imgui.IsWindowHovered();
+        if x then
+            local ncx, ncy = x + size / 2, y + size / 2;
+            if math.abs(ncx - cx) >= 1 or math.abs(ncy - cy) >= 1 then
+                L.cx, L.cy = ncx, ncy;
+                cx, cy = ncx, ncy;
+                state.center_dirty = true;
+            end
+        end
+    end
+    imgui.End();
+    imgui.PopStyleVar(3);
+    if state.center_dirty and not imgui.IsMouseDown(0) then
+        state.center_dirty = false;
+        save_settings();
+    end
+
+    feed_preview();
+
+    -- The crosshair and thin lane edges (the text itself is the real thing).
+    local dl = imgui.GetForegroundDrawList and imgui.GetForegroundDrawList() or nil;
+    if dl == nil then return; end
+    local function col(c, a) return imgui.GetColorU32({ c[1], c[2], c[3], a }); end
+    local W, IN, OUT = { 0.80, 0.86, 1.00 }, { 1.00, 0.36, 0.36 }, { 1.00, 0.88, 0.32 };
+    local r = size / 2 - 2;
+    dl:AddCircleFilled({ cx, cy }, r, col({ 0, 0, 0 }, hovered and 0.55 or 0.35), 24);
+    dl:AddCircle({ cx, cy }, r, col(W, 0.95), 24, 2.0);
+    dl:AddLine({ cx - r - 6, cy }, { cx + r + 6, cy }, col(W, 0.95), 1.5);
+    dl:AddLine({ cx, cy - r - 6 }, { cx, cy + r + 6 }, col(W, 0.95), 1.5);
+    local tip = hovered and 'Drag onto your character' or 'SCL center';
+    local tw = tonumber((imgui.CalcTextSize(tip))) or 0;
+    dl:AddText({ cx - tw / 2 + 1, cy + r + 9 }, col({ 0, 0, 0 }, 0.8), tip);
+    dl:AddText({ cx - tw / 2, cy + r + 8 }, col(W, 0.95), tip);
+    local inc = core_mod.lane_anchor('incoming');
+    local out = core_mod.lane_anchor('outgoing');
+    local note = core_mod.lane_anchor('notify');
+    -- Lane edges up to the top of the band, the band's top, and the line the
+    -- Notifications grow up from.
+    local top = tonumber(inc.top_limit) or (inc.y - 260);
+    dl:AddLine({ inc.x, inc.y + 18 }, { inc.x, top }, col(IN, 0.35), 1.0);
+    dl:AddLine({ out.x, out.y + 18 }, { out.x, top }, col(OUT, 0.35), 1.0);
+    dl:AddLine({ inc.x - 160, top }, { inc.x, top }, col(IN, 0.18), 1.0);
+    dl:AddLine({ out.x, top }, { out.x + 160, top }, col(OUT, 0.18), 1.0);
+    dl:AddLine({ note.x - 120, note.y + 20 }, { note.x + 120, note.y + 20 }, col(W, 0.35), 1.0);
+end
+
 local function draw_move_mode()
     if not state.move_mode or settings.locked == true then
+        return;
+    end
+
+    -- 1.5.0: centered layout: one handle for everything.
+    if settings.layout ~= nil and settings.layout.mode == 'centered' then
+        draw_center_layout();
         return;
     end
 
@@ -587,7 +694,54 @@ local function draw_general_config_tab()
 
         save_settings();
     end
-    help_marker('Unlocked positions immediately show the draggable Incoming and Outgoing anchor boxes.');
+    help_marker('Unlocked positions show the handles: one center handle (Centered layout), or a box per lane (Free layout).');
+
+    -- 1.5.0: layout.
+    local L = settings.layout;
+    if L ~= nil then
+        imgui.Spacing();
+        imgui.AlignTextToFramePadding();
+        imgui.Text('Layout');
+        imgui.SameLine(0, 10);
+        local centered = L.mode == 'centered';
+        if theme_mod.draw_toggle_button('Centered on one point', 'scl_layout_c', centered) and not centered then
+            L.mode = 'centered';
+            state.move_initialized.center = false;
+            save_settings();
+        end
+        imgui.SameLine(0, 4);
+        if theme_mod.draw_toggle_button('Free (each lane)', 'scl_layout_f', not centered) and centered then
+            L.mode = 'free';
+            state.move_initialized.incoming = false;
+            state.move_initialized.outgoing = false;
+            state.move_initialized.notification = false;
+            save_settings();
+        end
+        help_marker('Centered: drag one handle onto your character; Incoming goes on its left, Outgoing on its right, Notifications above, evenly. Free: drag each lane on its own.');
+        if L.mode == 'centered' then
+            imgui.PushItemWidth(235);
+            local g = { math.floor(tonumber(L.gap) or 60) };
+            if imgui.SliderInt('Side gap##scl_lay_gap', g, 0, 400, '%d px') then L.gap = g[1]; save_settings(); end
+            help_marker('How far Incoming (left) and Outgoing (right) start from the center.');
+            local d = { math.floor(tonumber(L.down) or 40) };
+            if imgui.SliderInt('Side lanes start##scl_lay_down', d, -300, 400, '%d px') then L.down = d[1]; save_settings(); end
+            help_marker('The bottom of the side lanes, below (+) or above (-) the center. A lane set to grow Up scrolls up from here; a lane set to grow Down starts at the top of the band and scrolls down to here (Incoming / Outgoing pages > Growth).');
+            local hh = { math.floor(tonumber(L.height) or 260) };
+            if imgui.SliderInt('Side lane height##scl_lay_h', hh, 60, 900, '%d px') then L.height = hh[1]; save_settings(); end
+            help_marker('How far Incoming / Outgoing scroll up before fading out. Notifications sit above this.');
+            local ng = { math.floor(tonumber(L.note_gap) or 16) };
+            if imgui.SliderInt('Notifications gap##scl_lay_ng', ng, 0, 300, '%d px') then L.note_gap = ng[1]; save_settings(); end
+            help_marker('Space between the top of the side lanes and the Notifications (they grow upward from there).');
+            imgui.PopItemWidth();
+            if imgui.Button('Center on the screen##scl_lay_reset') then
+                L.cx, L.cy = -1, -1;
+                state.move_initialized.center = false;
+                save_settings();
+            end
+            imgui.SameLine();
+            imgui.TextDisabled('Unlock positions to drag the center handle.');
+        end
+    end
 end
 
 local function draw_checkbox_setting(label, key, help)

@@ -521,11 +521,8 @@ local function lane_of(ev)
     return ev.lane or ev.direction or 'outgoing';
 end
 
-local function lane_anchor(lane)
-    if lane == 'incoming' then return settings.incoming; end
-    if lane == 'notify' then return settings.notification; end
-    return settings.outgoing;
-end
+-- 1.5.0: centered or free layout (scl/core.lua).
+local lane_anchor = core_mod.lane_anchor;
 
 local function lane_duration(lane)
     local duration = math.max(0.5, tonumber(settings.duration) or 3.5);
@@ -633,8 +630,16 @@ local function draw_lane(events, lane, now, pool_index)
 
     local anchor_x = tonumber(anchor.x) or 500;
     local anchor_y = tonumber(anchor.y) or 500;
-    -- Notifications stack downward from the anchor, newest on top.
-    local growth_up = (not is_notify) and (anchor.growth or 'up') ~= 'down';
+    -- Notifications stack downward from the anchor, newest on top (the
+    -- centered layout makes them grow upward instead: anchor.growth = 'up').
+    local growth_up;
+    if is_notify then growth_up = anchor.growth == 'up'; else growth_up = (anchor.growth or 'up') ~= 'down'; end
+    local top_limit = tonumber(anchor.top_limit);
+    -- Growing upward, the anchor is the BOTTOM of the newest notification
+    -- (so it never reaches down into the side lanes below it).
+    if is_notify and growth_up and events[1] ~= nil then
+        anchor_y = anchor_y - imgui.GetFontSize() * event_scale(events[1], 0) * 1.2;
+    end
     local align = is_notify and 'center' or (((anchor.orientation or 'right') == 'left') and 'left' or 'right');
     local performance = (settings.renderer_mode or 'performance') == 'performance';
 
@@ -675,6 +680,17 @@ local function draw_lane(events, lane, now, pool_index)
         end
 
         local alpha = event_alpha(age, duration, motion);
+        -- 1.5.1: centered layout band: fade out at the top, nothing above it.
+        if top_limit ~= nil and growth_up then
+            if y < top_limit then break; end
+            alpha = alpha * clamp((y - top_limit) / 40.0, 0.0, 1.0);
+        end
+        -- 1.5.2: growing down inside the band: fade out at its bottom.
+        local bottom_limit = tonumber(anchor.bottom_limit);
+        if bottom_limit ~= nil and not growth_up then
+            if y > bottom_limit then break; end
+            alpha = alpha * clamp((bottom_limit - y) / 40.0, 0.0, 1.0);
+        end
 
         if performance then
             draw_scrolling_event_performance(ev, age, x, y, alpha, align);

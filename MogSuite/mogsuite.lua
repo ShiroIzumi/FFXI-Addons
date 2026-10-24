@@ -6,12 +6,16 @@
       Inventory  (B)  every bag, key items, item values, your other characters
       Actions    (P)  abilities, weapon skills, magic, pets and blood pacts
       Requests        popups for party / alliance invites and trade requests
+      Calendar   (L)  Vana'diel days, moon, conquest, your timers and events (1.6.0)
+      Crafting   (J)  skills, recipes, what you can make, your synth ledger (1.6.0)
 
     Commands: /ms (also /mog, /mogsuite)
       /ms             open / close the settings window
       /ms char        open / close the Character window
       /ms inv         open / close the Inventory window
       /ms act         open / close the Actions window
+      /ms cal         open / close the Calendar window
+      /ms craft       open / close the Crafting window
       /ms reset       move every window back to its default place
       /ms test party | alliance | trade   show a test request popup
       /ms help        list the commands
@@ -28,8 +32,8 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.5.3';
-addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
+addon.version = '1.6.0';
+addon.desc    = 'MogSuite: your character, inventory, actions, calendar and crafting in one suite.';
 addon.link    = '';
 
 require('common');
@@ -100,12 +104,16 @@ local defaults = T{
             character = T{ enabled = true, key = 0x43, ctrl = false, alt = false, shift = false }, -- C
             inventory = T{ enabled = true, key = 0x42, ctrl = false, alt = false, shift = false }, -- B
             actions   = T{ enabled = true, key = 0x50, ctrl = false, alt = false, shift = false }, -- P
+            calendar  = T{ enabled = true, key = 0x4C, ctrl = false, alt = false, shift = false }, -- L (1.6.0)
+            crafting  = T{ enabled = true, key = 0x4A, ctrl = false, alt = false, shift = false }, -- J (1.6.0)
         },
     },
     character = loader.read('modules\\character\\defaults.lua'),
     inventory = loader.read('modules\\inventory\\defaults.lua'),
     actions   = loader.read('modules\\actions\\defaults.lua'),
     requests  = loader.read('modules\\requests\\defaults.lua'),
+    calendar  = loader.read('modules\\calendar\\defaults.lua'),
+    crafting  = loader.read('modules\\crafting\\defaults.lua'),
 };
 
 local function is_list(t)
@@ -210,6 +218,8 @@ local modules = {
     loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'extras', 'keyitems', 'window', 'lootlog', 'stacks', 'config', 'init' }, inject('inventory')),
     loader.load_module('actions', { 'state', 'data', 'scdata', 'player', 'lists', 'pets', 'use', 'draw', 'skillchain', 'rows', 'window', 'config', 'init' }, inject('actions')),
     loader.load_module('requests', { 'state', 'popup', 'config', 'init' }, inject('requests')),
+    loader.load_module('calendar', { 'state', 'time', 'events', 'window', 'config', 'init' }, inject('calendar')),
+    loader.load_module('crafting', { 'state', 'data', 'ledger', 'window', 'config', 'init' }, inject('crafting')),
 };
 local by_key = {};
 for _, env in ipairs(modules) do by_key[env.module_info.key] = env; end
@@ -264,6 +274,8 @@ local function print_help()
     print('[MogSuite] /ms char - Character window   (key: ' .. keys.text(cfg.global.keys.character) .. ')');
     print('[MogSuite] /ms inv - Inventory window    (key: ' .. keys.text(cfg.global.keys.inventory) .. ')');
     print('[MogSuite] /ms act - Actions window      (key: ' .. keys.text(cfg.global.keys.actions) .. ')');
+    print('[MogSuite] /ms cal - Calendar window     (key: ' .. keys.text(cfg.global.keys.calendar) .. ')');
+    print('[MogSuite] /ms craft - Crafting window   (key: ' .. keys.text(cfg.global.keys.crafting) .. ')');
     print('[MogSuite] /ms reset - move every window back to its default place');
     print('[MogSuite] /ms test party | alliance | trade - show a test request popup');
     print('[MogSuite] /mog and /mogsuite work the same as /ms.');
@@ -284,6 +296,10 @@ ashita.events.register('command', 'mogsuite_command_cb', function(e)
         call(by_key.inventory, 'module_toggle');
     elseif sub == 'act' or sub == 'actions' or sub == 'a' or sub == 'p' then
         call(by_key.actions, 'module_toggle');
+    elseif sub == 'cal' or sub == 'calendar' or sub == 'l' then
+        call(by_key.calendar, 'module_toggle');
+    elseif sub == 'craft' or sub == 'crafting' or sub == 'j' then
+        call(by_key.crafting, 'module_toggle');
     elseif sub == 'test' then
         local kind = args[3] and tostring(args[3]):lower() or 'party';
         if kind ~= 'alliance' and kind ~= 'trade' then kind = 'party'; end
@@ -342,6 +358,53 @@ ashita.events.register('key', 'mogsuite_key_cb', function(e)
             mark_global_dirty();
         end);
     if blocked then e.blocked = true; end
+end);
+
+-- 1.6.0: a MogSuite key wins over the game. The 'key' event above stops the
+-- window message; the game also reads the keyboard through DirectInput
+-- (buffered events and the key state), so the same key is taken out there
+-- too while it opens a MogSuite window.
+local DIK = {
+    [0x51] = 0x10, [0x57] = 0x11, [0x45] = 0x12, [0x52] = 0x13, [0x54] = 0x14, [0x59] = 0x15, [0x55] = 0x16, [0x49] = 0x17,
+    [0x4F] = 0x18, [0x50] = 0x19, [0x41] = 0x1E, [0x53] = 0x1F, [0x44] = 0x20, [0x46] = 0x21, [0x47] = 0x22, [0x48] = 0x23,
+    [0x4A] = 0x24, [0x4B] = 0x25, [0x4C] = 0x26, [0x5A] = 0x2C, [0x58] = 0x2D, [0x43] = 0x2E, [0x56] = 0x2F, [0x42] = 0x30,
+    [0x4E] = 0x31, [0x4D] = 0x32,
+    [0x31] = 0x02, [0x32] = 0x03, [0x33] = 0x04, [0x34] = 0x05, [0x35] = 0x06, [0x36] = 0x07, [0x37] = 0x08, [0x38] = 0x09,
+    [0x39] = 0x0A, [0x30] = 0x0B,
+    [0x70] = 0x3B, [0x71] = 0x3C, [0x72] = 0x3D, [0x73] = 0x3E, [0x74] = 0x3F, [0x75] = 0x40, [0x76] = 0x41, [0x77] = 0x42,
+    [0x78] = 0x43, [0x79] = 0x44, [0x7A] = 0x57, [0x7B] = 0x58,
+};
+
+-- DirectInput codes of the MogSuite keys whose modifiers are held right now.
+local function owned_diks()
+    if keys.typing() then return nil; end
+    local ctrl, alt, shift = keys.down(0x11), keys.down(0x12), keys.down(0x10);
+    local out = nil;
+    for _, bind in pairs(cfg.global.keys) do
+        local dik = DIK[tonumber(bind.key) or 0];
+        if dik ~= nil and bind.enabled ~= false and (bind.ctrl == true) == ctrl and (bind.alt == true) == alt and (bind.shift == true) == shift then
+            out = out or {};
+            out[dik] = true;
+        end
+    end
+    return out;
+end
+
+ashita.events.register('key_data', 'mogsuite_keydata_cb', function(e)
+    if e == nil or keys.listening ~= nil then return; end
+    local own = owned_diks();
+    if own ~= nil and own[tonumber(e.key) or -1] then e.blocked = true; end
+end);
+
+ashita.events.register('key_state', 'mogsuite_keystate_cb', function(e)
+    if e == nil then return; end
+    local own = owned_diks();
+    if own == nil then return; end
+    pcall(function()
+        local p = ffi.cast('uint8_t*', e.data_modified_raw or e.data_raw);
+        if p == nil then return; end
+        for dik in pairs(own) do p[dik] = 0; end
+    end);
 end);
 
 -- ============================================================================
