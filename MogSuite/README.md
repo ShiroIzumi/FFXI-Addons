@@ -201,6 +201,19 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 
 ## Changelog
 
+### 1.5.0
+- **Fonts & Tooltips** (Settings > Global): use a Windows font (Tahoma by default) instead of Ashita's pixel font, so text stays smooth at any size and on 4K. Pick the text size, override the text and label colors, and style every tooltip (font, size, width, padding, border, colors) with a live preview. A new font needs a reload; the page has a button for it.
+- **Character: gear panel.** Double-click a slot on the equipment strip (or right-click > Change) and a panel opens beside the Character window with every item for that slot in your Inventory and Wardrobes: Usable, Usable later (level too low, level sync counts) and Unusable (wrong job or race), with the reason, icon, level and stats. Double-click (or right-click > Equip) sends the game's `/equip`. Right-click a slot > Remove unequips it.
+- **Character: Upgrade finder.** Items are scored with a stat priority per job (editable in Settings > Character > Gear & Upgrades). Better items get "^ upgrade", the best one "* best".
+- **Character: Death Recap.** The last actions done to you (hits, misses, shadows, heals, status effects; how many is up to you, 1-50) freeze when you die and pop up. Recap button next to Config.
+- **Character: Progress tab.** Nation and rank, current Nation / Zilart / Promathia / Aht Urhgan missions, fame per area (set it after asking that area's fame NPC; the tab tells you who and where) and access key items.
+- **Character: Conquest tab.** Region owners, your nation's standing, days to the next tally, conquest points and this region's influence.
+- **Inventory: compact header.** Two rows: your pinned bags plus a Bags menu (grouped Carried / Wardrobes / Mog House / Other, with Pin / Unpin), then search, sort, view and a Filter menu. Shift+Click still opens pop-outs. The old header is one checkbox away (Settings > Inventory > Window).
+- **Inventory: tooltips plus.** Where an item drops (mobdb), what it is made with and which recipes use it (Horizon-era crafts), and how many you have in other bags.
+- **Inventory: new views.** Usable (food, medicines, scrolls, ninja tools, ammo), Cleanup (suggestions only: stacks to merge, items spread over bags, NPC-only sell items, outgrown gear) and Upgrades (per slot, from the Upgrade finder).
+- **Inventory: Watch list.** Right-click > Watch this item, set how few is "running low"; an alert window (and an optional sound) tells you. Alerts every time it drops or once per login.
+- **Actions: tooltips** show range and area of effect, and weapon skills show their skillchain properties, magic burst elements and which of your other weapon skills they open into or close after. A **Skillchains** section at the bottom of the Weapon Skills tab lists every chain your ready weapon skills make.
+
 ### 1.4.0
 - **New settings window:** a search box that finds any setting in any module, and a sidebar with each module in its own color. A dot next to each module's name shows whether its window is open; click it to open or close the window.
 - Each page starts with a line about what it is for. Settings line up in two columns, with a **(?)** for help. Dependent options sit indented under the one they depend on.

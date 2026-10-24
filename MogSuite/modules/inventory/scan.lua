@@ -282,6 +282,7 @@ function scan_bags()
     else
         state.prev_counts = counts;
         state.prev_totals = totals;
+        if settled and watch_check ~= nil then pcall(watch_check, totals); end
         state.prev_mh = mh_totals;
     end
 

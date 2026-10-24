@@ -122,6 +122,7 @@ function module_present()
 
     draw_main_window();
     draw_log_window();
+    draw_watch_window();
     if config.warn_full ~= false then draw_full_warning(); end
 
     if state.settings_dirty and (os.clock() - state.last_save) > 0.6 and not imgui.IsAnyItemActive() then

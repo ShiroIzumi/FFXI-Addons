@@ -67,7 +67,7 @@ state = T{
     req_w = 0,
     frame_req_w = 0,
 
-    tab = T{ math.max(1, math.min(4, tonumber(config.ui.tab) or 1)) },
+    tab = T{ math.max(1, math.min(6, tonumber(config.ui.tab) or 1)) },
     skill_combat = T{ config.ui.skill_combat ~= false },
     skill_magic = T{ config.ui.skill_magic ~= false },
     skill_craft = T{ config.ui.skill_craft ~= false },
@@ -155,7 +155,7 @@ function apply_loaded_config()
     load_color(state.muted_color, a.muted_color);
 
     state.ui_scale[1] = initial_ui_scale(config.ui);
-    state.tab[1] = math.max(1, math.min(4, tonumber(config.ui.tab) or 1));
+    state.tab[1] = math.max(1, math.min(6, tonumber(config.ui.tab) or 1));
     state.skill_combat[1] = config.ui.skill_combat ~= false;
     state.skill_magic[1] = config.ui.skill_magic ~= false;
     state.skill_craft[1] = config.ui.skill_craft ~= false;

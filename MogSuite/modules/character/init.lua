@@ -15,11 +15,18 @@ module_info = {
 -- Ashita replaced the settings table (login / character change).
 function module_settings_changed()
     apply_loaded_config();
+    ensure_recap_config();
+    ensure_progress_config();
+    ensure_equip_config();
+    stat_cache = {};
 end
 
 -- Skill-ups (0x029 message 38) and the Currencies list (0x113).
 function module_packet_in(e)
     if e == nil or e.data_modified == nil then return; end
+
+    if e.id == 0x028 then pcall(recap_packet, e); return; end
+    if e.id == 0x056 or e.id == 0x05E then pcall(progress_packet, e); return; end
 
     -- Currencies (sent when you open Main Menu > Currencies).
     if e.id == 0x113 then
@@ -77,6 +84,10 @@ end
 
 function module_present()
     draw_main();
+    local ok, err = pcall(draw_equip_panel);
+    if not ok then print('[MogSuite] gear panel: ' .. tostring(err)); equip_panel.open[1] = false; end
+    pcall(recap_watch);
+    draw_recap_window();
 
     -- Closing with the title bar's X also counts as a change to save.
     if state.open[1] ~= state.last_open then
@@ -112,6 +123,8 @@ function module_close_all()
         state.open[1] = false;
         state.settings_dirty = true;
     end
+    equip_panel.open[1] = false;
+    recap.open[1] = false;
 end
 
 function module_reset_position()

@@ -84,8 +84,23 @@ function theme.key(key)
     return key;
 end
 
+-- Text color override (Global > Fonts & Tooltips). UI_TEXT / UI_MUTED are
+-- changed in place so every file that holds them follows.
+local TEXT_DEFAULT = { theme.UI_TEXT[1], theme.UI_TEXT[2], theme.UI_TEXT[3], theme.UI_TEXT[4] };
+local MUTED_DEFAULT = { theme.UI_MUTED[1], theme.UI_MUTED[2], theme.UI_MUTED[3], theme.UI_MUTED[4] };
+local function apply_text_colors()
+    local on = G ~= nil and G.text_color_on == true;
+    local t = (on and type(G.text_color) == 'table') and G.text_color or TEXT_DEFAULT;
+    local m = (on and type(G.muted_color) == 'table') and G.muted_color or MUTED_DEFAULT;
+    for i = 1, 4 do
+        theme.UI_TEXT[i] = tonumber(t[i]) or TEXT_DEFAULT[i];
+        theme.UI_MUTED[i] = tonumber(m[i]) or MUTED_DEFAULT[i];
+    end
+end
+
 function theme.apply(key)
     key = theme.key(key);
+    apply_text_colors();
     if theme.applied == key then return; end
     local t = theme.THEMES[key];
     set_rgb(theme.UI_ACCENT, t.accent);

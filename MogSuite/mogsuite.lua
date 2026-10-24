@@ -28,7 +28,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.4.0';
+addon.version = '1.5.0';
 addon.desc    = 'MogSuite: your character, inventory and actions in one suite.';
 addon.link    = '';
 
@@ -45,10 +45,13 @@ local loader       = require('core.loader');
 local configwindow = require('core.configwindow');
 local cursor       = require('core.cursor');
 local cfgui        = require('core.cfgui');
+local fonts        = require('core.fonts');
 
 -- Wrap imgui.Begin / popups before any window is drawn so the visible mouse
 -- pointer knows when the mouse is over a MogSuite window.
 cursor.install();
+-- Tooltips follow Global > Fonts & Tooltips (size, colors, wrap).
+fonts.install_tooltips();
 
 -- ============================================================================
 -- Settings (saved per character): Global + one table per module
@@ -77,6 +80,22 @@ local defaults = T{
         mouse_cursor_outline = T{ 0.05, 0.00, 0.05, 1.00 },
         mouse_cursor_shadow = true,
         esc_close = true,   -- Esc closes every MogSuite window (the game still gets Esc too)
+        -- Fonts & tooltips (1.5.0). A Windows font is drawn at its real size,
+        -- so it stays smooth at any UI scale; applies after a reload.
+        font_family = 'tahoma',     -- see core/fonts.lua; 'default' = Ashita's pixel font
+        font_custom = '',           -- 'custom': a .ttf file name in C:\Windows\Fonts, or a full path
+        font_size = 15,             -- px at 100% (each window's own scale still applies)
+        text_color_on = false,      -- use the colors below instead of the theme's
+        text_color = T{ 0.93, 0.93, 0.95, 1.00 },
+        muted_color = T{ 0.62, 0.62, 0.66, 1.00 },
+        tooltip_custom = true,      -- apply the tooltip settings below
+        tooltip_font = 'same',      -- 'same' = the window font, or a font key
+        tooltip_size = 0,           -- px; 0 = the size of the window it belongs to
+        tooltip_wrap = 0,           -- px; 0 = each tooltip's own width
+        tooltip_padding = 8,
+        tooltip_border = true,
+        tooltip_text_color = T{ 0.95, 0.95, 0.97, 1.00 },
+        tooltip_bg = T{ 0.04, 0.04, 0.05, 0.97 },
         keys = T{
             character = T{ enabled = true, key = 0x43, ctrl = false, alt = false, shift = false }, -- C
             inventory = T{ enabled = true, key = 0x42, ctrl = false, alt = false, shift = false }, -- B
@@ -115,6 +134,7 @@ end
 local cfg = settings.load(defaults);
 fill_defaults(cfg, defaults);
 theme.set_global(cfg.global);
+fonts.set_global(cfg.global);
 
 local suite = {
     dirty = false,
@@ -172,9 +192,9 @@ local character_inject = inject('character');
 character_inject.skilldata = loader.read('modules\\character\\skilldata.lua');
 
 local modules = {
-    loader.load_module('character', { 'state', 'stats', 'layout', 'overview', 'skills', 'gearstats', 'currencies', 'window', 'config', 'init' }, character_inject),
-    loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'keyitems', 'window', 'lootlog', 'config', 'init' }, inject('inventory')),
-    loader.load_module('actions', { 'state', 'data', 'player', 'lists', 'pets', 'use', 'draw', 'rows', 'window', 'config', 'init' }, inject('actions')),
+    loader.load_module('character', { 'state', 'stats', 'layout', 'overview', 'skills', 'gearstats', 'currencies', 'recap', 'progress', 'equip', 'window', 'config', 'init' }, character_inject),
+    loader.load_module('inventory', { 'state', 'items', 'store', 'prices', 'scan', 'actions', 'menus', 'views', 'extras', 'keyitems', 'window', 'lootlog', 'config', 'init' }, inject('inventory')),
+    loader.load_module('actions', { 'state', 'data', 'scdata', 'player', 'lists', 'pets', 'use', 'draw', 'skillchain', 'rows', 'window', 'config', 'init' }, inject('actions')),
     loader.load_module('requests', { 'state', 'popup', 'config', 'init' }, inject('requests')),
 };
 local by_key = {};
@@ -205,6 +225,7 @@ settings.register('settings', 'mogsuite_settings_update', function(s)
     cfg = s;
     fill_defaults(cfg, defaults);
     theme.set_global(cfg.global);
+    fonts.set_global(cfg.global);
     configwindow.open[1] = cfg.global.config_visible == true;
     configwindow.apply_geometry = true;
     keys.listening = nil;
@@ -341,6 +362,11 @@ ashita.events.register('d3d_present', 'mogsuite_present_cb', function()
         cfg.global.config_visible = configwindow.open[1] == true;
         settings.save();
     end
+end);
+
+-- Fonts are added to ImGui here (never while a frame is drawn).
+ashita.events.register('load', 'mogsuite_load_cb', function()
+    pcall(fonts.load, cfg.global);
 end);
 
 ashita.events.register('unload', 'mogsuite_unload_cb', function()

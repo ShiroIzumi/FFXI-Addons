@@ -40,7 +40,7 @@ function draw_log_window()
 
     push_theme();
     if imgui.Begin('MogSuite  -  Loot Log##nai_log', state.log_visible, ImGuiWindowFlags_NoNav) then
-        imgui.PushFont(nil, imgui.GetFontSize() * (tonumber(config.font_scale) or 1.0));
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * (tonumber(config.font_scale) or 1.0));
 
         local elapsed = os.time() - state.session_start;
         local gained = (state.session_gil ~= nil) and (state.gil - state.session_gil) or 0;

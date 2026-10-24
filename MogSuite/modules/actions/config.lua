@@ -62,6 +62,12 @@ local function config_lists()
     ui.section('WEAPON SKILLS');
     ui.check('Show relic weapon skills you do not have', config, 'show_special_ws',
         'Relic weapon skills are hidden unless you have them. (HorizonXI has no mythic weapons.)');
+    ui.check('Skillchains panel', config, 'show_sc_panel',
+        'A section at the bottom of the Weapon Skills tab listing every skillchain your ready weapon skills make, with magic burst elements.', ON);
+    ui.check('Chains in weapon skill tooltips', config, 'show_sc_combos',
+        'Weapon skill tooltips list which of your other weapon skills it opens into or closes after.', ON);
+    ui.check('Range and area in tooltips', config, 'show_range',
+        'Spell and ability tooltips show the range and whether it hits an area.', ON);
 
     ui.section('MAGIC');
     ui.check('Hide spells you cannot cast yet', config, 'hide_unknown_spells',

@@ -225,7 +225,7 @@ function configwindow.draw(ctx)
     if imgui.Begin('MogSuite Settings##ms_config', configwindow.open, ImGuiWindowFlags_NoNav) then
         local s = tonumber(G.config_scale) or 1.0;
         ui.scale = s;
-        imgui.PushFont(nil, imgui.GetFontSize() * s);
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * s);
         local ok, err = pcall(function()
             local groups = build_groups(ctx);
 

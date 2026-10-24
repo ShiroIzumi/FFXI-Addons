@@ -83,8 +83,74 @@ local function config_tabs()
     ui.info('Currencies are read from the game\'s own Currencies list. Open Main Menu > Currencies once and MogSuite remembers them for this character.');
 end
 
+local function config_recap()
+    local r = config.recap;
+    ui.section('DEATH RECAP');
+    ui.slider_i('Actions to keep', r, 'count', 1, 50, '%d', 'How many of the last actions done to you the recap shows when you die.');
+    ui.check('Open the recap when you die', r, 'popup', 'Pops the Death Recap window up the moment your HP hits 0.', { default_on = true });
+    ui.check('Count heals and buffs', r, 'heals', 'Cures, regen and buffs others put on you are listed too.', { default_on = true });
+    ui.check('Count misses, evades and shadows', r, 'misses', 'Attacks that missed you or took a shadow are listed too.', { default_on = true });
+    ui.check('Count status effects', r, 'status', 'Debuffs landing on you (Poison, Slow, Paralyze...) are listed too.', { default_on = true });
+    ui.check('Show your HP', r, 'show_hp', 'Shows your HP % after each action.', { default_on = true });
+    ui.info('Open it any time with the Recap button next to Config on the Character window.');
+end
+
+local function config_gear()
+    local e = config.equip;
+    ui.section('GEAR PANEL');
+    ui.info('Double-click a slot on the Overview equipment strip (or right-click > Change) to open it.');
+    ui.slider_i('Panel width', e, 'width', 280, 700, '%d px', 'Width of the gear panel next to the Character window.');
+    ui.check('Show stats under each item', e, 'show_stats', 'The stats read from the item description.', { default_on = true });
+    ui.check('Show Usable later', e, 'show_later', 'Items for your job you are not high enough level for (level sync counts).', { default_on = true });
+    ui.check('Show Unusable', e, 'show_unusable', 'Items your job (or race) cannot wear.', { default_on = true });
+
+    ui.section('UPGRADE FINDER');
+    local player = get_player();
+    local job = tonumber(safe_call(player, 'GetMainJob')) or 1;
+    if state.weights_job == nil then state.weights_job = JOB_SHORT_LIST[job] or 'WAR'; end
+    if ui.want('Stat priority per job', 'How much each stat point is worth when items are compared.') then
+        ui.label('Job', 'Pick the job whose weights you want to change.');
+        imgui.PushItemWidth(120 * (ui.scale or 1));
+        if imgui.BeginCombo('##cs_w_job', state.weights_job) then
+            for _, j in ipairs(JOB_SHORT_LIST) do
+                if imgui.Selectable(j, j == state.weights_job) then state.weights_job = j; end
+            end
+            imgui.EndCombo();
+        end
+        imgui.PopItemWidth();
+        local j = state.weights_job;
+        local saved = e.weights[j];
+        local cur = (saved ~= nil and next(saved) ~= nil) and saved or DEFAULT_WEIGHTS[j] or {};
+        ui.info('0 = ignored. Negative values count against an item (Enmity for mages). DMG counts per 240 delay.');
+        for _, def in ipairs(STAT_DEFS) do
+            if def[1] ~= 'DELAY' then
+                ui.label(def[2], nil);
+                imgui.PushItemWidth(110 * (ui.scale or 1));
+                local v = { tonumber(cur[def[1]]) or 0 };
+                if imgui.InputFloat('##cs_w_' .. j .. def[1], v, 0.1, 1.0, '%.1f') then
+                    if saved == nil or next(saved) == nil then
+                        saved = T{};
+                        for k, x in pairs(DEFAULT_WEIGHTS[j] or {}) do saved[k] = x; end
+                        e.weights[j] = saved;
+                        cur = saved;
+                    end
+                    saved[def[1]] = (v[1] ~= 0) and v[1] or nil;
+                    ui.dirty();
+                end
+                imgui.PopItemWidth();
+            end
+        end
+        if ui.button('Default weights for ' .. j, 'cs_w_reset', 'Puts this job back to the built-in priorities.') then
+            e.weights[j] = nil;
+            ui.dirty();
+        end
+    end
+end
+
 module_config_sections = {
     { key = 'window', label = 'Window', draw = config_window, desc = 'Where the Character window sits, its frame, and how big everything in it is.' },
     { key = 'tabs', label = 'Tabs', draw = config_tabs, desc = 'What the Skills, Gear Stats and Currencies tabs list.' },
+    { key = 'recap', label = 'Death Recap', draw = config_recap, desc = 'What the Death Recap counts and how many actions it keeps.' },
+    { key = 'gear', label = 'Gear & Upgrades', draw = config_gear, desc = 'The gear panel and the stat priority the Upgrade finder uses per job.' },
     { key = 'colors', label = 'Colors', draw = config_colors, desc = 'The colors for good, not-there-yet and bad numbers, and for labels.' },
 };

@@ -14,6 +14,7 @@ local imgui = require('imgui');
 local theme = require('core.theme');
 local keys = require('core.keys');
 local ui = require('core.cfgui');
+local fonts = require('core.fonts');
 
 local globalconfig = {};
 
@@ -121,6 +122,101 @@ local function text(ctx)
         dl:AddRectFilled({ bx, sy }, { bx + w * 0.6, sy + h }, imgui.GetColorU32({ 0.10, 0.10, 0.12, 1.0 }), 4.0);
         theme.draw_fx_text(dl, bx + 10, sy + 6, { 0.95, 0.95, 0.97, 1.0 }, 'Cure IV');
         imgui.Dummy({ w, h + 2 });
+    end
+end
+
+-- Fonts & Tooltips (1.5.0).
+local function font_combo(id, G, key, list, extra)
+    local cur = G[key] or 'default';
+    local label = cur;
+    for _, f in ipairs(extra or {}) do if f.key == cur then label = f.label; end end
+    for _, f in ipairs(list) do if f.key == cur then label = f.label; end end
+    if cur == 'custom' then label = 'Custom file...'; end
+    local changed = false;
+    imgui.PushItemWidth(ui.SLIDER_W * ui.scale);
+    if imgui.BeginCombo('##' .. id, label) then
+        for _, f in ipairs(extra or {}) do
+            if imgui.Selectable(f.label .. '##' .. id .. f.key, cur == f.key) then G[key] = f.key; changed = true; end
+        end
+        for _, f in ipairs(list) do
+            if imgui.Selectable(f.label .. '##' .. id .. f.key, cur == f.key) then G[key] = f.key; changed = true; end
+        end
+        if imgui.Selectable('Custom file...##' .. id .. 'custom', cur == 'custom') then G[key] = 'custom'; changed = true; end
+        imgui.EndCombo();
+    end
+    imgui.PopItemWidth();
+    if changed then ui.dirty(); end
+    return changed;
+end
+
+local function fonts_page(ctx)
+    local G = ctx.G;
+    local list = fonts.available();
+    ui.section('WINDOW FONT');
+    ui.info("Ashita's own font is a small pixel font, which looks sharp and jagged once it is scaled up. A Windows font (Tahoma is what XIUI's bars use) is drawn at its real size and stays smooth at any UI scale.");
+    if ui.want('Font', 'Window font Tahoma Segoe Verdana Arial') then
+        ui.label('Font', 'The font of every MogSuite window. Only the fonts installed on this PC are listed.');
+        font_combo('ms_font', G, 'font_family', list);
+    end
+    if G.font_family == 'custom' and ui.want('Font file', 'custom ttf') then
+        ui.label('Font file', 'A .ttf / .otf file name in C:\\Windows\\Fonts (e.g. "seguisb.ttf"), or a full path.');
+        local buf = { tostring(G.font_custom or '') };
+        imgui.PushItemWidth(ui.SLIDER_W * ui.scale);
+        if imgui.InputText('##ms_font_custom', buf, 260) then G.font_custom = buf[1]; ui.dirty(); end
+        imgui.PopItemWidth();
+    end
+    ui.slider_i('Text size', G, 'font_size', 10, 28, '%d px', 'Base size of the Windows font at 100%. Each window\'s own UI scale still applies on top. (Not used with Ashita\'s pixel font.)');
+    if fonts.needs_reload(G) and ui.want('Reload to apply', 'font reload') then
+        ui.label('Apply');
+        imgui.TextColored({ 0.95, 0.75, 0.30, 1.0 }, 'A new font loads when MogSuite reloads.');
+        imgui.SameLine();
+        if imgui.Button('Reload MogSuite##ms_font_reload') then
+            AshitaCore:GetChatManager():QueueCommand(1, '/addon reload mogsuite');
+        end
+        tip('Same as typing /addon reload mogsuite. Your settings are saved first.');
+    end
+
+    ui.section('TEXT COLORS');
+    ui.check('Use my own text colors', G, 'text_color_on', 'Instead of the theme\'s text colors.');
+    if G.text_color_on then
+        ui.sub(function()
+            G.text_color = G.text_color or T{ 0.93, 0.93, 0.95, 1.00 };
+            G.muted_color = G.muted_color or T{ 0.62, 0.62, 0.66, 1.00 };
+            ui.color('Text', G.text_color, 'Names, values and most text.', true);
+            ui.color('Labels', G.muted_color, 'Labels, hints and secondary text.', true);
+        end);
+    end
+
+    ui.section('TOOLTIPS');
+    ui.check('Customize tooltips', G, 'tooltip_custom', 'Off: tooltips look like the window they come from.', { default_on = true });
+    if G.tooltip_custom ~= false then
+        ui.sub(function()
+            if ui.want('Tooltip font', 'tooltip font') then
+                ui.label('Font', 'The font of tooltips. "Same as windows" follows the window font.');
+                font_combo('ms_tip_font', G, 'tooltip_font', list, { { key = 'same', label = 'Same as windows' } });
+            end
+            ui.slider_i('Text size', G, 'tooltip_size', 0, 32, function(v) return v == 0 and 'Same as the window' or '%d px'; end,
+                'Tooltip text size. Bigger is easier to read on 4K screens.');
+            ui.slider_i('Width', G, 'tooltip_wrap', 0, 900, function(v) return v == 0 and 'Each tooltip\'s own' or '%d px'; end,
+                'Long lines wrap at this width.');
+            ui.slider_i('Padding', G, 'tooltip_padding', 2, 24, '%d px', 'Space between the border and the text.');
+            ui.check('Border', G, 'tooltip_border', nil, { default_on = true });
+            G.tooltip_text_color = G.tooltip_text_color or T{ 0.95, 0.95, 0.97, 1.00 };
+            G.tooltip_bg = G.tooltip_bg or T{ 0.04, 0.04, 0.05, 0.97 };
+            ui.color('Text color', G.tooltip_text_color, 'Plain tooltip text (colored lines keep their colors).', true);
+            ui.color('Background', G.tooltip_bg, 'Use the alpha to make it see-through.', true);
+        end);
+    end
+    if ui.preview() and ui.want('Preview', 'tooltip preview') then
+        ui.label('Preview');
+        imgui.TextColored(theme.UI_ACCENT_TEXT, 'Hover me');
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.TextColored(theme.UI_ACCENT_TEXT, 'Scorpion Harness');
+            imgui.TextUnformatted('DEF:30 HP+10 STR+5 DEX+5 Accuracy+10 Attack+10');
+            imgui.TextColored(theme.UI_MUTED, 'Lv 57  WAR/RDM/THF/PLD/DRK/BST/BRD/RNG/SAM/NIN/DRG/BLU/COR');
+            imgui.EndTooltip();
+        end
     end
 end
 
@@ -250,6 +346,7 @@ end
 globalconfig.sections = {
     { key = 'appearance', label = 'Appearance', draw = appearance, desc = 'The theme and background of every MogSuite window, the size of this window, and the mouse pointer.' },
     { key = 'text', label = 'Text', draw = text, desc = 'The effect behind names in the Inventory and Actions lists, so they read on any background.' },
+    { key = 'fonts', label = 'Fonts & Tooltips', draw = fonts_page, desc = 'The font and text size of every MogSuite window (smooth Windows fonts), text colors, and how tooltips look.' },
     { key = 'keys', label = 'Keybinds', draw = keybinds, desc = 'The key that opens each window, and what Esc does.' },
     { key = 'windows', label = 'Windows', draw = windows, desc = 'Open, lock or reset every MogSuite window at once.' },
     { key = 'about', label = 'About', draw = about, desc = 'Who made MogSuite, the chat commands, and good to know.' },

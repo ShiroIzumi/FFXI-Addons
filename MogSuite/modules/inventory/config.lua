@@ -14,6 +14,13 @@ local VIEWS = {
     { key = 'list', label = 'List', tip = 'Icon, name and quantity on each row.' },
     { key = 'grid', label = 'Grid', tip = 'An icon grid with the quantity in the corner.' },
     { key = 'categories', label = 'Categories', tip = 'Items grouped into sections (Weapons, Armor, Usable, ...).' },
+    { key = 'usable', label = 'Usable', tip = 'Food, medicines, scrolls, ninja tools and ammo, each in its own section.' },
+    { key = 'cleanup', label = 'Cleanup', tip = 'Suggestions only: stacks to merge, items spread over bags, NPC-only sell items, outgrown gear.' },
+    { key = 'upgrades', label = 'Upgrades', tip = 'Gear in your Inventory / Wardrobes that beats what you wear.' },
+};
+local WATCH_MODES = {
+    { key = 'drop', label = 'Every time it drops', tip = 'Alerts again each time you use one while you are at or under the limit.' },
+    { key = 'once', label = 'Once per login', tip = 'One alert per item until you reload / log in again.' },
 };
 local QTY = {
     { key = 'x', label = 'x12', tip = 'Shows how many you have, e.g. x12.' },
@@ -30,9 +37,16 @@ local function config_window()
     ui.check('Show title bar', config, 'title_bar', 'Shows the window title bar. Without it, the window has its own X button.');
     if ui.button('Reset window position', 'nai_resetpos', 'Moves the inventory window back to its default place and size.') then module_reset_position(); end
 
+    ui.section('HEADER');
+    ui.check('Compact header', config, 'compact_header',
+        'Two rows: your pinned bags + a Bags menu, then search / sort / view / Filter. Untick for every bag tab and the filter chips (the old look).', ON);
+    if config.compact_header ~= false then
+        ui.info('Pin or unpin bags in the Bags v menu. Shift+Click a tab or menu entry still opens it in its own window.');
+    end
+
     ui.section('LAYOUT');
     -- Older saves may hold another value: anything else is List.
-    local view_tbl = { view = (config.view == 'grid' or config.view == 'categories') and config.view or 'list' };
+    local view_tbl = { view = (VIEW_LABELS[config.view] ~= nil) and config.view or 'list' };
     if ui.choice('View', view_tbl, 'view', VIEWS, 'For the main window. Pop-out windows have their own view menu.') then
         config.view = view_tbl.view;
         new_view();
@@ -210,10 +224,72 @@ local function config_bags()
     if not any and not ui.searching() then imgui.TextDisabled('Waiting for your inventory...'); end
 end
 
+local function config_tooltips()
+    ui.section('ITEM TOOLTIPS');
+    ui.check('Where it drops', config, 'tip_drops', 'Monsters and zones that drop the item (mobdb data).', ON);
+    ui.check('Recipes', config, 'tip_recipes', 'What the item is made from, and which recipes use it (Horizon-era crafts).', ON);
+    ui.check('How many you have in other bags', config, 'tip_other_bags', '"You have 12 in Satchel, 3 in Mog Safe".', ON);
+    ui.info('Font, size and colors of every tooltip: Settings > Global > Fonts & Tooltips.');
+end
+
+local function config_watch()
+    ui.section('WATCH LIST');
+    ui.info('Right-click an item > Watch this item. You get an alert window when you are down to the number set here (carried bags count).');
+    config.watch = config.watch or T{};
+    local ids = {};
+    for id in pairs(config.watch) do ids[#ids + 1] = id; end
+    table.sort(ids, function(a, b) return (item_name_of(a) or '') < (item_name_of(b) or ''); end);
+    if #ids == 0 and not ui.searching() then imgui.TextDisabled('No items watched yet.'); end
+    for _, id in ipairs(ids) do
+        local w = config.watch[id];
+        local name = item_name_of(id);
+        if ui.want(name, 'watch list item alert') then
+            ui.label(name, 'Alert when you have this many or fewer.');
+            imgui.PushItemWidth(110 * (ui.scale or 1));
+            local v = { tonumber(w.min) or 1 };
+            if imgui.InputInt('##nai_w_' .. tostring(id), v) then
+                w.min = math.max(0, math.min(9999, v[1]));
+                watch.alerted[id] = nil;
+                mark_dirty();
+            end
+            imgui.PopItemWidth();
+            imgui.SameLine();
+            if imgui.SmallButton('Remove##nai_wr_' .. tostring(id)) then
+                config.watch[id] = nil;
+                mark_dirty();
+            end
+        end
+    end
+    ui.section('ALERT');
+    ui.choice('Alert', config, 'watch_mode', WATCH_MODES, 'How often a running-low item alerts.', { default = 'drop' });
+    ui.check('Play a sound', config, 'watch_sound', 'Plays a sound with the alert window.');
+    if config.watch_sound == true or ui.searching() then
+        if ui.want('Sound file', 'wav path sound') then
+            ui.label('Sound file', 'A .wav file. Empty = the Windows notify sound.');
+            config.watch_sound_file = config.watch_sound_file or '';
+            local buf = { tostring(config.watch_sound_file) };
+            imgui.PushItemWidth(320 * (ui.scale or 1));
+            if imgui.InputText('##nai_w_sound', buf, 260) then
+                config.watch_sound_file = buf[1];
+                mark_dirty();
+            end
+            imgui.PopItemWidth();
+            imgui.SameLine();
+            if imgui.SmallButton('Test##nai_w_test') then
+                local p = tostring(config.watch_sound_file or '');
+                if p == '' then p = DEFAULT_SOUND; end
+                pcall(function() ashita.misc.play_sound(p); end);
+            end
+        end
+    end
+end
+
 module_config_sections = {
     { key = 'window', label = 'Window', draw = config_window, desc = 'Where the inventory window sits, how it lays items out, and how big rows and icons are.' },
     { key = 'items', label = 'Items', draw = config_items, desc = 'How quantities read, which items stand out, the inventory-full warning and new-item highlights.' },
     { key = 'colors', label = 'Colors', draw = config_colors, desc = 'Colors for item names, quantities and gil.' },
+    { key = 'tooltips', label = 'Tooltips', draw = config_tooltips, desc = 'What item tooltips show: drops, recipes, other bags, AH category.' },
+    { key = 'watch', label = 'Watch list', draw = config_watch, desc = 'Items that alert you when you are running low.' },
     { key = 'value', label = 'Value', draw = config_value, desc = 'Vendor sell values, the price list, and prices learned at shops.' },
     { key = 'categories', label = 'Categories', draw = config_categories, desc = 'How the Categories view draws its sections, and their order.' },
     { key = 'bags', label = 'Bags', draw = config_bags, desc = 'Which bag tabs show in the inventory window.' },

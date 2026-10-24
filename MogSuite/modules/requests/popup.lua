@@ -113,7 +113,7 @@ function draw_popup()
     push_theme();
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, config.border ~= false and 1.0 or 0.0);
     if imgui.Begin('MogSuite  -  Request##ms_request_popup', nil, flags) then
-        imgui.PushFont(nil, imgui.GetFontSize() * scale);
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * scale);
         local width = tonumber((imgui.GetContentRegionAvail())) or 440;
         local color = COLORS[info.color];
 

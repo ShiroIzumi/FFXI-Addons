@@ -45,4 +45,15 @@ return T{
     hidden = false,            -- every window hidden with the open key
     popouts = T{},             -- Shift+Click pop-out windows (one per tab)
     popout_saved = T{},        -- [tostring(bag)] = last size / position / view of a closed pop-out
+
+    -- 1.5.0
+    compact_header = true,     -- pinned bag tabs + Bags menu, filters behind Filter v
+    tip_drops = true,          -- tooltip: where it drops
+    tip_recipes = true,        -- tooltip: made with / used in
+    tip_other_bags = true,     -- tooltip: how many in other bags
+    watch = T{},               -- [item_id] = { min = N } running-low alerts
+    watch_mode = 'drop',       -- 'drop' | 'once'
+    watch_sound = false,
+    watch_sound_file = '',
+    watch_window = T{ x = 700, y = 160 },
 };

@@ -353,5 +353,9 @@ function draw_tab_lists(tab)
         if tostring(state.search[1] or '') ~= '' then msg = 'Nothing matches the search.'; end
         imgui.TextDisabled(msg);
     end
+    if tab == 'ws' then
+        local ok, err = pcall(draw_skillchain_panel, dl, tonumber((imgui.GetContentRegionAvail())) or 300);
+        if not ok then imgui.TextDisabled(tostring(err)); end
+    end
     draw_context_menu();
 end

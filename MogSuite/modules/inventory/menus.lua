@@ -67,6 +67,7 @@ function draw_tooltip(row)
         end
     end
     if is_favorite(row) then imgui.TextColored(UI_ACCENT_TEXT, 'Favorite'); end
+    pcall(draw_tooltip_extras, row);
     local where = BAG_NAMES[row.bag] or ('Bag ' .. tostring(row.bag));
     if row.source == 'alt' then
         where = tostring(row.char) .. ' - ' .. where;
@@ -105,6 +106,17 @@ function draw_context_menu()
         config.favorites[row.id] = (not is_favorite(row)) or nil;
         state.view_gen = state.view_gen + 1;
         mark_dirty();
+    end
+    if row.source == nil then
+        local watched = config.watch ~= nil and config.watch[row.id] ~= nil;
+        if imgui.Selectable((watched and 'Stop watching this item' or 'Watch this item') .. '##nai_watch') then
+            watch_toggle(row);
+            if not watched then MS.open_config('inventory'); end
+        end
+        if imgui.IsItemHovered() then
+            imgui.SetTooltip(watched and 'No more running-low alerts for it.'
+                or 'Alerts you when you are down to a few (set how many in Settings > Inventory > Watch list).');
+        end
     end
     if can_use(row) then
         any = true;
@@ -160,7 +172,7 @@ function draw_drop_dialog()
     local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_AlwaysAutoResize,
         ImGuiWindowFlags_NoSavedSettings, ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoMove);
     if imgui.Begin('Drop Item##nai_drop_dialog', nil, flags) then
-        imgui.PushFont(nil, imgui.GetFontSize() * (tonumber(config.font_scale) or 1.0));
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * (tonumber(config.font_scale) or 1.0));
         imgui.TextColored(UI_DANGER, 'DROP ITEM');
         imgui.Text(row.info.name);
         if row.info.rare or row.info.ex then

@@ -170,6 +170,22 @@ function draw_details(row, as_tooltip)
         imgui.TextColored(p[2], p[1]);
     end
 
+    -- Range / area (1.5.0).
+    if config.show_range ~= false and (row.k == 'ma' or row.k == 'ja' or row.k == 'pet' or row.k == 'bp') and row.res ~= nil then
+        local range = tonumber(res_field(row.res, 'Range')) or 0;
+        local area = tonumber(res_field(row.res, 'AreaRange')) or 0;
+        local shape = tonumber(res_field(row.res, 'AreaShapeType')) or 0;
+        local bits = {};
+        if range > 0 then bits[#bits + 1] = ('Range %d'):fmt(range); end
+        if area > 0 or shape > 0 then
+            bits[#bits + 1] = 'Area of effect' .. ((area > 0) and (' (radius %d)'):fmt(area) or '');
+        else
+            bits[#bits + 1] = 'Single target';
+        end
+        imgui.TextColored(UI_MUTED, table.concat(bits, '  -  '));
+    end
+    if row.k == 'ws' then pcall(draw_ws_skillchain, row); end
+
     -- Where it comes from.
     if row.k == 'ma' and me ~= nil then
         local src = {};

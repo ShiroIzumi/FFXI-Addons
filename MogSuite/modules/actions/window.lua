@@ -156,7 +156,7 @@ function draw_main_window()
     if not config.title_bar then flags = bit.bor(flags, ImGuiWindowFlags_NoTitleBar); end
 
     if imgui.Begin('MogSuite  -  Actions##ab_main', state.visible, flags) then
-        imgui.PushFont(nil, imgui.GetFontSize() * (tonumber(config.font_scale) or 1.0));
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * (tonumber(config.font_scale) or 1.0));
         local width = tonumber((imgui.GetContentRegionAvail())) or 400;
         local me = state.me;
 

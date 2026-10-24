@@ -440,6 +440,9 @@ function prune_icons(list)
     for _, entry in ipairs(list or {}) do
         if entry.id ~= nil then keep[entry.id] = true; end
     end
+    if equip_panel ~= nil and equip_panel.open[1] then
+        for _, it in ipairs(state.equip_scan or {}) do keep[it.id] = true; end
+    end
     for id in pairs(icon_cache) do
         if not keep[id] then
             icon_cache[id] = nil;
@@ -504,10 +507,16 @@ function draw_equipment_strip()
         imgui.InvisibleButton('##cs_eq_slot_' .. tostring(i), { frame, frame });
         local is_hovered = imgui.IsItemHovered();
         if is_hovered then hovered = entry; end
+        if is_hovered and imgui.IsMouseDoubleClicked(0) then open_equip_panel(entry.slot); end
+        if is_hovered and imgui.IsMouseClicked(1) then
+            state.slot_ctx = entry;
+            imgui.OpenPopup('##cs_eq_slot_ctx');
+        end
+        local is_open = equip_panel.open[1] and equip_panel.slot == entry.slot;
 
         if dl ~= nil then
             dl:AddRectFilled({ x, y }, { x + frame, y + frame }, imgui.GetColorU32({ 0.06, 0.06, 0.07, 1.0 }), 4.0);
-            local edge = is_hovered and UI_ACCENT or { UI_BORDER[1], UI_BORDER[2], UI_BORDER[3], 0.85 };
+            local edge = (is_hovered or is_open) and UI_ACCENT or { UI_BORDER[1], UI_BORDER[2], UI_BORDER[3], 0.85 };
             dl:AddRect({ x, y }, { x + frame, y + frame }, imgui.GetColorU32(edge), 4.0);
         end
 
@@ -527,7 +536,20 @@ function draw_equipment_strip()
     local rows = math.ceil(#list / columns);
     end_tile_block(ox, oy, rows * (frame + gap) - gap);
 
-    if hovered ~= nil then
+    if hovered ~= nil and not imgui.IsPopupOpen('##cs_eq_slot_ctx') then
         draw_item_tooltip(hovered);
+    end
+
+    if imgui.BeginPopup('##cs_eq_slot_ctx') then
+        local e = state.slot_ctx;
+        if e ~= nil then
+            imgui.TextColored(UI_ACCENT_TEXT, e.label .. (e.name and ('  -  ' .. e.name) or ''));
+            imgui.Separator();
+            if imgui.Selectable('Change...##cs_eq_change') then open_equip_panel(e.slot); end
+            if e.id ~= nil and imgui.Selectable('Remove##cs_eq_remove') then
+                AshitaCore:GetChatManager():QueueCommand(1, '/equip ' .. (SLOT_COMMAND[e.slot] or 'main'));
+            end
+        end
+        imgui.EndPopup();
     end
 end

@@ -25,13 +25,15 @@ function toggle_sheet()
     state.settings_dirty = true;
 end
 
-SHEET_TABS = { 'Overview', 'Skills', 'Currencies', 'Gear Stats' };
-SHEET_TAB_COLORS = { 'water', 'wind', 'light', 'fire' };
+SHEET_TABS = { 'Overview', 'Skills', 'Currencies', 'Gear Stats', 'Progress', 'Conquest' };
+SHEET_TAB_COLORS = { 'water', 'wind', 'light', 'fire', 'earth', 'ice' };
 SHEET_TAB_TIPS = {
     'Equipment, attributes, resistances, haste and jobs',
     'Combat, magic and crafting skills with their caps',
     'Conquest points, seals, guild points and more',
     'Stats your equipped gear gives you',
+    'Nation, missions, fame and access key items',
+    'Conquest regions, your nation and points',
 };
 
 function player_name()
@@ -75,7 +77,7 @@ function draw_main()
     if imgui.Begin('MogSuite  -  Character##charsheet', state.open, flags) then
         -- Ashita v4-compatible font scaling. This is the same method used
         -- by our working MobHunt / BLUSpells-style windows.
-        imgui.PushFont(nil, imgui.GetFontSize() * state.font_scale[1]);
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * state.font_scale[1]);
         state.frame_req_w = 0;
 
         local main_job = tonumber(safe_call(player, 'GetMainJob')) or 0;
@@ -141,13 +143,20 @@ function draw_main()
             end
         end
         local cfg_label = 'Config';
-        local tabs_need = text_width(cfg_label) + 20 * scale + 8;
+        local recap_label = 'Recap';
+        local tabs_need = text_width(cfg_label) + text_width(recap_label) + 40 * scale + 12;
         for _, label in ipairs(SHEET_TABS) do
             tabs_need = tabs_need + text_width(label) + 20 * scale + 4;
         end
         require_width(tabs_need + 12 * scale);
         imgui.SameLine();
-        imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8, tabs_x + tabs_w - text_width(cfg_label) - 20 * scale));
+        imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8,
+            tabs_x + tabs_w - text_width(cfg_label) - text_width(recap_label) - 44 * scale));
+        if draw_toggle_button(recap_label, 'charsheet_recap_btn', recap.open[1] == true) then
+            recap.open[1] = not recap.open[1];
+        end
+        tip('Death Recap: the last actions done to you before you died');
+        imgui.SameLine(0, 4);
         if draw_toggle_button(cfg_label, 'charsheet_cfg_btn', false) then
             MS.open_config('character');
         end
@@ -168,8 +177,14 @@ function draw_main()
         elseif tab == 4 then
             imgui.Spacing();
             draw_gear_tab(cached_gear_stats());
+        elseif tab == 5 then
+            imgui.Spacing();
+            draw_progress_tab(player);
+        elseif tab == 6 then
+            imgui.Spacing();
+            draw_conquest_tab(player);
         else
-            sheet_section('EQUIPMENT', 'hover an item for details');
+            sheet_section('EQUIPMENT', 'double-click a slot to change gear');
             imgui.Spacing();
             draw_equipment_strip();
 

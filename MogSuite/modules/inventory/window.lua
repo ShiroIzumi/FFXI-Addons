@@ -15,8 +15,74 @@ function capture_geometry(geom)
     end
 end
 
-VIEW_LABELS = { list = 'List', grid = 'Grid', categories = 'Categories' };
-VIEW_ORDER = { 'list', 'grid', 'categories' };
+VIEW_LABELS = { list = 'List', grid = 'Grid', categories = 'Categories', usable = 'Usable', cleanup = 'Cleanup', upgrades = 'Upgrades' };
+VIEW_ORDER = { 'list', 'grid', 'categories', 'usable', 'cleanup', 'upgrades' };
+VIEW_TIPS = {
+    list = 'Icon, name and quantity on each row',
+    grid = 'An icon grid',
+    categories = 'Weapons, Armor, Usable, ... sections',
+    usable = 'Food, medicines, scrolls, ninja tools and ammo',
+    cleanup = 'Suggestions: stacks to merge, items spread over bags, NPC-only sell items, outgrown gear',
+    upgrades = 'Gear in your Inventory / Wardrobes better than what you wear',
+};
+
+-- Compact header (1.5.0): the bag menu groups.
+BAG_GROUPS = {
+    { label = 'Carried', bags = { 0, 5, 6, 7 } },
+    { label = 'Wardrobes', bags = { 8, 10, 11, 12, 13, 14, 15, 16 } },
+    { label = 'Mog House', bags = { 1, 9, 2, 4 } },
+    { label = 'Other', bags = { -1, 3, -2, -3 } },
+};
+DEFAULT_PINNED = { -1, 0, 5, 6, 8, -3 };
+
+function pinned_bags()
+    if config.pinned_bags == nil then
+        config.pinned_bags = T{};
+        for _, b in ipairs(DEFAULT_PINNED) do config.pinned_bags[#config.pinned_bags + 1] = b; end
+    end
+    return config.pinned_bags;
+end
+
+function is_pinned(bag)
+    for _, b in ipairs(pinned_bags()) do if b == bag then return true; end end
+    return false;
+end
+
+function toggle_pin(bag)
+    local list = pinned_bags();
+    for i, b in ipairs(list) do
+        if b == bag then table.remove(list, i); mark_dirty(); return; end
+    end
+    -- Keep the menu's order.
+    list[#list + 1] = bag;
+    local rank = {};
+    local n = 0;
+    for _, g in ipairs(BAG_GROUPS) do for _, b in ipairs(g.bags) do n = n + 1; rank[b] = n; end end
+    rank[-1] = 0;
+    table.sort(list, function(a, b) return (rank[a] or 99) < (rank[b] or 99); end);
+    mark_dirty();
+end
+
+-- Bag exists for this character (and its tab is not hidden).
+function bag_available(bag)
+    if bag == -1 or bag == -3 then return true; end
+    if bag == -2 then return next(chars) ~= nil; end
+    for _, b in ipairs(state.bag_order) do if b == bag then return true; end end
+    return false;
+end
+
+-- Click / Shift+Click on a bag (tab or menu entry).
+function pick_bag(value)
+    local shift = false;
+    pcall(function() shift = imgui.GetIO().KeyShift == true; end);
+    if shift or mod_down(0x10, state.mods.shift) then
+        if find_popout(value) ~= nil then close_popout(value); else open_popout(value); end
+    else
+        V.bag = value;
+        if value == -3 then state.key_items = nil; end
+        mark_dirty();
+    end
+end
 
 -- Tab colors: bags of the same kind share a color.
 BAG_TAB_COLOR = {
@@ -158,7 +224,7 @@ function draw_inventory_window(popout)
         or ('Inventory  -  %s##nai_pop_%s'):fmt(tab_label(popout.bag), tostring(popout.bag));
     if imgui.Begin(title, open_ref, flags) then
         local scale = tonumber(config.font_scale) or 1.0;
-        imgui.PushFont(nil, imgui.GetFontSize() * scale);
+        imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * scale);
         local frame_h = imgui.GetFrameHeight();
 
         if popout == nil then
@@ -181,16 +247,8 @@ function draw_inventory_window(popout)
                     else line_x = 0; end
                 end
                 if color_tab(label, 'nai_bag_' .. tostring(value), V.bag == value, bag_tab_color(value)) then
-                    local shift = false;
-                    pcall(function() shift = imgui.GetIO().KeyShift == true; end);
-                    if shift or mod_down(0x10, state.mods.shift) then
-                        -- Shift+Click again closes that tab's window.
-                        if find_popout(value) ~= nil then close_popout(value); else open_popout(value); end
-                    else
-                        V.bag = value;
-                        if value == -3 then state.key_items = nil; end
-                        mark_dirty();
-                    end
+                    -- Shift+Click again closes that tab's window.
+                    pick_bag(value);
                 end
                 local popped = find_popout(value) ~= nil;
                 if popped and imgui.GetItemRectMin ~= nil then
@@ -209,10 +267,52 @@ function draw_inventory_window(popout)
                 end
                 line_x = line_x + w;
             end
-            tab(-1);
-            for _, bag in ipairs(state.bag_order) do tab(bag); end
-            if next(chars) ~= nil then tab(-2); end
-            tab(-3);
+            if config.compact_header == false then
+                tab(-1);
+                for _, bag in ipairs(state.bag_order) do tab(bag); end
+                if next(chars) ~= nil then tab(-2); end
+                tab(-3);
+            else
+                -- Pinned bags, the open bag if it is not pinned, then Bags v.
+                for _, bag in ipairs(pinned_bags()) do
+                    if bag_available(bag) then tab(bag); end
+                end
+                if not is_pinned(V.bag) then tab(V.bag); end
+                local more = 'Bags v';
+                local mw = text_w(more) + 18;
+                if line_x + 8 + mw <= avail then imgui.SameLine(0, 8); end
+                if imgui.Button(more .. '##nai_bags_menu') then imgui.OpenPopup('##nai_bags_pop'); end
+                if imgui.IsItemHovered() then imgui.SetTooltip('Every bag. Pin the ones you use for a quick tab.'); end
+                if imgui.BeginPopup('##nai_bags_pop') then
+                    local sel_w = text_w('Wardrobe 8  80/80  (own window)') + 12;
+                    for gi, g in ipairs(BAG_GROUPS) do
+                        local shown = {};
+                        for _, b in ipairs(g.bags) do if bag_available(b) then shown[#shown + 1] = b; end end
+                        if #shown > 0 then
+                            if gi > 1 then imgui.Spacing(); end
+                            imgui.TextColored(UI_ACCENT_TEXT, g.label);
+                            imgui.Separator();
+                            for _, b in ipairs(shown) do
+                                local label = tab_label(b);
+                                local bb = state.bags[b];
+                                if bb ~= nil then label = ('%s  %d/%d'):fmt(label, bb.used, bb.max); end
+                                if find_popout(b) ~= nil then label = label .. '  (own window)'; end
+                                local col = bag_tab_color(b);
+                                imgui.PushStyleColor(ImGuiCol_Text, (V.bag == b) and col or UI_TEXT);
+                                if imgui.Selectable(label .. '##nai_bm_' .. tostring(b), V.bag == b, 0, { sel_w, 0 }) then
+                                    pick_bag(b);
+                                end
+                                imgui.PopStyleColor(1);
+                                if imgui.IsItemHovered() then imgui.SetTooltip('Click to show it  -  Shift+Click for its own window'); end
+                                imgui.SameLine(sel_w + 16);
+                                if imgui.SmallButton((is_pinned(b) and 'Unpin' or 'Pin') .. '##nai_pin_' .. tostring(b)) then toggle_pin(b); end
+                                if imgui.IsItemHovered() then imgui.SetTooltip(is_pinned(b) and 'Remove its quick tab' or 'Add a quick tab for it'); end
+                            end
+                        end
+                    end
+                    imgui.EndPopup();
+                end
+            end
             imgui.PopStyleVar(1);
         elseif not config.title_bar then
             -- Pop-out header: its tab name (no title bar to show it).
@@ -227,9 +327,21 @@ function draw_inventory_window(popout)
         local view_w = key_items and 0 or (text_w('Categories') + 34);
         local log_w = (popout == nil) and (text_w('Log') + 16) or 0;
         local cfg_w = (popout == nil) and (text_w('Config') + 16) or 0;
+        local compact = config.compact_header ~= false;
+        local filter_label = 'Filter';
+        if compact then
+            if key_items then
+                local kf = state.ki_filter or 'all';
+                if kf ~= 'all' then filter_label = 'Filter: ' .. ({ permanent = 'Permanent', temporary = 'Temporary', other = 'Maps & Other' })[kf]; end
+            elseif V.filter ~= 'all' then
+                for _, f in ipairs(FILTERS) do if f.key == V.filter then filter_label = 'Filter: ' .. f.label; end end
+            end
+            filter_label = filter_label .. ' v';
+        end
+        local filter_w = compact and (text_w(filter_label) + 18) or 0;
         local close_w = config.title_bar and 0 or (frame_h + 6);
         local row_w = tonumber((imgui.GetContentRegionAvail())) or 400;
-        imgui.PushItemWidth(math.max(80, row_w - sort_w - view_w - log_w - cfg_w - close_w - 40));
+        imgui.PushItemWidth(math.max(80, row_w - sort_w - view_w - filter_w - log_w - cfg_w - close_w - 48));
         imgui.InputText('##nai_search', VS.search, 64);
         if (VS.search[1] or '') == '' then draw_search_hint(key_items and 'Search key items' or 'Search items'); end
         imgui.PopItemWidth();
@@ -265,7 +377,29 @@ function draw_inventory_window(popout)
                 imgui.EndCombo();
             end
             imgui.PopItemWidth();
-            if imgui.IsItemHovered() then imgui.SetTooltip('List, Grid or Categories'); end
+            if imgui.IsItemHovered() then imgui.SetTooltip(VIEW_TIPS[V.view] or 'How items are shown'); end
+        end
+
+        if compact then
+            imgui.SameLine();
+            local active = (key_items and (state.ki_filter or 'all') ~= 'all') or ((not key_items) and V.filter ~= 'all');
+            if active then imgui.PushStyleColor(ImGuiCol_Text, UI_ACCENT_TEXT); end
+            if imgui.Button(filter_label .. '##nai_filter_btn') then imgui.OpenPopup('##nai_filter_pop'); end
+            if active then imgui.PopStyleColor(1); end
+            if imgui.IsItemHovered() then imgui.SetTooltip('Show only some items'); end
+            if imgui.BeginPopup('##nai_filter_pop') then
+                local list = key_items and {
+                    { key = 'all', label = 'All' }, { key = 'permanent', label = 'Permanent' },
+                    { key = 'temporary', label = 'Temporary' }, { key = 'other', label = 'Maps & Other' },
+                } or FILTERS;
+                for _, f in ipairs(list) do
+                    local cur = key_items and (state.ki_filter or 'all') or V.filter;
+                    if imgui.Selectable(f.label .. '##nai_fp_' .. f.key, cur == f.key) then
+                        if key_items then state.ki_filter = f.key; else V.filter = f.key; mark_dirty(); end
+                    end
+                end
+                imgui.EndPopup();
+            end
         end
 
         if popout == nil then
@@ -283,7 +417,7 @@ function draw_inventory_window(popout)
         end
 
         -- Key item chips: All / Permanent / Temporary / Maps & Other.
-        if key_items then
+        if key_items and not compact then
             local KF = {
                 { key = 'all', label = 'All' },
                 { key = 'permanent', label = 'Permanent' },
@@ -305,7 +439,7 @@ function draw_inventory_window(popout)
         end
 
         -- Filter chips.
-        if not key_items then
+        if not key_items and not compact then
             local cw = tonumber((imgui.GetContentRegionAvail())) or 400;
             local cx = 0;
             for i, f in ipairs(FILTERS) do
@@ -332,6 +466,10 @@ function draw_inventory_window(popout)
         begin_child('##nai_items', { 0, avail_h }, 0);
         if key_items then
             ki_shown = draw_key_items_view();
+        elseif V.view == 'cleanup' then
+            draw_cleanup_view();
+        elseif V.view == 'upgrades' then
+            draw_upgrades_view();
         elseif #rows == 0 then
             local msg = 'Nothing here.';
             if next(state.bags) == nil then msg = 'Waiting for inventory...'; end
@@ -339,6 +477,8 @@ function draw_inventory_window(popout)
             imgui.TextDisabled(msg);
         elseif V.view == 'categories' then
             draw_categories_view(rows, show_bag);
+        elseif V.view == 'usable' then
+            draw_usable_view(rows, show_bag);
         elseif V.view == 'grid' then
             draw_grid_view(rows);
         else
