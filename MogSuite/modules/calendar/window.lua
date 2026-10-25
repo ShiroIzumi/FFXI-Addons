@@ -910,11 +910,18 @@ end
 local function top_box(id, title, lines, until_t)
     local io = imgui.GetIO();
     local dw = io and io.DisplaySize and tonumber(io.DisplaySize.x) or 1920;
-    imgui.SetNextWindowPos({ dw / 2, 90 }, ImGuiCond_Always or 1, { 0.5, 0 });
+    config.popup_pos = config.popup_pos or T{ x = -1, y = -1 };
+    local P = config.popup_pos;
+    local px, py = tonumber(P.x) or -1, tonumber(P.y) or -1;
+    if px < 0 or py < 0 then
+        imgui.SetNextWindowPos({ dw / 2, 90 }, ImGuiCond_Appearing or 8, { 0.5, 0 });
+    else
+        imgui.SetNextWindowPos({ px, py }, ImGuiCond_Appearing or 8);
+    end
     push_theme();
     local flags = bit.bor(ImGuiWindowFlags_NoTitleBar, ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoSavedSettings,
-        ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoMove, ImGuiWindowFlags_NoFocusOnAppearing or 0);
-    local close = false;
+        ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoFocusOnAppearing or 0);
+    local close, hold = false, false;
     if imgui.Begin(id, nil, flags) then
         imgui.PushFont(MS_FONT(), MS_FONT_SIZE() * (tonumber(config.font_scale) or 1.0) * 1.05);
         imgui.TextColored(UI_ACCENT_TEXT, title);
@@ -929,20 +936,43 @@ local function top_box(id, title, lines, until_t)
         imgui.SameLine();
         if imgui.SmallButton('Open Calendar##' .. id) then state.visible[1] = true; close = true; end
         imgui.PopFont();
+        -- Kept open while the mouse is over it (or dragging it).
+        hold = imgui.IsWindowHovered() or imgui.IsMouseDown(0) and imgui.IsWindowFocused();
+        -- Remember where it was dragged to.
+        if not imgui.IsMouseDown(0) then
+            local wx, wy = imgui.GetWindowPos();
+            wx, wy = tonumber(wx), tonumber(wy);
+            if wx ~= nil and wy ~= nil and (math.abs(wx - (tonumber(P.x) or -1)) >= 1 or math.abs(wy - (tonumber(P.y) or -1)) >= 1) then
+                if px >= 0 or state.popup_moved then
+                    P.x, P.y = wx, wy;
+                    mark_dirty();
+                end
+            end
+        else
+            if imgui.IsWindowFocused() and imgui.IsMouseDragging and imgui.IsMouseDragging(0) then state.popup_moved = true; end
+        end
     end
     imgui.End();
     pop_theme();
-    return close;
+    return close, hold;
 end
 
 function draw_popups()
     if state.login_lines ~= nil then
-        if os.clock() > (state.login_until or 0) or top_box('##cal_login', 'WELCOME BACK', state.login_lines, state.login_until or 0) then
+        if os.clock() > (state.login_until or 0) then
             state.login_lines = nil;
+        else
+            local close, hold = top_box('##cal_login', 'WELCOME BACK', state.login_lines, state.login_until or 0);
+            if close then state.login_lines = nil;
+            elseif hold then state.login_until = math.max(state.login_until or 0, os.clock() + 2); end
         end
     elseif state.toast ~= nil then
-        if os.clock() > state.toast.until_t or top_box('##cal_toast', 'CALENDAR', state.toast.lines, state.toast.until_t) then
+        if os.clock() > state.toast.until_t then
             state.toast = nil;
+        else
+            local close, hold = top_box('##cal_toast', 'CALENDAR', state.toast.lines, state.toast.until_t);
+            if close then state.toast = nil;
+            elseif hold then state.toast.until_t = math.max(state.toast.until_t, os.clock() + 2); end
         end
     end
 end

@@ -175,6 +175,17 @@ function my_race()
     return r;
 end
 
+-- Where the item worn in a slot sits: bag, index (read live, so swapping two
+-- identical items is seen at once).
+function equipped_location(slot)
+    local inv = get_inventory();
+    if inv == nil then return nil, nil; end
+    local eitem = safe_call(inv, 'GetEquippedItem', slot);
+    local idx = eitem and tonumber(eitem.Index) or 0;
+    if idx == nil or idx == 0 then return nil, nil; end
+    return math.floor(bit.band(idx, 0xFF00) / 0x0100), idx % 0x0100;
+end
+
 function equipped_ids()
     local out = {};
     for _, e in ipairs(cached_equipment() or {}) do
@@ -182,6 +193,57 @@ function equipped_ids()
     end
     return out;
 end
+
+-- Enchanted gear (Warp Cudgel, Chariot Band ...): charges left and when it can
+-- be used again, from the item's extra data (same reading as the Inventory).
+local ENCHANT_EPOCH = 0x3C307D70;
+local enchant_time = nil;
+pcall(function() enchant_time = require('ffxi.time'); end);
+local function ex_byte(x, o)
+    if type(x) == 'string' then return string.byte(x, o + 1) or 0; end
+    return tonumber(x[o]) or 0;
+end
+local function ex_u32(x, o)
+    return ex_byte(x, o) + ex_byte(x, o + 1) * 0x100 + ex_byte(x, o + 2) * 0x10000 + ex_byte(x, o + 3) * 0x1000000;
+end
+local function ex_secs_until(raw)
+    if raw == nil or raw == 0 then return 0; end
+    if enchant_time ~= nil and enchant_time.game_time_diff ~= nil then
+        local ok, d = pcall(enchant_time.game_time_diff, raw);
+        if ok and d ~= nil then return math.max(0, tonumber(d) or 0); end
+    end
+    return math.max(0, raw + ENCHANT_EPOCH - os.time());
+end
+local function read_item_charges(item)
+    local ok, charges, ready = pcall(function()
+        local x = item.Extra;
+        if x == nil or ex_byte(x, 0) ~= 1 then return nil, nil; end
+        local c = ex_byte(x, 1);
+        local wait = ex_secs_until(ex_u32(x, 4));
+        local r = nil;
+        if c > 0 and wait > 0 and wait < 8 * 86400 then r = os.time() + math.ceil(wait); end
+        return c, r;
+    end);
+    if not ok then return nil, nil; end
+    return charges, ready;
+end
+
+-- " (2/3)" and "  3:20" (time until usable), or nil.
+function gear_charge_text(it)
+    if it == nil or it.max_charges == nil or it.max_charges <= 0 or it.charges == nil then return nil, nil; end
+    local ch = (' (%d/%d)'):fmt(it.charges, it.max_charges);
+    local timer = nil;
+    if it.ready_at ~= nil then
+        local left = it.ready_at - os.time();
+        if left > 0 then
+            local h, m, sec = math.floor(left / 3600), math.floor((left % 3600) / 60), left % 60;
+            if h > 0 then timer = ('  %d:%02d:%02d'):fmt(h, m, sec); else timer = ('  %d:%02d'):fmt(m, sec); end
+        end
+    end
+    return ch, timer;
+end
+GEAR_CHARGE_BLUE = { 0.45, 0.72, 1.00, 1.00 };
+GEAR_TIMER_COLOR = { 0.92, 0.70, 0.32, 1.00 };
 
 -- Every wearable item you carry, once per (bag, slot).
 function scan_wearables()
@@ -200,7 +262,12 @@ function scan_wearables()
                     pcall(function() res = rm:GetItemById(id); end);
                     local slots = res and tonumber(res.Slots) or 0;
                     if slots ~= 0 then
+                        local max_charges = 0;
+                        pcall(function() max_charges = tonumber(res.MaxCharges) or 0; end);
+                        local charges, ready_at = nil, nil;
+                        if max_charges > 0 then charges, ready_at = read_item_charges(it); end
                         list[#list + 1] = {
+                            max_charges = max_charges, charges = charges, ready_at = ready_at,
                             id = id, bag = bag, index = i, res = res, slots = slots,
                             name = resource_name(res) or ('Item ' .. id),
                             level = tonumber(res.Level) or 0, jobs = tonumber(res.Jobs) or 0,
@@ -259,6 +326,7 @@ function gear_for_slot(slot)
     local race = my_race();
     local weights = job_weights(JOB_SHORT_LIST[job] or 'WAR');
     local worn = equipped_ids()[slot];
+    local worn_bag, worn_index = equipped_location(slot);
     local worn_score = 0;
     local groups = { usable = {}, later = {}, unusable = {} };
     local seen = {};
@@ -270,7 +338,14 @@ function gear_for_slot(slot)
                 local kind, why = classify(it, job, level, base, race);
                 local entry = { item = it, kind = kind, why = why, stats = item_stats(it.id, it.desc) };
                 entry.score = item_score(entry.stats, weights);
-                if it.id == worn then entry.worn = true; worn_score = entry.score; end
+                -- 1.6.7: the exact item (bag + index), not every item with the same id.
+                local is_worn;
+                if worn_bag ~= nil then
+                    is_worn = (it.bag == worn_bag and it.index == worn_index);
+                else
+                    is_worn = (it.id == worn);
+                end
+                if is_worn then entry.worn = true; worn_score = entry.score; end
                 groups[kind][#groups[kind] + 1] = entry;
             end
         end
@@ -303,6 +378,19 @@ function refresh_equip_scan(force)
 end
 
 function equip_item(slot, item)
+    -- Two items with the same name (two Warp Cudgels): /equip would take the
+    -- first one the game finds, so the exact one you clicked is equipped with
+    -- the game's own equip request (item index, slot, bag), like /equip sends.
+    local dupes = 0;
+    for _, other in ipairs(state.equip_scan or {}) do
+        if other.name == item.name then dupes = dupes + 1; end
+    end
+    if dupes > 1 and item.index ~= nil and item.bag ~= nil then
+        local ok = pcall(function()
+            AshitaCore:GetPacketManager():AddOutgoingPacket(0x050, { 0x50, 0x04, 0x00, 0x00, item.index, slot, item.bag, 0x00 });
+        end);
+        if ok then return; end
+    end
     local cmd = ('/equip %s "%s"'):fmt(SLOT_COMMAND[slot] or 'main', item.name);
     AshitaCore:GetChatManager():QueueCommand(1, cmd);
 end
@@ -437,7 +525,18 @@ local function draw_entry(dl, e, slot, width, scale)
     local tx = x + icon + 10 * scale;
     local name_col = (e.kind == 'usable') and UI_TEXT or ((e.kind == 'later') and state.warn_color or with_alpha(state.muted_color, 0.8));
     text_at(tx, y + 4 * scale, name_col, it.name);
-    local nx = tx + text_width(it.name) + 6 * scale;
+    local nx = tx + text_width(it.name);
+    -- Charges like the Inventory: " (2/3)" in blue, then the recharge time.
+    local ch, timer = gear_charge_text(it);
+    if ch ~= nil then
+        text_at(nx, y + 4 * scale, GEAR_CHARGE_BLUE, ch);
+        nx = nx + text_width(ch);
+    end
+    if timer ~= nil then
+        text_at(nx, y + 4 * scale, GEAR_TIMER_COLOR, timer);
+        nx = nx + text_width(timer);
+    end
+    nx = nx + 6 * scale;
     if e.worn then
         text_at(nx, y + 4 * scale, UI_ACCENT_TEXT, 'worn');
     elseif e.best then
@@ -461,6 +560,13 @@ local function draw_entry(dl, e, slot, width, scale)
         imgui.BeginTooltip();
         imgui.TextColored(UI_ACCENT_TEXT, it.name);
         imgui.TextColored(state.muted_color, ('Lv %d  -  %s  -  %s'):fmt(it.level, jobs_list_text(it.jobs), EQUIP_BAG_NAMES[it.bag] or ''));
+        if ch ~= nil then
+            imgui.TextColored(GEAR_CHARGE_BLUE, ('%d/%d charges'):fmt(it.charges, it.max_charges));
+            if timer ~= nil then
+                imgui.SameLine();
+                imgui.TextColored(GEAR_TIMER_COLOR, '- usable in' .. timer);
+            end
+        end
         if it.desc ~= '' then imgui.TextWrapped(it.desc); end
         if e.why ~= nil then imgui.TextColored((e.kind == 'later') and state.warn_color or state.bad_color, e.why); end
         imgui.TextColored(state.muted_color, ('Upgrade score %.0f (Settings > Character > Upgrade finder)'):fmt(e.score));

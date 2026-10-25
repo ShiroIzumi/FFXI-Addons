@@ -45,6 +45,12 @@ local function config_login()
     ui.check('As a popup', config.login, 'popup', 'A small box at the top of the screen.', ON);
     ui.check('In the chat log', config.login, 'chat', 'The same lines in the chat log.');
     ui.slider_i('Popup stays for', config.login, 'seconds', 5, 120, '%d sec');
+    ui.info('Drag the popup to move it; it stays open while the mouse is over it.');
+    if ui.button('Reset popup position', 'cal_popup_reset', 'Puts the login summary and notices back at the top centre.') then
+        config.popup_pos = T{ x = -1, y = -1 };
+        state.popup_moved = false;
+        mark_dirty();
+    end
     ui.section('IT SHOWS');
     ui.check('Day and element', config.login, 'day', nil, ON);
     ui.check('Moon', config.login, 'moon', nil, ON);

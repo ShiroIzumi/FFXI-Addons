@@ -11,7 +11,7 @@
 | **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
 | **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.6.4
+**Version:** 1.6.7
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -227,6 +227,16 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.6.7
+- Character, changing gear: "worn" marks only the item you actually have on. With two identical items (two Warp Cudgels) both showed as worn.
+
+### 1.6.6
+- Character, changing gear: items with charges (Warp Cudgel, Chariot Band ...) show them like the Inventory does, " (2/3)" in blue, plus the time until they can be used again; the tooltip says it too.
+- When you carry two items with the same name, double-click equips the exact one you clicked (it used to take whichever the game found first).
+
+### 1.6.5
+- Calendar: the login summary and notice popup can be dragged anywhere, and remembers where you put it (Settings > Calendar > Login summary > **Reset popup position** puts it back). It stays open while the mouse is over it.
 
 ### 1.6.4
 - **Calendar, a fresh look:**

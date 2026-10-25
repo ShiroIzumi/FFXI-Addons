@@ -16,6 +16,8 @@ return T{
         enabled = true, popup = true, chat = false, seconds = 20,
         day = true, moon = true, conquest = true, timers = true, events = true, guilds = true,
     },
+    -- Where the login summary / notice box sits (drag it; -1 = top centre).
+    popup_pos = T{ x = -1, y = -1 },
 
     -- When a timer is ready / an event starts.
     notify = T{ enabled = true, chat = true, popup = true, sound = false, before = 15 },
