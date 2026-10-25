@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.6.2  
+**Version:** 1.7.0  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
@@ -304,6 +304,15 @@ Added a dedicated **Opacity** slider under **Config -> Window -> Background / Op
 - Saves with the existing appearance settings
 - Continues to use the existing RGB background controls independently
 
+
+## v1.7.0 New Settings Window
+- **Settings window in the MogSuite layout:** a search box that finds any setting by name or help text, "Saved per character" and theme swatches at the top, and a sidebar grouped into **General**, **Windows** (Target window, History, Timers, Settings window), **Look** (Theme & colors, Fonts & Tooltips), **Tracking** (Tracking, Data) and **Help** (Commands, Diagnostics). Every page has a title, a line about what it is for, and its settings in two columns with (?) help. Every setting from before is kept.
+- **Each window has its own look:** a Size (85% - 200%) and an optional Own opacity on its page, for the target window, History (with Mob Details), Timers and the settings window. The old shared Font Scale becomes each window's starting size, and History keeps its old own opacity.
+- **All of MogSuite's themes:** Copper, Garnet, Silver, Amethyst, Emerald and Midnight join Forest, Rust and Bone (Midnight also tints buttons, title bars and popups). New **Use the theme's background** option (Look > Theme & colors).
+- **The settings window has its own opacity** (Windows > Settings window), separate from the target, History and Timers windows.
+- **Timers window lock** (Windows > Timers), **Lock all / Unlock all** and a two-click **Reset window positions** (General).
+- The settings window remembers the last page you opened.
+- **TAB no longer jumps into MobHunt's text fields** (the settings search box, History search): nothing in MobHunt's windows takes keyboard focus from TAB.
 
 ## v1.6.2 Interrupted % Fix
 

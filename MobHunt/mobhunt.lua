@@ -1,6 +1,6 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.6.2
+    Version 1.7.0
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
@@ -38,7 +38,7 @@
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.6.2';
+addon.version   = '1.7.0';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -47,6 +47,7 @@ require 'common';
 local imgui    = require 'imgui';
 local settings = require 'settings';
 local uifont   = require 'uifont';
+local ui       = require 'cfgui';   -- 1.7.0: settings window kit (MogSuite layout)
 uifont.addon = 'mobhunt';
 
 -- ============================================================================
@@ -88,9 +89,28 @@ local UI_THEMES = {
         accent = { 207, 198, 176 }, text = { 232, 226, 210 },
         title_active = { 28, 27, 25 }, border = { 64, 62, 56 },
     },
+    -- 1.7.0: MogSuite's six themes too. bg = the theme's own background
+    -- (used when "Use the theme's background" is on); control / title /
+    -- popup are optional (neutral when absent; Midnight tints them).
+    copper   = { label = 'Copper',   accent = { 196, 128, 80 },  text = { 224, 166, 120 }, title_active = { 24, 15, 9 },  border = { 72, 48, 32 },  bg = { 9, 9, 10 } },
+    garnet   = { label = 'Garnet',   accent = { 168, 52, 62 },   text = { 214, 112, 120 }, title_active = { 24, 9, 11 },  border = { 70, 30, 34 },  bg = { 9, 9, 10 } },
+    silver   = { label = 'Silver',   accent = { 176, 188, 204 }, text = { 226, 232, 240 }, title_active = { 28, 30, 34 }, border = { 66, 72, 82 },  bg = { 9, 9, 10 } },
+    amethyst = { label = 'Amethyst', accent = { 150, 118, 214 }, text = { 184, 160, 236 }, title_active = { 16, 11, 26 }, border = { 52, 42, 78 },  bg = { 9, 8, 12 } },
+    emerald  = { label = 'Emerald',  accent = { 60, 180, 110 },  text = { 132, 222, 166 }, title_active = { 10, 28, 18 }, border = { 30, 70, 46 },  bg = { 8, 10, 9 } },
+    midnight = { label = 'Midnight', accent = { 104, 148, 226 }, text = { 168, 196, 242 }, title_active = { 14, 22, 44 }, border = { 42, 60, 100 }, bg = { 9, 14, 28 },
+                 control = { 20, 28, 48 }, control_hover = { 30, 42, 70 }, control_active = { 40, 56, 92 }, title = { 6, 10, 22 }, popup = { 10, 16, 32 } },
 };
+UI_THEMES.forest.bg = { 8, 10, 8 };
+UI_THEMES.rust.bg = { 10, 8, 8 };
+UI_THEMES.bone.bg = { 10, 10, 9 };
 
-local UI_THEME_ORDER = { 'forest', 'rust', 'bone' };
+local UI_THEME_ORDER = { 'forest', 'rust', 'bone', 'copper', 'garnet', 'silver', 'amethyst', 'emerald', 'midnight' };
+-- MobHunt's own neutral control / title / popup colors (0-255), for themes
+-- that don't tint them.
+local UI_NEUTRAL = {
+    control = { 25.5, 25.5, 28.05 }, control_hover = { 40.8, 40.8, 45.9 }, control_active = { 56.1, 56.1, 63.75 },
+    title = { 5.1, 5.1, 5.61 }, popup = { 12.75, 12.75, 14.28 },
+};
 local UI_THEME_DEFAULT = 'forest';
 local applied_ui_theme = nil;
 
@@ -120,6 +140,11 @@ local function apply_ui_theme(key)
     ui_set_rgb(UI_ACCENT_TEXT, theme.text);
     ui_set_rgb(UI_TITLE_ACTIVE, theme.title_active);
     ui_set_rgb(UI_BORDER, theme.border);
+    ui_set_rgb(UI_CONTROL, theme.control or UI_NEUTRAL.control);
+    ui_set_rgb(UI_CONTROL_HOVER, theme.control_hover or UI_NEUTRAL.control_hover);
+    ui_set_rgb(UI_CONTROL_ACTIVE, theme.control_active or UI_NEUTRAL.control_active);
+    ui_set_rgb(UI_TITLE, theme.title or UI_NEUTRAL.title);
+    ui_set_rgb(UI_POPUP, theme.popup or UI_NEUTRAL.popup);
     applied_ui_theme = key;
 end
 
@@ -410,7 +435,10 @@ local defaults = T{
         target = false,
         history = false,
         config = false,
+        timers = false,     -- 1.7.0
     },
+
+    config_page = 'general',   -- 1.7.0: last settings page
 
     window = T{
         x = 150,
@@ -649,6 +677,36 @@ local function ensure_config_tables()
     for k, v in pairs(defaults.behavior) do
         if config.behavior[k] == nil then config.behavior[k] = v; end
     end
+    if config.locks.timers == nil then config.locks.timers = false; end
+
+    -- 1.7.0: every window has its own size and (optional) opacity. A save
+    -- from before starts each window at the old shared Font Scale, and
+    -- History keeps its old own opacity.
+    if config.appearance.win == nil then
+        local base = tonumber(config.font_scale) or 1.0;
+        config.appearance.win = T{
+            target  = T{ scale = base, own_alpha = false, alpha = 0.45 },
+            history = T{ scale = base, own_alpha = config.appearance.history_own_alpha == true,
+                         alpha = tonumber(config.appearance.history_alpha) or 0.85 },
+            timers  = T{ scale = base, own_alpha = false, alpha = 0.45 },
+            config  = T{ scale = 1.0, own_alpha = true, alpha = 0.95 },
+        };
+    end
+    for _, k in ipairs({ 'target', 'history', 'timers', 'config' }) do
+        if config.appearance.win[k] == nil then config.appearance.win[k] = T{ scale = 1.0, own_alpha = false, alpha = 0.45 }; end
+        local w = config.appearance.win[k];
+        if tonumber(w.scale) == nil then w.scale = 1.0; end
+        if w.own_alpha == nil then w.own_alpha = false; end
+        if tonumber(w.alpha) == nil then w.alpha = 0.45; end
+    end
+    -- 1.7.0: the settings window always has its own opacity.
+    config.appearance.win.config.own_alpha = true;
+    if config.appearance.win.config.alpha_v2 == nil then
+        config.appearance.win.config.alpha = 0.95;
+        config.appearance.win.config.alpha_v2 = true;
+    end
+    if config.appearance.use_theme_bg == nil then config.appearance.use_theme_bg = false; end
+    if config.config_page == nil then config.config_page = 'general'; end
     uifont.defaults(config);
 end
 
@@ -2425,23 +2483,62 @@ end
 
 -- MobHunt theme: the suite theme, then MobHunt's compact StatusTimers-style
 -- spacing and the border toggle on top.
-local function push_mh_theme(alpha)
+-- 1.7.0: each window's own look: size (scale) and opacity (nil = the
+-- shared background opacity).
+function win_look(name)
+    local w = config.appearance and config.appearance.win and config.appearance.win[name];
+    return w or { scale = 1.0, own_alpha = false, alpha = 0.45 };
+end
+function win_scale(name)
+    return math.max(0.5, math.min(3.0, tonumber(win_look(name).scale) or 1.0));
+end
+function win_alpha(name)
+    local w = win_look(name);
+    if w.own_alpha ~= true then return nil; end
+    return math.max(0, math.min(1, tonumber(w.alpha) or 0.45));
+end
+
+local function push_mh_theme(alpha, scale)
     local bg = state.background;
+    -- 1.7.0: "Use the theme's background" (Look > Theme & colors).
+    if config.appearance.use_theme_bg == true then
+        local tb = UI_THEMES[normalize_theme_key(state.theme)].bg or { 9, 9, 10 };
+        bg = { tb[1] / 255, tb[2] / 255, tb[3] / 255, bg[4] };
+    end
     if alpha ~= nil then bg = { bg[1], bg[2], bg[3], alpha }; end
+    scale = tonumber(scale) or 1.0;
     push_theme(bg, state.theme);
     imgui.PushStyleVar(ImGuiStyleVar_WindowBorderSize, state.border[1] and 1.0 or 0.0);
     imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 7.0);
-    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4.0 * state.font_scale[1], 3.0 * state.font_scale[1] });
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 4.0 * scale, 3.0 * scale });
+    -- 1.7.0: TAB never jumps into MobHunt's text fields (search boxes):
+    -- every item in MobHunt windows is left out of ImGui's tab order.
+    -- Pushed before Begin so the window and its popups inherit it.
+    local how = nil;
+    if imgui.PushItemFlag ~= nil and ImGuiItemFlags_NoTabStop ~= nil then
+        if pcall(imgui.PushItemFlag, ImGuiItemFlags_NoTabStop, true) then how = 'flag'; end
+    end
+    if how == nil and imgui.PushTabStop ~= nil then
+        if pcall(imgui.PushTabStop, false) then how = 'tabstop'; end
+    end
+    if how == nil and imgui.PushAllowKeyboardFocus ~= nil then
+        if pcall(imgui.PushAllowKeyboardFocus, false) then how = 'focus'; end
+    end
+    MH_TABSTOP_STACK = MH_TABSTOP_STACK or {};
+    MH_TABSTOP_STACK[#MH_TABSTOP_STACK + 1] = how or false;
 end
 
 -- 1.6.0: History / Mob detail opacity (nil = same as the other windows).
+-- 1.7.0: the History window's own opacity setting.
 function history_alpha()
-    local a = config.appearance;
-    if a == nil or a.history_own_alpha ~= true then return nil; end
-    return math.max(0, math.min(1, tonumber(a.history_alpha) or 0.85));
+    return win_alpha('history');
 end
 
 local function pop_mh_theme()
+    local how = MH_TABSTOP_STACK and table.remove(MH_TABSTOP_STACK) or false;
+    if how == 'flag' then pcall(imgui.PopItemFlag);
+    elseif how == 'tabstop' then pcall(imgui.PopTabStop);
+    elseif how == 'focus' then pcall(imgui.PopAllowKeyboardFocus); end
     imgui.PopStyleVar(3);
     pop_theme();
 end
@@ -2895,11 +2992,11 @@ local function draw_target_window()
     -- Content width = window width minus the theme's 12px side padding.
     imgui.SetNextWindowContentSize({ stored_w - 24, 0 });
 
-    push_mh_theme();
+    push_mh_theme(win_alpha('target'), win_scale('target'));
     local title = state.mini_mode[1] and 'MobHunt Mini##target' or 'MobHunt##target';
     if imgui.Begin(title, state.visible, window_flags(state.lock_target[1], true)) then
         custom_close('mobhunt_target_close', state.visible);
-        uifont.push(state.font_scale[1]);
+        uifont.push(win_scale('target'));
 
         if target == nil then
             imgui.TextColored(state.muted, state.mini_mode[1]
@@ -3202,9 +3299,9 @@ local function draw_timers_window()
     end
     table.sort(rows, function(a, b) return a.last > b.last; end);
 
-    push_mh_theme();
-    if imgui.Begin('MobHunt Timers##timers', state.timers_visible, window_flags(false, true)) then
-        uifont.push(state.font_scale[1]);
+    push_mh_theme(win_alpha('timers'), win_scale('timers'));
+    if imgui.Begin('MobHunt Timers##timers', state.timers_visible, window_flags(config.locks.timers == true, true)) then
+        uifont.push(win_scale('timers'));
 
         -- Everything here is sized from the text itself. Nothing may depend
         -- on the window's current width (an auto-sized window would keep
@@ -3296,7 +3393,7 @@ local function draw_history_window()
         state.history_apply_geometry = false;
     end
 
-    push_mh_theme(history_alpha());
+    push_mh_theme(history_alpha(), win_scale('history'));
     if imgui.Begin('MobHunt History##history', state.history_visible, window_flags(state.lock_history[1])) then
         -- Frame for the docked Mob detail window.
         local fx, fy = imgui.GetWindowPos();
@@ -3305,7 +3402,7 @@ local function draw_history_window()
 
         custom_close('mobhunt_history_close', state.history_visible);
 
-        uifont.push(state.font_scale[1]);
+        uifont.push(win_scale('history'));
 
         -- Scope: Current Zone | All  +  zone label.
         imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 10, 4 });
@@ -3727,9 +3824,9 @@ local function draw_detail_window()
         ImGuiWindowFlags_NoSavedSettings,
         ImGuiWindowFlags_NoFocusOnAppearing or 0);
 
-    push_mh_theme(history_alpha());
+    push_mh_theme(history_alpha(), win_scale('history'));
     if imgui.Begin('MobHunt Mob Detail##mh_detail', nil, flags) then
-        uifont.push(state.font_scale[1]);
+        uifont.push(win_scale('history'));
 
         -- Title row: name, zone, close.
         align_label();
@@ -3840,31 +3937,6 @@ end
 
 -- Red two-click button: the first click arms it for 3 seconds, the second
 -- click within that time confirms. Returns true on the confirming click.
-local function confirm_button(label, id, width)
-    local armed = state.purge_armed ~= nil and state.purge_armed.id == id
-        and (os.clock() - (tonumber(state.purge_armed.at) or 0)) < 3.0;
-    imgui.PushStyleColor(ImGuiCol_Button, armed and { 0.70, 0.16, 0.16, 1.0 } or { 0.36, 0.10, 0.10, 1.0 });
-    imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.78, 0.20, 0.20, 1.0 });
-    imgui.PushStyleColor(ImGuiCol_ButtonActive, { 0.88, 0.24, 0.24, 1.0 });
-    imgui.PushStyleColor(ImGuiCol_Text, UI_WHITE);
-    local text = armed and 'Click again to confirm' or label;
-    local clicked;
-    if width then
-        clicked = imgui.Button(text .. '##' .. id, { width, 0 });
-    else
-        clicked = imgui.Button(text .. '##' .. id);
-    end
-    imgui.PopStyleColor(4);
-    if clicked then
-        if armed then
-            state.purge_armed = nil;
-            return true;
-        end
-        state.purge_armed = T{ id = id, at = os.clock() };
-    end
-    return false;
-end
-
 -- Clears every mob record (fights, kills, deaths, EXP, drops) plus session
 -- and in-flight tracking. Settings and window layout are kept.
 local function purge_all_records()
@@ -3898,7 +3970,262 @@ local function purge_drop_records()
     print('[MobHunt] All drop records purged.');
 end
 
-local function draw_data_tab()
+-- ============================================================================
+-- Settings window (1.7.0): the MogSuite layout. A search box finds any
+-- setting by name or help text; the sidebar groups the pages; every page has
+-- a title, one line about it, and settings in two columns. Each window has
+-- its own page with its size, opacity and lock.
+-- ============================================================================
+
+ui.theme = {
+    text = UI_TEXT, muted = UI_MUTED, accent = UI_ACCENT, accent_text = UI_ACCENT_TEXT,
+    control = UI_CONTROL, danger = { 1.00, 0.40, 0.40, 1.00 },
+    section_header = section_header,
+    help_marker = help_marker,
+    align_label = align_label,
+    toggle_button = draw_toggle_button,
+    tip = function(text_value)
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.PushTextWrapPos(420);
+            imgui.TextUnformatted(text_value);
+            imgui.PopTextWrapPos();
+            imgui.EndTooltip();
+        end
+    end,
+};
+
+local CFG = { armed = {} };   -- pages and their helpers (one table: the main chunk is near LuaJIT's local limit)
+
+function CFG.dirty() state.settings_dirty = true; end
+
+function CFG.reset_geometry()
+    state.target_geom = { defaults.window.x, defaults.window.y, defaults.window.width, defaults.window.height };
+    state.mini_geom = { defaults.mini_window.x, defaults.mini_window.y, defaults.mini_window.width, defaults.mini_window.height };
+    state.history_geom = { defaults.history_window.x, defaults.history_window.y, defaults.history_window.width, defaults.history_window.height };
+    state.config_geom = { defaults.config_window.x, defaults.config_window.y, math.max(defaults.config_window.width, 860), math.max(defaults.config_window.height, 620) };
+    state.timers_geom = { defaults.timers_window.x, defaults.timers_window.y };
+    state.target_apply_geometry = true;
+    state.mini_apply_geometry = true;
+    state.history_apply_geometry = true;
+    state.config_apply_geometry = true;
+    state.timers_apply_geometry = true;
+    state.geometry_dirty = true;
+end
+
+-- Size + opacity of one window (same controls on every window page).
+function CFG.window_look(name, what)
+    local w = win_look(name);
+    ui.scale_presets('Size', w, 'scale', 'Scales the text, spacing and icons of the ' .. what .. '.', {
+        on_change = function()
+            if name == 'target' then state.target_apply_geometry = true; state.mini_apply_geometry = true; end
+        end,
+    });
+    if name == 'config' then
+        ui.slider_f('Opacity', w, 'alpha', 0, 100, '%.0f%%', 'How see-through this settings window is. It has its own opacity, separate from the other windows.', { mul = 100 });
+    else
+        ui.check('Own opacity', w, 'own_alpha', 'Off: the ' .. what .. ' uses the background opacity from Look > Theme & colors. On: set it here.');
+        if w.own_alpha == true or ui.searching() then
+            ui.sub(function()
+                ui.slider_f('Opacity', w, 'alpha', 0, 100, '%.0f%%', 'How see-through the background of the ' .. what .. ' is. Text stays solid.', { mul = 100 });
+            end);
+        end
+    end
+end
+
+-- ----------------------------------------------------------------------------
+-- GENERAL
+-- ----------------------------------------------------------------------------
+
+function CFG.page_general()
+    ui.section('WINDOWS');
+    ui.check('Show the target window', state.visible, 1, 'The window with the stats of your current target. Closing it with X turns this off; /mhunt target toggles it.', {
+        on_change = function() state.target_apply_geometry = true; state.mini_apply_geometry = true; end,
+    });
+    ui.check('Show the History window', state.history_visible, 1, 'Every mob you have fought, with search, sorting and Mob Details. /mhunt history');
+    ui.check('Show the Timers window', state.timers_visible, 1, 'Time since your last kill of each mob in this zone. /mhunt timers');
+
+    ui.section('FRAME');
+    ui.check('Title bars', state.title_bar, 1, 'Off: the windows have no title bar and get a small X button instead.');
+    ui.check('Borders', state.border, 1, 'A thin border around every MobHunt window.');
+
+    ui.section('POSITIONS');
+    if ui.button('Lock all windows', 'mh_lock_all', 'Stops every MobHunt window from moving and resizing.') then
+        state.lock_target[1] = true; state.lock_history[1] = true; state.lock_config[1] = true;
+        config.locks.timers = true;
+        CFG.dirty();
+    end
+    if not ui.searching() then
+        imgui.SameLine();
+        if imgui.Button('Unlock all##mh_unlock_all') then
+            state.lock_target[1] = false; state.lock_history[1] = false; state.lock_config[1] = false;
+            config.locks.timers = false;
+            CFG.dirty();
+        end
+    end
+    if ui.danger('Reset window positions', 'mh_reset_pos', CFG.armed, 'Puts every window back in its starting place and size. Click twice.') then
+        CFG.reset_geometry();
+    end
+end
+
+-- ----------------------------------------------------------------------------
+-- WINDOWS
+-- ----------------------------------------------------------------------------
+
+function CFG.page_target()
+    ui.section('WINDOW');
+    ui.check('Show the target window', state.visible, 1, 'Closing it with X turns this off; /mhunt target toggles it.', {
+        on_change = function() state.target_apply_geometry = true; state.mini_apply_geometry = true; end,
+    });
+    ui.check('Only with a target', state.target_only, 1, 'Hides the window while you have no monster targeted.');
+    ui.check('Mini view', state.mini_mode, 1, 'A small window with just the key numbers. The Mini / Full button on the window and /mhunt mini switch too. Each view keeps its own place.', {
+        on_change = function() state.target_apply_geometry = true; state.mini_apply_geometry = true; end,
+    });
+    ui.check('Lock position', state.lock_target, 1, 'Stops the target window from moving.');
+
+    ui.section('LOOK');
+    CFG.window_look('target', 'target window');
+
+    ui.section('CONTENT');
+    ui.check('This session', state.show_session, 1, 'Fights, kills, deaths and kills per hour since you logged in (or reset the session).');
+    ui.check('Observed drops', state.show_drops, 1, 'The drops you have seen from this mob, with their drop rate.');
+    ui.check('Kills per hour', state.show_kills_per_hour, 1, 'Kills per hour for this session.');
+    ui.check('Per-job stats', state.show_by_job, 1, 'Your kills and deaths on this mob for each job you fought it as.');
+    ui.check('Top abilities', config.behavior, 'abilities_target', 'The abilities your target uses most, one per row with their share and how often they get interrupted. The full list is in History > Mob Details.', { default_on = true });
+    if config.behavior.abilities_target ~= false or ui.searching() then
+        ui.sub(function()
+            ui.slider_i('Ability rows', config.behavior, 'abilities_rows', 1, 10, '%d abilities', 'How many abilities the target window lists.');
+        end);
+    end
+end
+
+function CFG.page_history()
+    ui.section('WINDOW');
+    ui.check('Show the History window', state.history_visible, 1, '/mhunt history');
+    ui.check('Lock position and size', state.lock_history, 1, 'Stops the History window from moving and resizing.');
+    ui.choice('Opens on', state.history_current_zone, 1, {
+        { key = true, label = 'Current zone', tip = 'Only the mobs of the zone you are in.' },
+        { key = false, label = 'All zones', tip = 'Every mob you have fought.' },
+    }, 'Which list History shows (the tabs at the top of the window switch it too).');
+
+    ui.section('LOOK');
+    CFG.window_look('history', 'History and Mob Details windows');
+
+    ui.section('THIS ZONE');
+    ui.check('Highlight this zone\'s mobs', config.behavior, 'zone_highlight', 'With All Zones shown, the mobs of the zone you are in are written in the color below.', { default_on = true });
+    if config.behavior.zone_highlight ~= false or ui.searching() then
+        ui.sub(function()
+            ui.color('Highlight color', config.appearance.zone_highlight, 'The color of this zone\'s mobs in All Zones.', true);
+        end);
+    end
+end
+
+function CFG.page_timers()
+    ui.section('WINDOW');
+    ui.check('Show the Timers window', state.timers_visible, 1, 'Time since your last kill of each mob in this zone (up to 3 hours). /mhunt timers');
+    ui.check('Lock position', config.locks, 'timers', 'Stops the Timers window from moving.');
+
+    ui.section('LOOK');
+    CFG.window_look('timers', 'Timers window');
+end
+
+function CFG.page_settings_window()
+    ui.section('WINDOW');
+    ui.check('Lock position and size', state.lock_config, 1, 'Stops this window from moving and resizing.');
+
+    ui.section('LOOK');
+    CFG.window_look('config', 'settings window');
+end
+
+-- ----------------------------------------------------------------------------
+-- LOOK
+-- ----------------------------------------------------------------------------
+
+function CFG.page_theme()
+    ui.section('THEME');
+    if ui.want('Theme', 'Colors every MobHunt window: accents, tabs, borders and title bars. Forest Rust Bone Copper Garnet Silver Amethyst Emerald Midnight') then
+        ui.label('Theme', 'Colors every MobHunt window: accents, tabs, borders and title bars.');
+        local current = normalize_theme_key(state.theme);
+        -- One button per theme with its color chip; wraps onto the next line
+        -- (under the control column) when the row is full.
+        local col_x = ui.LABEL_W * ui.scale;
+        local avail = imgui.GetContentRegionAvail();
+        if type(avail) == 'table' then avail = avail.x or avail[1]; end
+        local right = col_x + (tonumber(avail) or 500);
+        local chip = 9 * ui.scale;
+        for i, key in ipairs(UI_THEME_ORDER) do
+            local th = UI_THEMES[key];
+            local label = '      ' .. th.label;
+            local bw = text_w(label) + 16 * ui.scale;
+            if i > 1 then
+                imgui.SameLine(0, 4);
+                if imgui.GetCursorPosX() + bw > right then
+                    imgui.NewLine();
+                    imgui.SetCursorPosX(col_x);
+                end
+            end
+            if draw_toggle_button(label, 'mh_theme_' .. key, key == current) then
+                state.theme = key;
+                CFG.dirty();
+            end
+            pcall(function()
+                local x1, y1 = imgui.GetItemRectMin();
+                local _, y2 = imgui.GetItemRectMax();
+                x1, y1, y2 = tonumber(x1), tonumber(y1), tonumber(y2);
+                local cy = (y1 + y2) / 2;
+                local a = th.accent;
+                imgui.GetWindowDrawList():AddRectFilled({ x1 + 8 * ui.scale, cy - chip / 2 }, { x1 + 8 * ui.scale + chip, cy + chip / 2 },
+                    imgui.GetColorU32({ a[1] / 255, a[2] / 255, a[3] / 255, 1 }), 2);
+            end);
+        end
+        imgui.Dummy({ 1, 4 * ui.scale });
+    end
+
+    ui.section('BACKGROUND');
+    ui.check("Use the theme's background", config.appearance, 'use_theme_bg', 'Each theme has its own dark background (Midnight is deep navy). Off: pick your own color below.');
+    if config.appearance.use_theme_bg ~= true or ui.searching() then
+        ui.sub(function()
+            ui.color('Background color', state.background, 'The background of every MobHunt window (a window with its own opacity keeps this color).', false);
+        end);
+    end
+    ui.slider_f('Opacity', state.background, 4, 0, 100, '%.0f%%', 'How see-through the target, History and Timers windows are (unless one has its own opacity on its page). The settings window has its own.', { mul = 100 });
+
+    ui.section('STAT COLORS');
+    ui.color('Kills / good', state.success, 'Kills, wins, streaks and other good numbers.', true);
+    ui.color('Deaths / bad', state.danger, 'Deaths, interrupted abilities and other bad numbers.', true);
+    ui.color('Muted text', state.muted, 'Labels, times and other secondary text in the windows.', true);
+end
+
+function CFG.page_fonts()
+    uifont.settings_page(config, {
+        header = function(title) ui.section(title); end,
+        label = function(text_value, help_text) ui.label(text_value, help_text); end,
+        dirty = CFG.dirty,
+        want = function(text_value, help_text) return ui.want(text_value, help_text); end,
+        ctrl_w = ui.SLIDER_W * ui.scale,
+        accent = UI_ACCENT_TEXT,
+        muted = UI_MUTED,
+    });
+end
+
+-- ----------------------------------------------------------------------------
+-- TRACKING
+-- ----------------------------------------------------------------------------
+
+function CFG.page_tracking()
+    ui.section('FIGHTS');
+    ui.info('A fight begins only after you engage or act on a mob, or that mob acts on you. Merely targeting a mob does not count.');
+    ui.slider_i('Encounter timeout', state.encounter_timeout, 1, 15, 600, '%d sec', 'A fight with no action for this long is dropped (not counted as a kill or a death).');
+    ui.check('Count party kills you did not join', state.credit_party_kills, 1, 'When a party / alliance member kills a mob near you that you never touched, count it as a fight and a kill and record its drops.');
+
+    ui.section('MOB ABILITIES');
+    ui.check('Track mob abilities', config.behavior, 'track_abilities', 'Every TP move and spell a mob STARTS is counted, even when it gets interrupted, plus how many it finished. Nothing is added or shown until the mob is dead.', { default_on = true });
+
+    ui.section('DEBUG');
+    ui.check('Debug messages in chat', state.debug, 1, 'Prints what MobHunt sees (packets, kills, drops) to the chat log. /mhunt debug');
+end
+
+function CFG.page_data()
     local mobs, kills, items = 0, 0, 0;
     for _, rec in pairs(config.records) do
         if rec ~= nil then
@@ -3910,233 +4237,128 @@ local function draw_data_tab()
         end
     end
 
-    section_header('Saved Data');
-    imgui.Text(('Mob / zone records: %d'):fmt(mobs));
-    imgui.Text(('Kills recorded: %d'):fmt(kills));
-    imgui.Text(('Drop entries: %d'):fmt(items));
-    imgui.TextColored(state.muted, 'Saved per character in:');
-    imgui.TextColored(state.muted, 'Game\\config\\addons\\MobHunt\\<Character>_<id>\\settings.lua');
-    imgui.Spacing();
+    ui.section('SAVED DATA');
+    ui.value('Mob / zone records', mobs);
+    ui.value('Kills recorded', kills);
+    ui.value('Drop entries', items);
+    ui.info('Saved per character in Game\\config\\addons\\MobHunt\\<Character>_<id>\\settings.lua');
 
-    section_header('Purge');
-    imgui.TextWrapped('Purging cannot be undone. Settings, colors and window positions are kept.');
-    imgui.Spacing();
-    if confirm_button('Purge drop data only', 'mh_purge_drops') then
-        purge_drop_records();
-    end
-    help_marker('Clears every drop table. Fights, kills, deaths, EXP and times stay.');
-    if confirm_button('Purge all mob data', 'mh_purge_all') then
-        purge_all_records();
-    end
-    help_marker('Clears every mob record (fights, kills, deaths, EXP, drops) and this session. Start fresh.');
-end
-
--- Settings pages (1.6.0): pages on the left with a search box that finds
--- pages by keyword; the matching pages stack on the right.
-local function cfg_page_window()
-    section_header('WINDOWS');
-    if imgui.Checkbox('Show Target Window', state.visible) then
-        state.target_apply_geometry = true;
-        state.mini_apply_geometry = true;
-        state.settings_dirty = true;
-    end
-    help_marker('The window that shows the stats of your current target. Closing it with X turns this off; /mhunt target also toggles it.');
-    if imgui.Checkbox('Lock Target Window', state.lock_target) then state.settings_dirty = true; end
-    if imgui.Checkbox('Lock History Window', state.lock_history) then state.settings_dirty = true; end
-    if imgui.Checkbox('Lock Config Window', state.lock_config) then state.settings_dirty = true; end
-    imgui.Separator();
-
-    if imgui.Checkbox('Show Title Bars', state.title_bar) then state.settings_dirty = true; end
-    if imgui.Checkbox('Show Borders', state.border) then state.settings_dirty = true; end
-    if imgui.Checkbox('Only Show Target Window With a Target', state.target_only) then state.settings_dirty = true; end
-    if imgui.Checkbox('Mini Target Window', state.mini_mode) then
-        state.target_apply_geometry = true;
-        state.mini_apply_geometry = true;
-        state.settings_dirty = true;
-    end
-
-    imgui.Separator();
-    imgui.Text('Font Scale');
-    imgui.PushItemWidth(220);
-    if imgui.SliderFloat('##mh_font_scale', state.font_scale, 0.75, 2.00, '%.2fx') then state.settings_dirty = true; end
-    imgui.PopItemWidth();
-
-    if imgui.Button('Reset Window Positions / Sizes') then
-        state.target_geom = { defaults.window.x, defaults.window.y, defaults.window.width, defaults.window.height };
-        state.mini_geom = { defaults.mini_window.x, defaults.mini_window.y, defaults.mini_window.width, defaults.mini_window.height };
-        state.history_geom = { defaults.history_window.x, defaults.history_window.y, defaults.history_window.width, defaults.history_window.height };
-        state.config_geom = { defaults.config_window.x, defaults.config_window.y, defaults.config_window.width, defaults.config_window.height };
-        state.target_apply_geometry = true;
-        state.mini_apply_geometry = true;
-        state.history_apply_geometry = true;
-        state.config_apply_geometry = true;
-        state.geometry_dirty = true;
-    end
-end
-
-local function cfg_page_look()
-    section_header('THEME');
-    imgui.PushItemWidth(220);
-    local chosen = draw_theme_combo(state.theme, 'mh_theme');
-    if chosen then
-        state.theme = chosen;
-        state.settings_dirty = true;
-    end
-    imgui.PopItemWidth();
-
-    imgui.Spacing();
-    section_header('BACKGROUND');
-    imgui.Text('Background / Opacity');
-    if imgui.ColorEdit4('##mh_bg', state.background) then state.settings_dirty = true; end
-
-    local opacity_percent = T{ math.floor((tonumber(state.background[4]) or 0.45) * 100 + 0.5) };
-    imgui.SetNextItemWidth(220 * state.font_scale[1]);
-    if imgui.SliderInt('Opacity##background_opacity', opacity_percent, 0, 100, '%d%%') then
-        state.background[4] = opacity_percent[1] / 100.0;
-        config.appearance.background[4] = state.background[4];
-        state.settings_dirty = true;
-    end
-
-    -- 1.6.0: History / Mob detail opacity on their own.
-    local own = { config.appearance.history_own_alpha == true };
-    if imgui.Checkbox('History and Mob Details have their own opacity', own) then
-        config.appearance.history_own_alpha = own[1];
-        state.settings_dirty = true;
-    end
-    help_marker('Off: they use the opacity above, like every other MobHunt window.');
-    if config.appearance.history_own_alpha == true then
-        local hp = T{ math.floor((tonumber(config.appearance.history_alpha) or 0.85) * 100 + 0.5) };
-        imgui.SetNextItemWidth(220 * state.font_scale[1]);
-        if imgui.SliderInt('History opacity##mh_hist_alpha', hp, 0, 100, '%d%%') then
-            config.appearance.history_alpha = hp[1] / 100.0;
-            state.settings_dirty = true;
-        end
-    end
-
-    imgui.Spacing();
-    section_header('STAT COLORS');
-    imgui.Text('Kill / Success Color'); if imgui.ColorEdit4('##mh_success', state.success) then state.settings_dirty = true; end
-    imgui.Text('Death / Danger Color'); if imgui.ColorEdit4('##mh_danger', state.danger) then state.settings_dirty = true; end
-    imgui.Text('Muted Text Color'); if imgui.ColorEdit4('##mh_muted', state.muted) then state.settings_dirty = true; end
-
-    imgui.Spacing();
-    section_header('HISTORY: THIS ZONE');
-    local zh = { config.behavior.zone_highlight ~= false };
-    if imgui.Checkbox('Highlight mobs of the zone you are in (All Zones)', zh) then
-        config.behavior.zone_highlight = zh[1];
-        state.settings_dirty = true;
-    end
-    help_marker('With All Zones selected in History, the mobs of your current zone are written in this color.');
-    local c = config.appearance.zone_highlight;
-    local cv = { c[1], c[2], c[3], c[4] or 1 };
-    if imgui.ColorEdit4('Highlight color##mh_zone_hl', cv) then
-        config.appearance.zone_highlight = T{ cv[1], cv[2], cv[3], cv[4] };
-        state.settings_dirty = true;
-    end
-end
-
-local function cfg_page_content()
-    section_header('CONTENT');
-    if imgui.Checkbox('Show Session Statistics', state.show_session) then state.settings_dirty = true; end
-    if imgui.Checkbox('Show Observed Drops', state.show_drops) then state.settings_dirty = true; end
-    if imgui.Checkbox('Show Kills / Hour', state.show_kills_per_hour) then state.settings_dirty = true; end
-    if imgui.Checkbox('Show Per-Job Stats', state.show_by_job) then state.settings_dirty = true; end
-
-    imgui.Spacing();
-    section_header('MOB ABILITIES');
-    local ta = { config.behavior.track_abilities ~= false };
-    if imgui.Checkbox('Track mob abilities', ta) then
-        config.behavior.track_abilities = ta[1];
-        state.settings_dirty = true;
-    end
-    help_marker('Every TP move and spell a mob STARTS is counted, even when it gets interrupted, plus how many it finished. Nothing is added or shown until the mob is dead.');
-    local at = { config.behavior.abilities_target ~= false };
-    if imgui.Checkbox('Top abilities in the target window', at) then
-        config.behavior.abilities_target = at[1];
-        state.settings_dirty = true;
-    end
-    help_marker('The abilities your target uses most, one per row with their share. The full list is in History > Mob Details.');
-    local rows = { math.floor(tonumber(config.behavior.abilities_rows) or 4) };
-    imgui.PushItemWidth(180);
-    if imgui.SliderInt('Rows##mh_abil_rows', rows, 1, 10, '%d abilities') then
-        config.behavior.abilities_rows = rows[1];
-        state.settings_dirty = true;
-    end
-    imgui.PopItemWidth();
-end
-
-local function cfg_page_tracking()
-    section_header('TRACKING');
-    imgui.TextWrapped('A fight begins only after you engage/act on a mob, or that mob acts on you. Merely targeting a mob does not count.');
-    imgui.Separator();
-
-    imgui.Text('Encounter timeout (seconds)');
-    imgui.PushItemWidth(180);
-    if imgui.SliderInt('##mh_enc_timeout', state.encounter_timeout, 15, 600, '%d sec') then state.settings_dirty = true; end
-    imgui.PopItemWidth();
-
-    if imgui.Checkbox('Count party kills you did not join', state.credit_party_kills) then state.settings_dirty = true; end
-    help_marker('When a party / alliance member kills a mob near you that you never touched, count it as a fight and a kill and record its drops.');
-
-    if imgui.Checkbox('Debug Packet / Tracking Messages', state.debug) then state.settings_dirty = true; end
-
-    imgui.Separator();
-    imgui.TextColored(UI_ACCENT_TEXT, 'Session Controls');
-    if imgui.Button('Reset Current Session Statistics') then
+    ui.section('SESSION');
+    if ui.button('Reset this session', 'mh_reset_session', 'Clears the This Session numbers only. Lifetime records stay. /mhunt session') then
         state.session = T{};
         state.session_start = os.time();
         dbg('Session statistics reset.');
     end
+
+    ui.section('PURGE');
+    ui.info('Purging cannot be undone. Settings, colors and window positions are kept.');
+    if ui.danger('Purge drop data only', 'mh_purge_drops', CFG.armed, 'Clears every drop table. Fights, kills, deaths, EXP and times stay. Click twice.') then
+        purge_drop_records();
+    end
+    if ui.danger('Purge all mob data', 'mh_purge_all', CFG.armed, 'Clears every mob record (fights, kills, deaths, EXP, drops) and this session. Click twice.') then
+        purge_all_records();
+    end
 end
 
-local function cfg_page_diagnostics()
-    section_header('DIAGNOSTICS');
-    imgui.Text(('Action packets: %d'):fmt(tonumber(state.debug_counters.actions) or 0));
-    imgui.Text(('Encounters started: %d'):fmt(tonumber(state.debug_counters.starts) or 0));
-    imgui.Text(('Encounters resumed: %d'):fmt(tonumber(state.debug_counters.resumes) or 0));
-    imgui.Text(('Kills counted: %d'):fmt(tonumber(state.debug_counters.kills) or 0));
-    imgui.Text(('Deaths counted: %d'):fmt(tonumber(state.debug_counters.deaths) or 0));
-    imgui.Text(('Player HP: %s'):fmt(state.last_player_hp == nil and '--' or tostring(state.last_player_hp)));
-    imgui.Text(('Player dead state: %s'):fmt(state.player_dead and 'YES' or 'NO'));
-    imgui.Text(('Treasure packets seen: %d'):fmt(tonumber(state.debug_counters.drop_packets) or 0));
-    imgui.Text(('Treasure memory scans: %d'):fmt(tonumber(state.debug_counters.treasure_memory_scans) or 0));
-    imgui.Text(('Treasure memory drops: %d'):fmt(tonumber(state.debug_counters.treasure_memory_drops) or 0));
-    imgui.Text(('Inventory packets seen: %d'):fmt(tonumber(state.debug_counters.inventory_packets) or 0));
-    imgui.Text(('Direct inventory drops: %d'):fmt(tonumber(state.debug_counters.direct_drops) or 0));
-    imgui.Text(('Drops counted: %d'):fmt(tonumber(state.debug_counters.drops) or 0));
-    imgui.Text(('Drops from find lines: %d'):fmt(tonumber(state.debug_counters.chat_drops) or 0));
-    imgui.Text(('Drops ignored/unassociated: %d'):fmt(tonumber(state.debug_counters.ignored_drops) or 0));
-end
+-- ----------------------------------------------------------------------------
+-- HELP
+-- ----------------------------------------------------------------------------
 
-local function cfg_page_fonts()
-    local start_x = imgui.GetCursorPosX();
-    local label_w = text_w('Tooltip background') + 18;
-    uifont.settings_page(config, {
-        header = section_header,
-        label = function(text_value, tip)
-            align_label();
-            imgui.Text(text_value);
-            imgui.SameLine();
-            imgui.SetCursorPosX(start_x + label_w);
-        end,
-        dirty = function() state.settings_dirty = true; end,
-        want = function() return true; end,
-        ctrl_w = 220,
-        accent = UI_ACCENT_TEXT,
-        muted = state.muted,
-    });
-end
-
-local CONFIG_PAGES = {
-    { label = 'Windows', keys = 'window lock title bar border target mini font scale reset position', draw = cfg_page_window },
-    { label = 'Look', keys = 'theme background opacity colors history opacity zone highlight', draw = cfg_page_look },
-    { label = 'Content', keys = 'session drops kills hour job abilities moves spells', draw = cfg_page_content },
-    { label = 'Tracking', keys = 'tracking encounter timeout party kills debug session reset', draw = cfg_page_tracking },
-    { label = 'Data', keys = 'data purge delete records drops', draw = function() draw_data_tab(); end },
-    { label = 'Fonts & Tooltips', keys = 'font fonts tahoma text size tooltip tooltips', draw = cfg_page_fonts },
-    { label = 'Diagnostics', keys = 'diagnostics packets counters debug', draw = cfg_page_diagnostics },
+CFG.COMMANDS = {
+    { '/mhunt', 'Open History and Settings (and turn the target window back on)' },
+    { '/mhunt target', 'Show / hide the target window' },
+    { '/mhunt mini', 'Switch the target window between Full and Mini' },
+    { '/mhunt history', 'Show / hide the History window' },
+    { '/mhunt timers', 'Show / hide the Timers window' },
+    { '/mhunt config', 'Show / hide this settings window' },
+    { '/mhunt session', 'Reset this session\'s numbers' },
+    { '/mhunt debug', 'Debug messages on / off' },
+    { '/mhunt help', 'List the commands in chat' },
 };
-local config_search = { '' };
+
+function CFG.page_commands()
+    ui.section('COMMANDS');
+    ui.info('/mobhunt works the same as /mhunt.');
+    for _, c in ipairs(CFG.COMMANDS) do
+        if ui.want(c[1], c[2]) then
+            ui.label(c[1]);
+            imgui.TextColored(UI_TEXT, c[2]);
+        end
+    end
+
+    ui.section('MOUSE');
+    if ui.want('Mouse', 'drag click double right') then
+        ui.info('Drag a window by its title bar (or anywhere when title bars are off). In History, click a mob to open its Mob Details beside it; click a column title to sort.');
+    end
+
+    ui.section('ABOUT');
+    ui.value('Version', addon.version);
+    ui.value('Author', addon.author);
+    ui.info('Written for HorizonXI. It only reads what the game already shows you and never sends anything.');
+end
+
+function CFG.page_diagnostics()
+    local c = state.debug_counters;
+    local function n(v) return tostring(tonumber(v) or 0); end
+    ui.section('COUNTERS');
+    ui.value('Action packets', n(c.actions));
+    ui.value('Encounters started', n(c.starts));
+    ui.value('Encounters resumed', n(c.resumes));
+    ui.value('Kills counted', n(c.kills));
+    ui.value('Deaths counted', n(c.deaths));
+    ui.value('Player HP', state.last_player_hp == nil and '--' or tostring(state.last_player_hp));
+    ui.value('Player dead', state.player_dead and 'YES' or 'NO');
+    ui.section('DROPS');
+    ui.value('Treasure packets seen', n(c.drop_packets));
+    ui.value('Treasure memory scans', n(c.treasure_memory_scans));
+    ui.value('Treasure memory drops', n(c.treasure_memory_drops));
+    ui.value('Inventory packets seen', n(c.inventory_packets));
+    ui.value('Direct inventory drops', n(c.direct_drops));
+    ui.value('Drops counted', n(c.drops));
+    ui.value('Drops from find lines', n(c.chat_drops));
+    ui.value('Drops not credited', n(c.ignored_drops));
+end
+
+CFG.GROUPS = {
+    { label = 'General', pages = {
+        { key = 'general', label = 'General', desc = 'Which MobHunt windows are shown, their frame, and their positions.', draw = CFG.page_general },
+    } },
+    { label = 'Windows', pages = {
+        { key = 'target', label = 'Target window', desc = 'The window with your target\'s stats: when it shows, its size and opacity, and what it lists.', draw = CFG.page_target },
+        { key = 'history', label = 'History', desc = 'Every mob you have fought, and the Mob Details window beside it.', draw = CFG.page_history },
+        { key = 'timers', label = 'Timers', desc = 'Time since your last kill of each mob in this zone.', draw = CFG.page_timers },
+        { key = 'settings', label = 'Settings window', desc = 'This window.', draw = CFG.page_settings_window },
+    } },
+    { label = 'Look', pages = {
+        { key = 'theme', label = 'Theme & colors', desc = 'The theme, the window background and the colors of the numbers.', draw = CFG.page_theme },
+        { key = 'fonts', label = 'Fonts & Tooltips', desc = 'The font of every MobHunt window, and how tooltips look.', draw = CFG.page_fonts },
+    } },
+    { label = 'Tracking', pages = {
+        { key = 'tracking', label = 'Tracking', desc = 'What counts as a fight, party kills, and mob abilities.', draw = CFG.page_tracking },
+        { key = 'data', label = 'Data', desc = 'Your saved records: what is stored, the session, and purging.', draw = CFG.page_data },
+    } },
+    { label = 'Help', pages = {
+        { key = 'commands', label = 'Commands', desc = 'Every command, the mouse, and the version.', draw = CFG.page_commands },
+        { key = 'diagnostics', label = 'Diagnostics', desc = 'What MobHunt has seen since it loaded (for tracking down a missed kill or drop).', draw = CFG.page_diagnostics },
+    } },
+};
+
+CFG.CTX = {
+    id = 'mh',
+    title = 'MobHunt',
+    groups = CFG.GROUPS,
+    page = function() return config.config_page or 'general'; end,
+    set_page = function(key) config.config_page = key; CFG.dirty(); end,
+    dirty = CFG.dirty,
+    -- Keep the theme swatches clear of the X button drawn when title bars are off.
+    reserve_right = function() return state.title_bar[1] and 0 or 40; end,
+    themes = {
+        order = UI_THEME_ORDER,
+        list = UI_THEMES,
+        current = function() return normalize_theme_key(state.theme); end,
+        set = function(key) state.theme = key; CFG.dirty(); end,
+    },
+};
 
 local function draw_config_window()
     if not state.config_visible[1] then
@@ -4144,66 +4366,32 @@ local function draw_config_window()
         return;
     end
 
+    local s = win_scale('config');
     if state.config_apply_geometry then
+        -- The sidebar layout needs room: older saves were sized for tabs.
         imgui.SetNextWindowPos({ state.config_geom[1], state.config_geom[2] }, { 0, 0 });
-        imgui.SetNextWindowSize({ math.max(state.config_geom[3], 700), state.config_geom[4] });
+        imgui.SetNextWindowSize({ math.max(state.config_geom[3], 860), math.max(state.config_geom[4], 560) });
         state.config_apply_geometry = false;
     end
+    if imgui.SetNextWindowSizeConstraints ~= nil then
+        imgui.SetNextWindowSizeConstraints({ 600 * s, 380 * s }, { 4000, 4000 });
+    end
 
-    push_mh_theme();
-    uifont.push(1.0);
-    if imgui.Begin('MobHunt Config##config', state.config_visible, window_flags(state.lock_config[1])) then
+    push_mh_theme(win_alpha('config'));
+    -- The settings window uses the roomier MogSuite spacing.
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 8 * s, 5 * s });
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 8 * s, 4 * s });
+    uifont.push(s);
+    if imgui.Begin('MobHunt Settings##config', state.config_visible, window_flags(state.lock_config[1])) then
         custom_close('mobhunt_config_close', state.config_visible);
-
-        local side_w = 170;
-        imgui.BeginChild('##mh_cfg_side', { side_w, 0 }, 0);
-        imgui.PushItemWidth(side_w - 6);
-        imgui.InputText('##mh_cfg_search', config_search, 48);
-        imgui.PopItemWidth();
-        if (config_search[1] or '') == '' and not imgui.IsItemActive() then
-            local x1, y1 = imgui.GetItemRectMin();
-            if x1 ~= nil then
-                imgui.GetWindowDrawList():AddText({ tonumber(x1) + 6, tonumber(y1) + 3 }, imgui.GetColorU32(state.muted), 'Search...');
-            end
-        end
-        local q = tostring(config_search[1] or ''):lower():gsub('^%s+', ''):gsub('%s+$', '');
-        imgui.Spacing();
-        local cur = math.max(1, math.min(#CONFIG_PAGES, tonumber(state.config_tab) or 1));
-        for i, pg in ipairs(CONFIG_PAGES) do
-            local match = q == '' or (pg.label .. ' ' .. pg.keys):lower():find(q, 1, true) ~= nil;
-            if q ~= '' and not match then
-                imgui.TextColored(state.muted, pg.label);
-            else
-                local sel = (q == '' and cur == i) or (q ~= '' and match);
-                if sel then imgui.PushStyleColor(ImGuiCol_Text, UI_ACCENT_TEXT); end
-                if imgui.Selectable(pg.label .. '##mh_cfgpg_' .. i, sel) then
-                    state.config_tab = i;
-                    config_search[1] = '';
-                end
-                if sel then imgui.PopStyleColor(1); end
-            end
-        end
-        imgui.EndChild();
-
-        imgui.SameLine();
-        imgui.BeginChild('##mh_cfg_page', { 0, 0 }, 0);
-        local any = false;
-        for i, pg in ipairs(CONFIG_PAGES) do
-            local show;
-            if q == '' then show = (cur == i); else show = (pg.label .. ' ' .. pg.keys):lower():find(q, 1, true) ~= nil; end
-            if show then
-                any = true;
-                pg.draw();
-                imgui.Spacing();
-            end
-        end
-        if not any then imgui.TextColored(state.muted, 'Nothing matches the search.'); end
-        imgui.EndChild();
-
+        ui.scale = s;
+        local ok, err = pcall(ui.body, CFG.CTX);
+        if not ok then imgui.TextColored(ui.theme.danger, tostring(err)); end
         if not state.lock_config[1] then capture_geometry(state.config_geom); end
     end
     imgui.End();
     uifont.pop();
+    imgui.PopStyleVar(2);
     pop_mh_theme();
 end
 
