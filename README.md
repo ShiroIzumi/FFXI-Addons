@@ -16,6 +16,7 @@ Ashita v4 addons for **Final Fantasy XI on HorizonXI**, written by Izumi (ShiroI
 | [MobHunt](MobHunt) | Kill, death and drop statistics for every mob you fight | ⚠️ **NOT YET APPROVED ON HORIZONXI** |
 | [ScrollingCombatLog](scrollingcombatlog) | Scrolling combat text for your own actions | ⚠️ **NOT YET APPROVED ON HORIZONXI** |
 | [IzClock](izclock) | A configurable Vana'diel clock with days, moon, guilds and ships | ⚠️ **NOT YET APPROVED ON HORIZONXI** |
+| [WhatsMyDamage](WhatsMyDamage) | A Details!-style damage, healing and damage taken meter | ⚠️ **NOT YET APPROVED ON HORIZONXI** |
 
 ---
 
@@ -88,6 +89,17 @@ IzClock is a small Vana'diel clock that you can configure completely:
 - **Hover:** the week, the moon, crafting, guild hours and ship times.
 - **Click:** an info window with all of that in one place.
 - **Optional:** a second clock and a day-change alert.
+
+## WhatsMyDamage
+⚠️ **NOT YET APPROVED ON HORIZONXI** · `/wmd` · [Full README](WhatsMyDamage/README.md)
+
+WhatsMyDamage (WMD) is a damage meter in the style of WoW's Details!, with colored bars showing `1. Name` and `amount (share%)`:
+
+- **Three modes:** Damage Done, Healing Done and Damage Taken, for you, your party, or the whole alliance. Up to three windows can snap together and move as one.
+- **Hover and details:** hover a bar for every source with its accuracy, crits and magic bursts. Click a bar for a details window with per-source tables, targets, pets and a death recap.
+- **Report:** posts the numbers to party, linkshell or say, one line a second, only when you press Send.
+- **New party:** asks whether to reset the meters when you join a new party.
+- **Look:** 9 bar styles, 40+ Windows fonts, job colors and XIUI job icons, six themes and a test mode.
 
 ---
 
