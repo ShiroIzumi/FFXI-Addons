@@ -1,6 +1,6 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.7.0
+    Version 1.7.1
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
@@ -38,7 +38,7 @@
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.7.0';
+addon.version   = '1.7.1';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -2870,6 +2870,70 @@ local function pairs_line(items)
     end
 end
 
+-- 1.7.1: Mini view widgets.
+-- One row of compact tiles sharing the width: "Label  value" inside a
+-- rounded tile with a thin colored strip along the bottom.
+local function compact_tiles(items)
+    local dl = imgui.GetWindowDrawList();
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 260;
+    local gap = 4;
+    local n = #items;
+    local w = (avail - gap * (n - 1)) / n;
+    local lh = imgui.GetTextLineHeight();
+    local h = lh + 8;
+    local x0, y0 = imgui.GetCursorScreenPos();
+    x0, y0 = tonumber(x0) or 0, tonumber(y0) or 0;
+    for i, it in ipairs(items) do
+        local x = x0 + (i - 1) * (w + gap);
+        local col = it[3] or UI_TEXT;
+        dl:AddRectFilled({ x, y0 }, { x + w, y0 + h }, imgui.GetColorU32({ UI_CONTROL[1], UI_CONTROL[2], UI_CONTROL[3], 0.85 }), 4.0);
+        dl:AddRectFilled({ x + 3, y0 + h - 2 }, { x + w - 3, y0 + h }, imgui.GetColorU32({ col[1], col[2], col[3], 0.80 }), 1.0);
+        local value = tostring(it[2]);
+        local vw = tw_text(value);
+        local label = it[1];
+        -- The label is dropped when the tile is too narrow for both.
+        if tw_text(label) + vw + 16 <= w then
+            dl:AddText({ x + 6, y0 + 3 }, imgui.GetColorU32(state.muted), label);
+        end
+        dl:AddText({ x + w - vw - 6, y0 + 3 }, imgui.GetColorU32(col), value);
+    end
+    imgui.Dummy({ avail, h + 2 });
+end
+
+-- Muted info line with values in their own color: { text, color } parts
+-- joined by a faint bar.
+local function info_line(parts)
+    for i, p in ipairs(parts) do
+        if i > 1 then
+            imgui.SameLine(0, 6);
+            imgui.TextColored({ state.muted[1], state.muted[2], state.muted[3], 0.6 }, '|');
+            imgui.SameLine(0, 6);
+        end
+        if p[2] ~= nil then
+            imgui.TextColored(state.muted, p[1]);
+            imgui.SameLine(0, 4);
+            imgui.TextColored(p[3] or UI_TEXT, p[2]);
+        else
+            imgui.TextColored(state.muted, p[1]);
+        end
+    end
+end
+
+-- A row of equal-width toggle buttons across the window: { label, id, on, fn }.
+local function button_bar(buttons)
+    local avail = tonumber((imgui.GetContentRegionAvail())) or 260;
+    local gap = 4;
+    local n = #buttons;
+    local w = (avail - gap * (n - 1)) / n;
+    local sc = win_scale('target');
+    imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 4 * sc, 2 * sc });
+    for i, b in ipairs(buttons) do
+        if i > 1 then imgui.SameLine(0, gap); end
+        if draw_toggle_button(b[1], b[2], b[3] == true, { w, 0 }) then b[4](); end
+    end
+    imgui.PopStyleVar(1);
+end
+
 local function draw_record_summary(rec, key, include_header)
     if rec == nil then return; end
     local s = state.session[key];
@@ -3025,26 +3089,42 @@ local function draw_target_window()
             end
 
             if state.mini_mode[1] then
+                -- 1.7.1 Mini view: zone, a row of tiles, one info line.
+                imgui.TextColored(state.muted, tostring(target.zone_name));
                 if rec == nil then
-                    imgui.TextColored(state.muted, ('%s  |  No history'):fmt(tostring(target.zone_name)));
+                    imgui.Spacing();
+                    imgui.TextColored(state.muted, 'No fights with this mob yet.');
                 else
-                    imgui.TextColored(state.muted, tostring(target.zone_name));
-                    imgui.Text(('F: %d   K: %d   D: %d   Win: %.1f%%'):fmt(
-                        tonumber(rec.fights) or 0,
-                        tonumber(rec.kills) or 0,
-                        tonumber(rec.deaths) or 0,
-                        pct(rec.kills, rec.fights)
-                    ));
+                    local fights = tonumber(rec.fights) or 0;
+                    local kills = tonumber(rec.kills) or 0;
+                    local deaths = tonumber(rec.deaths) or 0;
+                    imgui.Spacing();
+                    compact_tiles({
+                        { 'F', fights, UI_ACCENT_TEXT },
+                        { 'K', kills, state.success },
+                        { 'D', deaths, deaths > 0 and state.danger or state.muted },
+                        { 'Win', ('%.0f%%'):fmt(pct(kills, fights)), UI_TEXT },
+                    });
+                    local parts = {};
                     local mini_age = format_age(rec.last_kill);
-                    if mini_age ~= nil then
-                        imgui.TextColored(state.muted, ('Last kill %s'):fmt(mini_age));
-                    end
+                    parts[#parts + 1] = { 'Last kill', mini_age or 'never' };
                     if state.show_session[1] then
-                        imgui.Text(('Session  F: %d   K: %d   D: %d'):fmt(
-                            srec and (tonumber(srec.fights) or 0) or 0,
-                            srec and (tonumber(srec.kills) or 0) or 0,
-                            srec and (tonumber(srec.deaths) or 0) or 0
-                        ));
+                        local sk = srec and (tonumber(srec.kills) or 0) or 0;
+                        parts[#parts + 1] = { 'Session', tostring(sk), state.success };
+                        if state.show_kills_per_hour[1] and sk > 0 then
+                            parts[#parts + 1] = { ('%.1f/hr'):fmt(session_kph(srec)) };
+                        end
+                    end
+                    info_line(parts);
+                    -- The best drop, when drops are shown.
+                    if state.show_drops[1] then
+                        local drops = sorted_drops(rec);
+                        local d = drops[1];
+                        if d ~= nil then
+                            local rate = pct(d.occurrences, rec.kills);
+                            bar_row(tostring(d.name or ('Item ' .. tostring(d.item_id or '?'))), ('%.1f%%'):fmt(rate), rate / 100, state.success,
+                                (#drops > 1) and ('+%d more'):fmt(#drops - 1) or nil);
+                        end
                     end
                 end
             else
@@ -3082,27 +3162,26 @@ local function draw_target_window()
         end
 
         if state.mini_mode[1] then
-            imgui.Separator();
-            if imgui.SmallButton('Full##mh_full') then
-                state.mini_mode[1] = false;
-                state.target_apply_geometry = true;
-                state.settings_dirty = true;
-            end
-            imgui.SameLine();
-            if imgui.SmallButton('History##mh_mini_hist') then
-                state.history_visible[1] = not state.history_visible[1];
-                state.settings_dirty = true;
-            end
-            imgui.SameLine();
-            if imgui.SmallButton('Config##mh_mini_cfg') then
-                state.config_visible[1] = not state.config_visible[1];
-                state.settings_dirty = true;
-            end
-            imgui.SameLine();
-            if imgui.SmallButton('Timers##mh_mini_timers') then
-                state.timers_visible[1] = not state.timers_visible[1];
-                state.settings_dirty = true;
-            end
+            imgui.Spacing();
+            button_bar({
+                { 'Full', 'mh_full', false, function()
+                    state.mini_mode[1] = false;
+                    state.target_apply_geometry = true;
+                    state.settings_dirty = true;
+                end },
+                { 'History', 'mh_mini_hist', state.history_visible[1], function()
+                    state.history_visible[1] = not state.history_visible[1];
+                    state.settings_dirty = true;
+                end },
+                { 'Config', 'mh_mini_cfg', state.config_visible[1], function()
+                    state.config_visible[1] = not state.config_visible[1];
+                    state.settings_dirty = true;
+                end },
+                { 'Timers', 'mh_mini_timers', state.timers_visible[1], function()
+                    state.timers_visible[1] = not state.timers_visible[1];
+                    state.settings_dirty = true;
+                end },
+            });
         end
 
         uifont.pop();
