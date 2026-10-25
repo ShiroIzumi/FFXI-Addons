@@ -94,7 +94,7 @@ IzClock is a small Vana'diel clock that you can configure completely:
 ## Installation
 
 1. Download this repository: **Code → Download ZIP**.
-2. Copy the addon folder you want into `C:\HorizonXI\HorizonXI\Game\addons\`.
+2. Copy the addon folder you want into your HorizonXI install's addons folder: `..\HorizonXI\Game\addons\` (wherever you installed HorizonXI).
 3. In game, type `/addon load <name>`, for example `/addon load mogsuite`.
 4. To load it every time you start the game, add the same line to your Ashita startup script (`scripts\default.txt`).
 
