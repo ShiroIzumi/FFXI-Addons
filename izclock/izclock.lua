@@ -1,6 +1,6 @@
 --[[
     IzClock - Ashita v4 / HorizonXI
-    Version 3.1.4
+    Version 3.2.0
 
     A small Vana'diel clock: Vana'diel time, the elemental day (and the next
     one), the countdown to the next day, moon phase, and optionally your
@@ -31,11 +31,13 @@
       ui/clock.lua        a clock window (main and second)
       ui/info.lua         the hover window and the info window
       ui/config.lua       the settings window
+      cfgui.lua           settings window kit (same as MobHunt / WMD / SCL)
+      uifont.lua          the window font (Tahoma) and tooltips
 ]]
 
 addon.name      = 'izclock';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '3.1.4';
+addon.version   = '3.2.0';
 addon.desc      = 'Vana\'diel clock: time, elemental day, next-day countdown, moon phase, local and Japan time.';
 addon.link      = '';
 
@@ -43,6 +45,7 @@ require('common');
 local imgui = require('imgui');
 local settings = require('settings');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local cursor = require('core.cursor');
 local vana = require('core.vana');
 local schedule = require('core.schedule');
@@ -169,7 +172,18 @@ defaults.info_scale = 1.00;
 defaults.config_theme = 'midnight';
 defaults.ui_scale = 1.00;
 defaults.config_win = { x = -1, y = -1, w = -1, h = -1 };   -- -1 = not moved / resized yet
+defaults.config_page = 'clock';
+-- 3.2.0: the info and settings windows' own opacity, the shared background
+-- of IzClock's windows, and the window font (Tahoma).
+defaults.look = {
+    info = { own_alpha = false, alpha = 0.97 },
+    config = { alpha = 0.97 },
+};
+defaults.ui_bg = { use_theme = true, color = { 0.035, 0.035, 0.040, 1 }, alpha = 0.97 };
+defaults.ui_font = uifont.defaults({});
 defaults.pointer = { enabled = true, size = 1.4, color = { 1.00, 0.10, 0.75, 1.00 }, outline = { 0.05, 0.00, 0.05, 1.00 }, shadow = true };
+
+uifont.addon = 'izclock';
 
 local cfg = settings.load(defaults);
 
@@ -254,13 +268,25 @@ local function prepare(c)
     if c.rotation_tip == false and type(c.hover) ~= 'table' then c.hover = { area = 'off' }; end
     c.rotation_tip = nil;
     fill(c, defaults);
+    fill(c.look.info, defaults.look.info);
+    fill(c.look.config, defaults.look.config);
+    fill(c.ui_bg, defaults.ui_bg);
+    uifont.defaults(c.ui_font);
+    uifont.set_global(c.ui_font);
     c.segments = clean_segments(c.segments);
     c.second.segments = clean_segments(c.second.segments);
     c.visible = true;   -- the clock always shows after a load / login
 end
 
+local function profile()
+    local b = cfg.ui_bg or defaults.ui_bg;
+    theme.set_profile({ theme = cfg.config_theme, opacity = tonumber(b.alpha) or 0.97, use_theme_bg = b.use_theme ~= false,
+        background = b.color, text_effect = cfg.text_effect });
+end
+
 prepare(cfg);
-theme.set_profile({ theme = cfg.config_theme, opacity = 0.97, use_theme_bg = true, text_effect = cfg.text_effect });
+profile();
+uifont.install_tooltips();
 
 -- Settings are saved shortly after a change, never while a slider is held.
 local save_at = nil;
@@ -269,7 +295,7 @@ local function dirty(pos_only)
     save_at = os.clock();
     if pos_only == true then return; end
     clock.invalidate();
-    theme.set_profile({ theme = cfg.config_theme, opacity = 0.97, use_theme_bg = true, text_effect = cfg.text_effect });
+    profile();
 end
 
 local function save_now()
@@ -441,6 +467,11 @@ ashita.events.register('d3d_present', 'izclock_present_cb', function()
     if save_at ~= nil and os.clock() - save_at > 0.6 and not imgui.IsAnyItemActive() then
         save_now();
     end
+end);
+
+-- The window font is added once here, outside of drawing.
+ashita.events.register('load', 'izclock_load_cb', function()
+    pcall(uifont.load, cfg.ui_font);
 end);
 
 ashita.events.register('unload', 'izclock_unload_cb', function()

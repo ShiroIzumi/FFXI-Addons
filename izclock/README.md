@@ -1,6 +1,6 @@
 # IzClock
 
-**Version:** 3.1.4\
+**Version:** 3.2.0\
 **Platform:** Ashita v4 / HorizonXI\
 **Author:** Izumi (ShiroIzumi)
 
@@ -90,7 +90,7 @@ LandSandBoat does not apply one, so treat it as a guide.
 
 ## Second clock
 
-Off by default; turn it on with `/ic second` or on the Window page. It
+Off by default; turn it on with `/ic second` or on Windows > Clock windows. It
 has its own pieces, layout, formats, look and position. A switch at the
 top of the Clock, Format and Look pages picks which clock you are
 editing. One use is a one-line bar for everyday play plus a stacked
@@ -101,22 +101,30 @@ panel elsewhere.
 Off by default. When it's on, IzClock writes a line in the chat log
 and/or flashes the clock in the new day's color. You choose when it
 fires (as the day changes, or up to 30 minutes before), how long the
-flash lasts, and which days it fires for. The Alerts page has a Test
-button.
+flash lasts, and which days it fires for. The Day change page has a
+Test button.
 
 ## Settings
 
-The settings window has a sidebar with these pages. Drag its
-bottom-right corner to resize it; it opens again where you left it, at
-the same size.
+The settings window has a **search box** at the top that finds any
+setting by name or help text, the theme swatches at the top right, and
+a sidebar with these pages. Drag its bottom-right corner to resize it;
+it opens again where you left it, at the same size, on the last page.
 
-- **Clock**: the layout; which pieces show and in what order, with their labels; whether labels show; the next day after the current one; element tags (`[Wa] Watersday`).
-- **Format**: 12- or 24-hour time; seconds; the countdown style (`44m 15s` or `44:15`); the moon illumination %; the separator text.
-- **Look**: text size and effect (none, shadow, outline or both); colors for labels, values, Vana'diel time, separators and each of the 8 days; the background color and opacity (0 is see-through); border and border color; rounding; padding; spacing; a width that fits the text or a fixed width with left / center / right alignment.
-- **Hover & info**: where the hover window opens, its text size, its sections and ships, the info window's text size, and a button that opens the info window.
-- **Alerts**: the day-change alert.
-- **Window**: the second clock; lock and reset each clock; hide during cutscenes; the settings window's theme (the info window uses it too), text size and a reset for its size and position; the info window's text size; the mouse pointer.
-- **Commands**: the commands above.
+- **Clock → Clock**: the layout; which pieces show and in what order, with their labels; whether labels show; the next day after the current one; element tags (`[Wa] Watersday`).
+- **Clock → Format**: 12- or 24-hour time; seconds; the countdown style (`44m 15s` or `44:15`); the moon illumination %; the separator text.
+- **Clock → Look**: text size and effect (none, shadow, outline or both); colors for labels, values, Vana'diel time, separators and each of the 8 days; the background color and opacity (0 is see-through); border and border color; rounding; padding; spacing; a width that fits the text or a fixed width with left / center / right alignment.
+- **Windows → Clock windows**: lock and reset each clock; the second clock; hide during cutscenes.
+- **Windows → Hover window**: where it opens, its size, its sections and which ships it lists.
+- **Windows → Info window**: its size, its own opacity, and a button that opens it.
+- **Windows → Settings window**: this window's size and its own opacity, and a reset for its size and position.
+- **Look → Theme & colors**: eleven themes (Forest, Rust, Bone, Copper, Gold, Garnet, Fuchsia, Silver, Amethyst, Emerald, Midnight), the theme's own background or your color with its opacity, and the mouse pointer.
+- **Look → Fonts & Tooltips**: the font of the settings, hover and info windows (Tahoma by default) and how tooltips look. The clocks keep their own text settings.
+- **Alerts → Day change**: the day-change alert.
+- **Help → Commands**: the commands above.
+
+The Clock, Format and Look pages edit one clock at a time; with the
+second clock on, a switch at the top picks which.
 
 Settings are saved per character, shortly after each change.
 
@@ -162,10 +170,22 @@ IzClock does not:
 | --- | --- |
 | `izclock.lua` | Settings, commands, events |
 | `core/vana.lua` | Vana'diel time, days, moon |
-| `core/theme.lua` | The settings window's look |
+| `core/theme.lua` | The windows' look (themes) |
 | `core/cursor.lua` | The mouse pointer over IzClock windows |
 | `core/gamestate.lua` | Hiding before login and during cutscenes |
 | `core/schedule.lua` | Guild hours, ships, moon forecast, crafting element |
 | `ui/clock.lua` | A clock window (main and second) |
 | `ui/info.lua` | The hover window and the info window |
 | `ui/config.lua` | The settings window |
+| `cfgui.lua` | The settings window kit (the same in MobHunt, WhatsMyDamage and ScrollingCombatLog) |
+| `uifont.lua` | The window font (Tahoma) and tooltips |
+
+## Changelog
+
+### 3.2.0
+- **New settings window, the same layout as MobHunt, WhatsMyDamage and ScrollingCombatLog:** a search box that finds any setting, the theme swatches at the top, and a sidebar grouped into **Clock** (Clock, Format, Look), **Windows** (Clock windows, Hover window, Info window, Settings window), **Look** (Theme & colors, Fonts & Tooltips), **Alerts** and **Help**. Every page has a title and a line about what it is for, and its settings in two columns with (?) help. Every setting from before is kept; the window remembers the last page.
+- **Eleven themes**, the same in every Izumi addon: Forest, Rust, Bone, Copper, Gold, Garnet, Fuchsia, Silver, Amethyst, Emerald and Midnight.
+- **Background:** use the theme's own background or your own color, with its own opacity (Look > Theme & colors).
+- **Each window has its own look:** the hover window, the info window and the settings window each have a size (85% - 200%, plus a fine slider); the info window can have its own opacity; the settings window always has its own.
+- **Window font:** the settings, hover and info windows use a Windows font (Tahoma by default) that stays sharp at any size, with the tooltip look on Look > Fonts & Tooltips. A new font loads on reload (the page has a button).
+- **TAB no longer jumps into IzClock's text fields** (the settings search box, piece labels, the separator): nothing in IzClock's windows takes keyboard focus from TAB.

@@ -22,6 +22,7 @@
 require('common');
 local imgui = require('imgui');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local data = require('core.data');
 local tracker = require('core.tracker');
 
@@ -188,13 +189,19 @@ local function tooltip_stat(cfg, stat, mode, total_ref, title, title_color)
     end
 end
 
+-- 1.1.0: a window's background (its own opacity when it has one).
+local function look_bg(look)
+    if look ~= nil and look.own_alpha then return theme.background(tonumber(look.alpha) or 0.97); end
+    return theme.background();
+end
+
 function detail.tooltip(cfg, row, mode)
     if cfg.tooltip and cfg.tooltip.show == false then return; end
     local a = row.a;
     if a == nil then return; end
     local size = tonumber(cfg.tooltip and cfg.tooltip.size) or 14;
     theme.push(nil, size / 14, { border = true });
-    imgui.PushFont(nil, size);
+    uifont.push(size / 14);
     local ok, err = pcall(function()
         imgui.BeginTooltip();
         local k = size / 14;
@@ -266,7 +273,7 @@ function detail.tooltip(cfg, row, mode)
         imgui.TextColored(theme.with_alpha(theme.UI_MUTED, 0.7), 'Click for the full details.');
         imgui.EndTooltip();
     end);
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
     if not ok then error(err); end
 end
@@ -633,9 +640,9 @@ function detail.draw(cfg, ctx, job_color_fn)
         imgui.SetNextWindowSize({ w, h });
         detail.placed = true;
     end
-    theme.push(nil, k, { border = true });
-    imgui.PushFont(nil, size);
-    local flags = bit.bor(ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0);
+    theme.push(look_bg(cfg.look and cfg.look.detail), k, { border = true });
+    uifont.push(k);
+    local flags = bit.bor(ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0, ImGuiWindowFlags_NoNav or 0);
     local st = tracker.store();
     local a = detail.sid and st.actors[detail.sid] or nil;
     local title = 'WhatsMyDamage - ' .. (a and tostring(a.name) or 'Details');
@@ -716,7 +723,7 @@ function detail.draw(cfg, ctx, job_color_fn)
         end
     end
     imgui.End();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
     if not detail.open_flag[1] then detail.placed = false; end
 end

@@ -1,6 +1,6 @@
 # WhatsMyDamage (WMD)
 
-**Version:** 1.0.1
+**Version:** 1.1.0
 **Platform:** Ashita v4 / HorizonXI
 **Author:** Izumi (ShiroIzumi)
 
@@ -103,11 +103,11 @@ Click the speech-bubble icon or type `/wmd report` to open the report window:
 
 ## Settings
 
-Open them with `/wmd config`, the gear icon, or a right-click on a meter. A **search box** at the top finds any setting by name, and the pages are grouped in the sidebar. Hover any **(?)** for an explanation. Settings are saved per character.
+Open them with `/wmd config`, the gear icon, or a right-click on a meter. A **search box** at the top finds any setting by name or help text, the theme swatches at the top right switch the theme in one click, and the pages are grouped in the sidebar. Hover any **(?)** for an explanation. Settings are saved per character, and the window opens on the last page you used.
 
 ![The General settings page](screenshots/settings-general.png)
 
-### Setup → General
+### General → General
 Who is counted, and how.
 - **Tracking:**
   - Count the alliance too.
@@ -119,32 +119,44 @@ Who is counted, and how.
   - **Outline my row:** a thin frame around your own bar.
 - **Showing:** hide the meters during cutscenes, and lock the windows so they can't be moved, snapped or resized.
 - **Test mode:** start or stop a made-up party, to try out the look.
-- **Data:** clear all data (same as the Reset icon).
+- **Data:** clear all data (click twice, same as the Reset icon).
 
-### Setup → Windows
-Up to three meters.
+### Windows → Meters
+Up to three meters, their look and header.
 - **For each window:**
   - Show or hide it, and choose what it shows (Damage, Healing or Taken).
   - **Size:** Grow, or Fixed rows with mouse-wheel scrolling.
   - **For Fixed:** the number of rows.
   - **For Grow:** the grow direction (Down or Up) and the most rows it can grow to.
   - Its width, and Unsnap when it's part of a group.
-- **Snapping:** how close a window has to be dropped to snap, the gap between snapped windows, and whether stacked windows share one width.
-
-### Look → Window look
-The meter windows and the settings window.
-- **Meter:**
+- **Snapping:** how close a window has to be dropped to snap, the gap between snapped windows, whether stacked windows share one width, and Stack all / Unsnap all / Reset positions.
+- **Look:**
   - Meter size: 85% to 200%, so it scales up for 4K screens.
   - Background color and opacity.
   - Border on / off, and its color.
   - Corner rounding and padding.
 - **Header:**
   - Show or hide the title bar. Without it, right-click a meter for the settings.
-  - Its height and opacity.
+  - Its height, color and opacity.
   - The accent line under it, like Details!.
-- **Settings window:**
-  - Theme: Silver, Gold, Emerald, Midnight, Amethyst or Fuchsia.
-  - Settings size, which also sizes the report window.
+
+### Windows → Details & hover
+- **Details window:** its size (also the - / + on the window), its own opacity, and a button that opens it.
+- **Hover breakdown:** on or off, and its size. It is a tooltip, so its background and border follow Look > Fonts & Tooltips.
+
+### Windows → Report window
+- Its size and own opacity, and buttons that open it for each mode.
+
+### Windows → New party
+- The size and own opacity of the "reset the meters?" window, and a button that shows it.
+
+### Windows → Settings window
+- This window's size and its own opacity, and a reset for its size and position.
+
+### Look → Theme & colors
+- **Theme:** Forest, Rust, Bone, Copper, Gold, Garnet, Fuchsia, Silver (the default), Amethyst, Emerald or Midnight. It colors the settings, details, report and new party windows, and the accent line on the meters.
+- **Background:** use the theme's own background or your own color, and the opacity of the details, report and new party windows (unless one has its own).
+- **Stat colors:** Good, Bad / deaths, Warning and Muted text, with a button back to the defaults.
 - **Mouse pointer:** FFXI hides the mouse, so WMD can draw one over its windows. Choose its size and color.
 
 ### Look → Bars
@@ -166,12 +178,15 @@ Fonts for the meters. Every Windows font WMD finds is listed; Bahnschrift is the
 - **Numbers & names:**
   - Number style: `12,345` or `12.3K`.
   - Names in the font color or in the player's job color.
-- **Hover & details:** turn the hover breakdown on or off, its text size, and the details window text size.
 
 ### Look → Job colors
 - A color for every job, all changeable. Each one has an **x** that sets it back to the default.
 - A color for separate pet bars.
 - A button that resets all job colors at once.
+
+### Look → Fonts & Tooltips
+- The font of the settings, details, report and new party windows and of the hover breakdown (Tahoma by default), and its text size. A new font loads on reload; the page has a button for it.
+- How tooltips look: font, size, width, padding, border, text and background color.
 
 ### Chat → Report
 Defaults for the report window.
@@ -196,6 +211,15 @@ Defaults for the report window.
 - Settings are saved per character in Ashita's `config` folder.
 
 ## Changelog
+
+### 1.1.0
+- **New settings window, the same layout as MobHunt, IzClock and ScrollingCombatLog:** the theme swatches at the top, "WhatsMyDamage / Page" titles, settings in two columns with (?) help, and a sidebar grouped into **General**, **Windows** (Meters, Details & hover, Report window, New party, Settings window), **Look** (Theme & colors, Bars, Text, Job colors, Fonts & Tooltips), **Chat** and **Help**. Every setting from before is kept; the window remembers the last page.
+- **Eleven themes**, the same in every Izumi addon: Forest, Rust, Bone, Copper and Garnet join Silver, Gold, Emerald, Midnight, Amethyst and Fuchsia.
+- **Background:** use the theme's own background or your own color, with its own opacity (Look > Theme & colors). **Stat colors** (Good, Bad, Warning, Muted) can be changed.
+- **Each window has its own look:** the details, report and new party windows each have a size and an optional own opacity; the settings window has its own size and opacity. The report and new party windows start at the settings window's old size.
+- **Window font:** the settings, details, report and new party windows and the hover breakdown use a Windows font (Tahoma by default) that stays sharp at any size, with the tooltip look on Look > Fonts & Tooltips. The meters keep their own fonts (Look > Text).
+- **Clear all data** in the settings now takes two clicks, like the Reset icon.
+- **TAB no longer jumps into WMD's text fields** (the settings search box): nothing in WMD's windows takes keyboard focus from TAB.
 
 ### 1.0.1
 - New bar style **Rounded**: the Gradient colors with softly rounded corners, less round than Pill. It replaces Striped; if you used Striped, you now get Rounded.

@@ -2,21 +2,27 @@
     WhatsMyDamage - ui/config.lua
 
     The settings window (/wmd config, the gear icon, or right-click a
-    meter). Same layout as Triage: a search box at the top finds any
-    setting by name, a sidebar on the left groups the pages:
+    meter). 1.1.0: built on cfgui.lua, the same settings kit as MobHunt,
+    IzClock and ScrollingCombatLog (MogSuite's layout): a search box at the
+    top finds any setting by name or help text, "Saved per character" and
+    the theme swatches on the same line, and a sidebar of pages:
 
-      SETUP    General, Windows
-      LOOK     Window look, Bars, Text, Job colors
-      CHAT     Report
-      HELP     Commands
+      GENERAL   General
+      WINDOWS   Meters, Details & hover, Report window, New party,
+                Settings window
+      LOOK      Theme & colors, Bars, Text, Job colors, Fonts & Tooltips
+      CHAT      Report
+      HELP      Commands
 
-    Every page starts with a title and one line saying what it is for.
-    Options that only matter when another one is on sit indented under it.
-    Changes are saved shortly after (per character).
+    Every page starts with "WhatsMyDamage  /  Page" and one line saying what
+    it is for. Options that only matter when another one is on sit indented
+    under it. Changes are saved shortly after (per character).
 ]]
 
 require('common');
 local imgui = require('imgui');
+local ui = require('cfgui');
+local uifont = require('uifont');
 local theme = require('core.theme');
 local data = require('core.data');
 local fonts = require('core.fonts');
@@ -28,11 +34,10 @@ local newparty = require('ui.newparty');
 
 local config = {
     open = { false },
-    page = 'general',
     placed = false,
-    search = { '' },
     message = nil,
     message_time = 0,
+    armed = {},
 };
 
 local CFG, CTX = nil, nil;
@@ -45,146 +50,41 @@ local function say(text)
 end
 
 -- ============================================================================
--- Search (same as Triage)
+-- Kit adapter and small wrappers (same argument order as before)
 -- ============================================================================
 
-local S = { q = '', page = nil, page_match = false, page_drawn = false, sec = nil, sec_match = false, sec_drawn = false, hits = 0 };
+ui.theme = {
+    text = theme.UI_TEXT,
+    muted = theme.UI_MUTED,
+    accent = theme.UI_ACCENT,
+    accent_text = theme.UI_ACCENT_TEXT,
+    control = theme.UI_CONTROL,
+    danger = theme.UI_DANGER,
+    section_header = theme.section_header,
+    help_marker = theme.help_marker,
+    tip = theme.tip,
+    toggle_button = theme.toggle_button,
+    align_label = theme.align_label,
+};
 
-local function searching() return S.q ~= ''; end
+local function sc() return ui.scale or 1; end
+local searching = ui.searching;
+local want = ui.want;
+local sub = ui.sub;
+local section = ui.section;
+local label = ui.label;
 
-local function matches(text)
-    return text ~= nil and tostring(text):lower():find(S.q, 1, true) ~= nil;
-end
+local function check(text, tbl, key, tip) return ui.check(text, tbl, key, tip); end
+local function slider_f(text, tbl, key, lo, hi, fmt, tip, opts) return ui.slider_f(text, tbl, key, lo, hi, fmt, tip, opts); end
+local function slider_i(text, tbl, key, lo, hi, fmt, tip) return ui.slider_i(text, tbl, key, lo, hi, fmt, tip); end
+local function choice(text, tbl, key, options, tip) return ui.choice(text, tbl, key, options, tip); end
+local function action(text, id, tip) return ui.button(text, id, tip); end
 
-local function page_title(title, desc)
-    imgui.TextColored(theme.UI_ACCENT_TEXT, title);
-    if desc ~= nil and desc ~= '' and not searching() then
-        imgui.PushTextWrapPos(0);
-        imgui.TextColored(theme.UI_MUTED, desc);
-        imgui.PopTextWrapPos();
-    end
-    imgui.PushStyleColor(ImGuiCol_Separator, theme.accent(0.45));
-    imgui.Separator();
-    imgui.PopStyleColor(1);
-end
-
-local function page(title, desc)
-    S.page, S.page_match, S.page_drawn = title, searching() and matches(title), false;
-    S.sec, S.sec_match, S.sec_drawn = nil, false, false;
-    if not searching() then page_title(title, desc); end
-end
-
-local function section(title)
-    S.sec, S.sec_match, S.sec_drawn = title, searching() and matches(title), false;
-    if not searching() then theme.section_header(title); end
-end
-
-local function want(text, tip)
-    if not searching() then return true; end
-    local ok = S.page_match or S.sec_match or matches(text) or matches(tip);
-    if not ok then return false; end
-    if not S.page_drawn then
-        if S.hits > 0 then imgui.Spacing(); imgui.Spacing(); end
-        page_title(S.page or '', nil);
-        S.page_drawn = true;
-    end
-    if not S.sec_drawn and S.sec ~= nil then
-        theme.section_header(S.sec);
-        S.sec_drawn = true;
-    end
-    S.hits = S.hits + 1;
-    return true;
-end
-
--- ============================================================================
--- Widgets bound to settings
--- ============================================================================
-
-local LABEL_W = 190;
-local SLIDER_W = 220;
-
-local function sc() return tonumber(CFG.config_scale) or 1; end
-
-local function sub(fn)
-    imgui.Indent(18 * sc());
-    fn();
-    imgui.Unindent(18 * sc());
-end
-
-local function label(text, tip)
-    theme.align_label();
-    imgui.TextColored(theme.UI_MUTED, (tostring(text):gsub('##.*$', '')));
-    if tip then theme.tip(tip); end
-    imgui.SameLine();
-    imgui.SetCursorPosX(LABEL_W * sc());
-end
-
-local function check(text, tbl, key, tip)
-    if not want(text, tip) then return false; end
-    local v = { tbl[key] == true };
-    local changed = false;
-    if imgui.Checkbox(text .. '##wmdc_' .. tostring(tbl) .. key, v) then
-        tbl[key] = v[1];
-        dirty();
-        changed = true;
-    end
-    if tip then theme.help_marker(tip); end
-    return changed;
-end
-
-local function slider_f(text, tbl, key, lo, hi, fmt, tip)
-    if not want(text, tip) then return; end
-    label(text, tip);
-    imgui.PushItemWidth(SLIDER_W * sc());
-    local v = { tonumber(tbl[key]) or lo };
-    if imgui.SliderFloat('##wmds_' .. tostring(tbl) .. key, v, lo, hi, fmt or '%.2f') then
-        tbl[key] = math.max(lo, math.min(hi, v[1]));
-        dirty();
-    end
-    imgui.PopItemWidth();
-end
-
-local function slider_i(text, tbl, key, lo, hi, fmt, tip)
-    if not want(text, tip) then return; end
-    label(text, tip);
-    imgui.PushItemWidth(SLIDER_W * sc());
-    local v = { math.floor(tonumber(tbl[key]) or lo) };
-    if imgui.SliderInt('##wmdi_' .. tostring(tbl) .. key, v, lo, hi, fmt or '%d') then
-        tbl[key] = math.max(lo, math.min(hi, math.floor(v[1])));
-        dirty();
-    end
-    imgui.PopItemWidth();
-end
-
+-- Colors are edited in place (other code keeps references to the tables).
 local function color(text, tbl, key, tip, no_alpha)
-    if not want(text, tip) then return; end
-    label(text, tip);
-    local c = tbl[key] or { 1, 1, 1, 1 };
-    local v = { c[1], c[2], c[3], c[4] or 1 };
-    local fl = ImGuiColorEditFlags_NoInputs or 0;
-    if no_alpha then fl = bit.bor(fl, ImGuiColorEditFlags_NoAlpha or 0); end
-    if imgui.ColorEdit4('##wmdcol_' .. tostring(tbl) .. key, v, fl) then
-        tbl[key] = { v[1], v[2], v[3], v[4] };
-        dirty();
-    end
-end
-
-local function choice(text, tbl, key, options, tip)
-    if not want(text, tip) then return; end
-    label(text, tip);
-    local new = theme.choice('wmdch_' .. tostring(tbl) .. key, tbl[key], options);
-    if new ~= tbl[key] then
-        tbl[key] = new;
-        dirty();
-    end
-end
-
-local function action(text, id, tip)
-    if not want(text, tip) then return false; end
-    imgui.SetCursorPosX(LABEL_W * sc());
-    local clicked = imgui.Button(text .. '##' .. id);
-    if tip then theme.tip(tip); end
-    return clicked;
+    if tbl[key] == nil then tbl[key] = { 1, 1, 1, 1 }; end
+    if tbl[key][4] == nil then tbl[key][4] = 1; end
+    return ui.color(text, tbl[key], tip, not no_alpha);
 end
 
 -- ============================================================================
@@ -219,22 +119,31 @@ local ICON_SETS = {
     { key = 'FFXIV-1', label = 'FFXIV' },
     { key = 'badge', label = 'Letters', tip = 'A small colored badge with the job\'s letters (no XIUI needed).' },
 };
-local SCALES = { 0.85, 1.00, 1.25, 1.50, 1.75, 2.00 };
 local NEW_PARTY = {
     { key = 'ask', label = 'Ask', tip = 'Ask whether to reset the meters.' },
     { key = 'reset', label = 'Reset', tip = 'Reset the meters without asking.' },
     { key = 'keep', label = 'Keep', tip = 'Keep counting; never ask.' },
 };
 
-local function scale_presets(text, tbl, key, tip)
-    if not want(text, tip) then return; end
-    label(text, tip);
-    for i, v in ipairs(SCALES) do
-        if i > 1 then imgui.SameLine(0, 4); end
-        if theme.toggle_button(('%d%%'):format(v * 100), 'wmdsc_' .. key .. i, math.abs((tonumber(tbl[key]) or 1) - v) < 0.01) then
-            tbl[key] = v;
-            dirty();
-        end
+-- ============================================================================
+-- Shared "look" blocks for one window: size and its own opacity.
+-- ============================================================================
+
+local function own_opacity(look, what)
+    check('Own opacity', look, 'own_alpha', 'Off: the ' .. what .. ' uses the background opacity from Look > Theme & colors. On: set it here.');
+    if look.own_alpha or searching() then
+        sub(function()
+            slider_f('Opacity##' .. what, look, 'alpha', 0, 100, '%.0f%%', 'How see-through the background of the ' .. what .. ' is. Text stays solid.', { mul = 100 });
+        end);
+    end
+end
+
+-- Size presets for a window whose size is kept as a text size in px
+-- (14 px = 100%).
+local function px_size_presets(text, tbl, key, tip)
+    local proxy = { v = (tonumber(tbl[key]) or 14) / 14 };
+    if ui.scale_presets(text, proxy, 'v', tip) then
+        tbl[key] = math.max(10, math.min(28, math.floor(proxy.v * 14 + 0.5)));
     end
 end
 
@@ -243,7 +152,6 @@ end
 -- ============================================================================
 
 local function page_general()
-    page('General', 'Who is counted and how. WhatsMyDamage only reads the combat the game already shows you; it never sends anything except a report you ask for.');
     section('TRACKING');
     check('Count the alliance too', CFG, 'alliance', 'Off: only your party (and you when solo). On: all three parties of the alliance.');
     check('Pets combined with their owner', CFG, 'combine_pets', 'On: a pet\'s numbers are added to its owner\'s bar (the hover and details windows still list the pet on its own). Off: pets get their own bars.');
@@ -258,7 +166,7 @@ local function page_general()
 
     section('SHOWING');
     check('Hide during cutscenes', CFG, 'hide_events', 'Hides the meters while a cutscene plays or the game interface is hidden.');
-    check('Lock windows', CFG, 'lock', 'Stops moving, snapping and resizing.');
+    check('Lock windows', CFG, 'lock', 'Stops moving, snapping and resizing of the meters.');
 
     section('TEST MODE');
     if want('Test mode', 'A made-up party that keeps fighting, to try out the look.') then
@@ -272,15 +180,9 @@ local function page_general()
     end
 
     section('DATA');
-    if want('Clear all data', 'Same as the Reset icon on a meter.') then
-        label('Clear all data', 'Same as the Reset icon on a meter.');
-        imgui.PushStyleColor(ImGuiCol_Button, { 0.45, 0.12, 0.12, 1 });
-        imgui.PushStyleColor(ImGuiCol_ButtonHovered, { 0.60, 0.16, 0.16, 1 });
-        if imgui.Button('Clear now##wmd_clear') then
-            tracker.reset();
-            say('All data cleared.');
-        end
-        imgui.PopStyleColor(2);
+    if ui.danger('Clear all data', 'wmd_clear', config.armed, 'Same as the Reset icon on a meter. Click twice.') then
+        tracker.reset();
+        say('All data cleared.');
     end
 end
 
@@ -305,7 +207,7 @@ local function window_block(i)
         end
         slider_i('Width', w, 'w', 140, 800, '%d px', 'Also: drag the bottom-right corner of the window.');
         if (tonumber(w.snap_to) or 0) > 0 and want('Unsnap', 'Pulls this window out of its group (Ctrl + drag does this too).') then
-            imgui.SetCursorPosX(LABEL_W * sc());
+            imgui.SetCursorPosX(ui.LABEL_W * sc());
             imgui.TextColored(theme.UI_GOOD, ('Snapped %s window %d'):format(w.snap_side == 'below' and 'under' or (w.snap_side == 'above' and 'over' or ('to the ' .. tostring(w.snap_side) .. ' of')), w.snap_to));
             imgui.SameLine();
             if imgui.SmallButton('Unsnap##wmd_unsnap' .. i) then
@@ -316,8 +218,7 @@ local function window_block(i)
     end);
 end
 
-local function page_windows()
-    page('Windows', 'Up to three meters. Drag one by its header to move it; drop it next to another one and they snap together and move as one. Ctrl + drag (or the chain icon) pulls it out again.');
+local function page_meters()
     for i = 1, 3 do window_block(i); end
 
     section('SNAPPING');
@@ -328,24 +229,23 @@ local function page_windows()
         CTX.stack();
         say('Windows stacked under window 1.');
     end
-    imgui.SameLine();
-    if imgui.Button('Unsnap all##wmd_unsnap_all') then
-        for i = 1, 3 do CTX.unsnap(i); end
-        say('All windows unsnapped.');
+    if not searching() then
+        imgui.SameLine();
+        if imgui.Button('Unsnap all##wmd_unsnap_all') then
+            for i = 1, 3 do CTX.unsnap(i); end
+            say('All windows unsnapped.');
+        end
+        imgui.SameLine();
+        if imgui.Button('Reset positions##wmd_resetpos') then
+            CTX.reset_positions();
+            say('Windows moved back to the default place.');
+        end
     end
-    imgui.SameLine();
-    if imgui.Button('Reset positions##wmd_resetpos') then
-        CTX.reset_positions();
-        say('Windows moved back to the default place.');
-    end
-end
 
-local function page_look()
-    page('Window look', 'The meter windows\' background, border and header, and this settings window.');
-    section('METER');
-    scale_presets('Meter size', CFG, 'scale', 'Scales the bars, header, icons and text of the meters.');
-    color('Background', CFG, 'bg', nil, true);
-    slider_f('Background opacity', CFG, 'bg_alpha', 0, 1, '%.2f', '0 = see-through.');
+    section('LOOK');
+    ui.scale_presets('Meter size', CFG, 'scale', 'Scales the bars, header, icons and text of the meters.');
+    color('Background', CFG, 'bg', 'The meters\' own background color (they don\'t use the theme background).', true);
+    slider_f('Background opacity', CFG, 'bg_alpha', 0, 100, '%.0f%%', '0 = see-through.', { mul = 100 });
     check('Border', CFG, 'border');
     if CFG.border or searching() then sub(function() color('Border color', CFG, 'border_color'); end); end
     slider_f('Corner rounding', CFG, 'rounding', 0, 12, '%.0f px');
@@ -357,23 +257,122 @@ local function page_look()
         sub(function()
             slider_i('Header height', CFG.header, 'height', 16, 40, '%d px');
             color('Header color', CFG.header, 'bg', nil, true);
-            slider_f('Header opacity', CFG.header, 'bg_alpha', 0, 1, '%.2f');
+            slider_f('Header opacity', CFG.header, 'bg_alpha', 0, 100, '%.0f%%', nil, { mul = 100 });
             check('Accent line under the header', CFG.header, 'accent_line', 'A thin line in the theme color, like Details.');
         end);
     end
+end
 
-    section('SETTINGS WINDOW');
-    if want('Theme', 'Colors of the settings, details and report windows (and the accent line on the meters).') then
-        label('Theme', 'Colors of the settings, details and report windows (and the accent line on the meters).');
-        for i, key in ipairs(theme.ORDER) do
-            if i > 1 then imgui.SameLine(0, 4); end
-            if theme.toggle_button(theme.THEMES[key].label, 'wmd_th_' .. key, theme.key(CFG.config_theme) == key) then
-                CFG.config_theme = key;
-                dirty();
+local function page_details()
+    section('DETAILS WINDOW');
+    px_size_presets('Size', CFG.detail, 'size', 'Text and spacing of the details window. The - / + on the window change it too.');
+    slider_i('Text size', CFG.detail, 'size', 10, 24, '%d px', 'The same setting as Size, in pixels.');
+    own_opacity(CFG.look.detail, 'details window');
+    if action('Open the details window', 'wmd_open_detail', 'Same as clicking a bar.') then CTX.open_detail(); end
+
+    section('HOVER BREAKDOWN');
+    check('Show the breakdown on hover', CFG.tooltip, 'show', 'Hovering a bar shows every source, accuracy, pets and deaths.');
+    if CFG.tooltip.show or searching() then
+        sub(function()
+            px_size_presets('Hover size', CFG.tooltip, 'size', 'Text and spacing of the hover breakdown.');
+            slider_i('Hover text size', CFG.tooltip, 'size', 10, 24, '%d px');
+        end);
+        ui.info('The hover breakdown is a tooltip: its background, border and padding are set on Look > Fonts & Tooltips.');
+    end
+end
+
+local function page_report_window()
+    section('WINDOW');
+    ui.scale_presets('Size', CFG.look.report, 'scale', 'Text and spacing of the report window.');
+    own_opacity(CFG.look.report, 'report window');
+    if want('Open the report window', 'report send') then
+        imgui.SetCursorPosX(ui.LABEL_W * sc());
+        for _, m in ipairs(data.MODES) do
+            if imgui.Button(m.label .. '##wmd_rep_win_' .. m.key) then report.open(m.key); end
+            imgui.SameLine();
+        end
+        imgui.NewLine();
+    end
+    ui.info('What the report posts is on the Chat > Report page.');
+end
+
+local function page_newparty_window()
+    section('WINDOW');
+    ui.scale_presets('Size', CFG.look.newparty, 'scale', 'Text and spacing of the "reset the meters?" window.');
+    own_opacity(CFG.look.newparty, 'new party window');
+    if action('Show the question', 'wmd_np_test2', 'Shows the "reset the meters?" window so you can see it.') then newparty.test(); end
+    ui.info('When it is asked (Ask, Reset or Keep) is on the General page.');
+end
+
+local function page_settings_window()
+    section('WINDOW');
+    ui.scale_presets('Settings size', CFG, 'config_scale', 'Size of this window.');
+    slider_f('Opacity', CFG.look.config, 'alpha', 10, 100, '%.0f%%', 'How see-through this settings window is. It has its own opacity, separate from the other windows.', { mul = 100 });
+    if action('Reset size and position', 'wmd_cfg_reset', 'Puts this window back in its starting place and size.') then
+        CFG.config_pos = { x = -1, y = -1, w = -1, h = -1 };
+        config.placed = false;
+        dirty();
+    end
+end
+
+local function theme_buttons()
+    if not want('Theme', 'Colors of the settings, details, report and new party windows (and the accent line on the meters). Forest Rust Bone Copper Gold Garnet Fuchsia Silver Amethyst Emerald Midnight') then return; end
+    label('Theme', 'Colors of the settings, details, report and new party windows (and the accent line on the meters).');
+    local s = sc();
+    local col_x = ui.LABEL_W * s;
+    local avail = imgui.GetContentRegionAvail();
+    if type(avail) == 'table' then avail = avail.x or avail[1]; end
+    local right = col_x + (tonumber(avail) or 500);
+    local chip = 9 * s;
+    local current = theme.key(CFG.config_theme);
+    for i, key in ipairs(theme.ORDER) do
+        local th = theme.THEMES[key];
+        local text = '      ' .. th.label;
+        local bw = (tonumber((imgui.CalcTextSize(text))) or 60) + 16 * s;
+        if i > 1 then
+            imgui.SameLine(0, 4);
+            if imgui.GetCursorPosX() + bw > right then
+                imgui.NewLine();
+                imgui.SetCursorPosX(col_x);
             end
         end
+        if theme.toggle_button(text, 'wmd_th_' .. key, key == current) then
+            CFG.config_theme = key;
+            dirty();
+        end
+        pcall(function()
+            local x1, y1 = imgui.GetItemRectMin();
+            local _, y2 = imgui.GetItemRectMax();
+            x1, y1, y2 = tonumber(x1), tonumber(y1), tonumber(y2);
+            local cy = (y1 + y2) / 2;
+            local a = th.accent;
+            imgui.GetWindowDrawList():AddRectFilled({ x1 + 8 * s, cy - chip / 2 }, { x1 + 8 * s + chip, cy + chip / 2 },
+                imgui.GetColorU32({ a[1] / 255, a[2] / 255, a[3] / 255, 1 }), 2);
+        end);
     end
-    scale_presets('Settings size', CFG, 'config_scale', 'Size of this window and the report window.');
+    imgui.Dummy({ 1, 4 * s });
+end
+
+local function page_theme()
+    section('THEME');
+    theme_buttons();
+
+    section('BACKGROUND');
+    check("Use the theme's background", CFG.ui_bg, 'use_theme', 'Each theme has its own dark background (Midnight is deep navy). Off: pick your own color below. The meters keep their own background (Windows > Meters).');
+    if not CFG.ui_bg.use_theme or searching() then
+        sub(function() color('Background color', CFG.ui_bg, 'color', 'The background of the details, report and new party windows.', true); end);
+    end
+    slider_f('Opacity', CFG.ui_bg, 'alpha', 10, 100, '%.0f%%', 'How see-through the details, report and new party windows are (unless one has its own opacity on its page).', { mul = 100 });
+
+    section('STAT COLORS');
+    color('Good', CFG.colors, 'good', 'Kills, accuracy and other good numbers in the hover and details windows.', true);
+    color('Bad / deaths', CFG.colors, 'bad', 'Deaths and other bad numbers.', true);
+    color('Warning', CFG.colors, 'warn', 'Magic bursts, test mode and other highlights.', true);
+    color('Muted text', CFG.colors, 'muted', 'Labels, times and other secondary text.', true);
+    if action('Default stat colors', 'wmd_colors_reset') then
+        CTX.reset_colors();
+        say('Stat colors back to the defaults.');
+    end
 
     section('MOUSE POINTER');
     check('Show a pointer over WMD windows', CFG.pointer, 'enabled', 'FFXI hides the mouse; this draws one while it is over a WhatsMyDamage window.');
@@ -424,7 +423,6 @@ local function style_cards()
 end
 
 local function page_bars()
-    page('Bars', 'How each player\'s bar looks. Hover a style to read about it, click to use it.');
     section('STYLE');
     style_cards();
     section('SIZE');
@@ -434,7 +432,7 @@ local function page_bars()
     section('COLOR');
     choice('Bar color', CFG.bars, 'color_by', COLOR_BY, 'Job color: each job has its own color (change them on the Job colors page).');
     if CFG.bars.color_by == 'single' or searching() then sub(function() color('Single color', CFG.bars, 'single'); end); end
-    slider_f('Bar opacity', CFG.bars, 'alpha', 0.1, 1, '%.2f');
+    slider_f('Bar opacity', CFG.bars, 'alpha', 10, 100, '%.0f%%', nil, { mul = 100 });
     color('Empty part of the bar', CFG.bars, 'track', 'The background behind each bar (set its alpha to 0 to hide it).');
     check('Pets in a darker owner color', CFG.bars, 'pet_owner_color', 'Separate pet bars use a darker shade of their owner\'s job color.');
     if not CFG.bars.pet_owner_color or searching() then sub(function() color('Pet bar color', CFG.bars, 'pet_color'); end); end
@@ -447,7 +445,7 @@ local function page_bars()
         sub(function()
             choice('Icon set', CFG.icons, 'set', ICON_SETS, 'Classic / FFXI / FFXIV use the icons that come with XIUI (addons\\XIUI\\assets\\jobs). Letters works without XIUI.');
             if CFG.icons.set ~= 'badge' and not searching() then
-                imgui.SetCursorPosX(LABEL_W * sc());
+                imgui.SetCursorPosX(ui.LABEL_W * sc());
                 if icons.job('WAR', CFG.icons.set) == nil then
                     imgui.TextColored(theme.UI_WARN, 'XIUI icons not found - letters are used instead.');
                 else
@@ -463,7 +461,7 @@ local function font_block(title, st, sample, tipx)
     section(title);
     if want('Font ' .. title, tipx) then
         label('Font', tipx);
-        imgui.PushItemWidth(SLIDER_W * sc());
+        imgui.PushItemWidth(ui.SLIDER_W * sc());
         if imgui.BeginCombo('##wmd_font_' .. title, fonts.label(st.family)) then
             for _, f in ipairs(fonts.available()) do
                 if imgui.Selectable(f.label .. '##wmdf_' .. title .. f.key, st.family == f.key) then
@@ -483,7 +481,7 @@ local function font_block(title, st, sample, tipx)
     if st.shadow or searching() then
         sub(function()
             slider_f('Shadow distance##' .. title, st, 'shadow_offset', 0.5, 4, '%.1f px');
-            slider_f('Shadow strength##' .. title, st, 'shadow_alpha', 0, 1, '%.2f');
+            slider_f('Shadow strength##' .. title, st, 'shadow_alpha', 0, 100, '%.0f%%', nil, { mul = 100 });
         end);
     end
     if not searching() then
@@ -494,7 +492,7 @@ local function font_block(title, st, sample, tipx)
         local h = math.max(22 * k, (tonumber(st.size) or 14) + 8);
         local w = 360 * k;
         local dl = imgui.GetWindowDrawList();
-        x = x + LABEL_W * k;
+        x = x + ui.LABEL_W * k;
         styles.draw(dl, CFG.bars.style, x, y, x + w, y + h, 0.8, CFG.job_colors.RNG or data.JOB_COLORS.RNG, { alpha = CFG.bars.alpha, track = CFG.bars.track });
         fonts.text(dl, x + 6, y + (h - (tonumber(st.size) or 14)) / 2 - 1, sample, st);
         imgui.Dummy({ w, h + 4 * k });
@@ -502,29 +500,23 @@ local function font_block(title, st, sample, tipx)
 end
 
 local function page_text()
-    page('Text', 'Fonts for the meters. Every Windows font that WhatsMyDamage found is in the lists; Bahnschrift is the closest to the Details! look.');
     font_block('NAMES', CFG.fonts.name, '1. Izumi', 'The "1. Name" on the left of each bar.');
     font_block('NUMBERS', CFG.fonts.value, '12,345 (35.2%)', 'The amount and share on the right of each bar.');
     font_block('TITLE', CFG.fonts.title, 'Damage Done', 'The window title in the header.');
     section('NUMBERS & NAMES');
     choice('Number style', CFG, 'numbers', NUMBERS, '12,345 or short numbers like 12.3K / 1.25M.');
     choice('Name color', CFG, 'name_color', NAME_COLOR, 'Names in the font color, or in the player\'s job color.');
-    section('HOVER & DETAILS');
-    check('Show the breakdown on hover', CFG.tooltip, 'show', 'Hovering a bar shows every source, accuracy, pets and deaths.');
-    if CFG.tooltip.show or searching() then sub(function() slider_i('Hover text size', CFG.tooltip, 'size', 10, 24, '%d px'); end); end
-    slider_i('Details window text size', CFG.detail, 'size', 10, 24, '%d px', 'Also on the details window itself.');
-    if action('Open the details window', 'wmd_open_detail', 'Same as clicking a bar.') then CTX.open_detail(); end
+    ui.info('The hover breakdown and details window text sizes are on Windows > Details & hover. The font of the settings, details, report and new party windows is on Look > Fonts & Tooltips.');
 end
 
 local function page_jobs()
-    page('Job colors', 'The bar color for each job (when Bar color is "Job color"). Every job starts with its own color.');
     section('JOBS');
     local k = sc();
     for i, job in ipairs(data.JOBS) do
         if want(job .. ' ' .. (data.JOB_NAMES[job] or ''), nil) then
             local custom = CFG.job_colors[job] ~= nil;
             local c = CFG.job_colors[job] or data.JOB_COLORS[job];
-            if not searching() and (i - 1) % 2 == 1 then imgui.SameLine(LABEL_W * k + 160 * k); end
+            if not searching() and (i - 1) % 2 == 1 then imgui.SameLine(ui.LABEL_W * k + 160 * k); end
             local v = { c[1], c[2], c[3], c[4] or 1 };
             if imgui.ColorEdit4('##wmd_job_' .. job, v, bit.bor(ImGuiColorEditFlags_NoInputs or 0, ImGuiColorEditFlags_NoAlpha or 0)) then
                 CFG.job_colors[job] = { v[1], v[2], v[3], 1 };
@@ -548,8 +540,20 @@ local function page_jobs()
     end
 end
 
+local function page_fonts()
+    uifont.settings_page(CFG.ui_font, {
+        header = function(title) ui.section(title); end,
+        label = function(text_value, help_text) ui.label(text_value, help_text); end,
+        dirty = dirty,
+        want = function(text_value, help_text) return ui.want(text_value, help_text); end,
+        ctrl_w = ui.SLIDER_W * sc(),
+        accent = theme.UI_ACCENT_TEXT,
+        muted = theme.UI_MUTED,
+    });
+    ui.info('This is the font of the settings, details, report and new party windows and of the hover breakdown. The meters have their own fonts on Look > Text.');
+end
+
 local function page_report()
-    page('Report', 'Post the numbers to chat. Lines go out one second apart, and only when you press Send.');
     section('DEFAULTS');
     choice('Channel', CFG.report, 'channel', report.CHANNELS, 'Where Send posts it (Just me = /echo).');
     slider_i('Lines', CFG.report, 'lines', 1, 18, '%d', 'How many players are listed (plus the title line).');
@@ -558,7 +562,7 @@ local function page_report()
     check('Close the report window after Send', CFG.report, 'close_after');
     section('SEND');
     if want('Open the report window', nil) then
-        imgui.SetCursorPosX(LABEL_W * sc());
+        imgui.SetCursorPosX(ui.LABEL_W * sc());
         for _, m in ipairs(data.MODES) do
             if imgui.Button(m.label .. '##wmd_rep_open_' .. m.key) then report.open(m.key); end
             imgui.SameLine();
@@ -583,8 +587,8 @@ local CMDS = {
 };
 
 local function page_commands()
-    page('Commands', 'Type these in chat. /whatsmydamage works as well as /wmd.');
     section('COMMANDS');
+    ui.info('/whatsmydamage works as well as /wmd.');
     for _, c in ipairs(CMDS) do
         if want(c[1], c[2]) then
             imgui.TextColored(theme.UI_ACCENT_TEXT, c[1]);
@@ -592,17 +596,10 @@ local function page_commands()
         end
     end
     section('MOUSE');
-    if want('Mouse', 'drag snap hover click') then
-        imgui.PushTextWrapPos(0);
-        imgui.TextColored(theme.UI_MUTED, 'Hover a bar for the breakdown, click it for the details window. Drag a header to move; drop next to another window to snap (a glowing line shows where). Snapped windows move together. Ctrl + drag pulls one out. Drag the bottom-right corner to change the width. Mouse wheel scrolls a fixed-size window. Right-click a meter for these settings.');
-        imgui.PopTextWrapPos();
-    end
+    ui.info('Hover a bar for the breakdown, click it for the details window. Drag a header to move; drop next to another window to snap (a glowing line shows where). Snapped windows move together. Ctrl + drag pulls one out. Drag the bottom-right corner to change the width. Mouse wheel scrolls a fixed-size window. Right-click a meter for these settings.');
     section('ABOUT');
-    if want('About', 'version') then
-        imgui.PushTextWrapPos(0);
-        imgui.TextColored(theme.UI_MUTED, ('WhatsMyDamage %s by Izumi. Counts what the game shows you (action and defeat messages); the only thing it ever sends is a report you ask for.'):format(tostring(addon and addon.version or '')));
-        imgui.PopTextWrapPos();
-    end
+    ui.value('Version', tostring(addon and addon.version or ''));
+    ui.info('WhatsMyDamage by Izumi. Written for HorizonXI. Counts what the game shows you (action and defeat messages); the only thing it ever sends is a report you ask for.');
 end
 
 -- ============================================================================
@@ -610,93 +607,63 @@ end
 -- ============================================================================
 
 local GROUPS = {
-    { label = 'SETUP', pages = {
-        { key = 'general', label = 'General', draw = page_general },
-        { key = 'windows', label = 'Windows', draw = page_windows },
+    { label = 'GENERAL', pages = {
+        { key = 'general', label = 'General', desc = 'Who is counted and how. WhatsMyDamage only reads the combat the game already shows you; it never sends anything except a report you ask for.', draw = page_general },
+    } },
+    { label = 'WINDOWS', pages = {
+        { key = 'windows', label = 'Meters', desc = 'Up to three meters, their look and header. Drag one by its header to move it; drop it next to another one and they snap together and move as one. Ctrl + drag (or the chain icon) pulls it out again.', draw = page_meters },
+        { key = 'details', label = 'Details & hover', desc = 'The details window (click a bar) and the breakdown you see when you hover a bar.', draw = page_details },
+        { key = 'reportwin', label = 'Report window', desc = 'The window that posts the numbers to chat.', draw = page_report_window },
+        { key = 'newparty', label = 'New party', desc = 'The small "reset the meters?" window when you join a new party.', draw = page_newparty_window },
+        { key = 'settings', label = 'Settings window', desc = 'This window: its size and its own opacity.', draw = page_settings_window },
     } },
     { label = 'LOOK', pages = {
-        { key = 'look', label = 'Window look', draw = page_look },
-        { key = 'bars', label = 'Bars', draw = page_bars },
-        { key = 'text', label = 'Text', draw = page_text },
-        { key = 'jobs', label = 'Job colors', draw = page_jobs },
+        { key = 'look', label = 'Theme & colors', desc = 'The theme, the background of the details / report / new party windows, the stat colors and the mouse pointer.', draw = page_theme },
+        { key = 'bars', label = 'Bars', desc = 'How each player\'s bar looks. Hover a style to read about it, click to use it.', draw = page_bars },
+        { key = 'text', label = 'Text', desc = 'Fonts for the meters. Every Windows font that WhatsMyDamage found is in the lists; Bahnschrift is the closest to the Details! look.', draw = page_text },
+        { key = 'jobs', label = 'Job colors', desc = 'The bar color for each job (when Bar color is "Job color"). Every job starts with its own color.', draw = page_jobs },
+        { key = 'fonts', label = 'Fonts & Tooltips', desc = 'The font of WhatsMyDamage\'s windows (not the meters), and how tooltips look.', draw = page_fonts },
     } },
     { label = 'CHAT', pages = {
-        { key = 'report', label = 'Report', draw = page_report },
+        { key = 'report', label = 'Report', desc = 'Post the numbers to chat. Lines go out one second apart, and only when you press Send.', draw = page_report },
     } },
     { label = 'HELP', pages = {
-        { key = 'commands', label = 'Commands', draw = page_commands },
+        { key = 'commands', label = 'Commands', desc = 'Type these in chat.', draw = page_commands },
     } },
 };
 
-local function find_page(key)
-    for _, g in ipairs(GROUPS) do
-        for _, pg in ipairs(g.pages) do
-            if pg.key == key then return pg; end
-        end
-    end
-    return GROUPS[1].pages[1];
-end
-
-local child_sig = nil;
-local function begin_child(id, size)
-    if child_sig == 1 then return imgui.BeginChild(id, size, ImGuiChildFlags_None or 0); end
-    if child_sig == 2 then return imgui.BeginChild(id, size, false); end
-    if child_sig == 3 then return imgui.BeginChild(id, size); end
-    local ok, r = pcall(imgui.BeginChild, id, size, ImGuiChildFlags_None or 0);
-    if ok then child_sig = 1; return r; end
-    ok, r = pcall(imgui.BeginChild, id, size, false);
-    if ok then child_sig = 2; return r; end
-    child_sig = 3;
-    return imgui.BeginChild(id, size);
-end
-
-local function draw_sidebar(w, h)
-    local s = sc();
-    begin_child('##wmd_cfg_nav', { w, h });
-    pcall(function()
-        local x, y = imgui.GetWindowPos();
-        imgui.GetWindowDrawList():AddRectFilled({ x, y }, { x + w, y + h }, imgui.GetColorU32(theme.with_alpha(theme.UI_CONTROL, 0.55)), 6 * s);
-    end);
-    imgui.Dummy({ 1, 4 * s });
-    local dim = searching();
-    for gi, g in ipairs(GROUPS) do
-        if gi > 1 then imgui.Dummy({ 1, 6 * s }); end
-        imgui.SetCursorPosX(10 * s);
-        imgui.TextColored(theme.with_alpha(theme.UI_MUTED, dim and 0.5 or 0.9), g.label);
-        for _, pg in ipairs(g.pages) do
-            local on = (config.page == pg.key) and not dim;
-            imgui.SetCursorPosX(6 * s);
-            imgui.PushStyleColor(ImGuiCol_Text, on and theme.UI_ACCENT_TEXT or theme.with_alpha(theme.UI_TEXT, dim and 0.5 or 1));
-            imgui.PushStyleColor(ImGuiCol_Header, theme.accent(0.22));
-            imgui.PushStyleColor(ImGuiCol_HeaderHovered, theme.accent(0.16));
-            if imgui.Selectable('   ' .. pg.label .. '##wmd_nav_' .. pg.key, on, 0, { w - 12 * s, 0 }) then
-                config.page = pg.key;
-                config.search[1] = '';
-            end
-            imgui.PopStyleColor(3);
-            if on then
-                pcall(function()
-                    local x1, y1 = imgui.GetItemRectMin();
-                    local _, y2 = imgui.GetItemRectMax();
-                    imgui.GetWindowDrawList():AddRectFilled({ x1, y1 + 2 * s }, { x1 + 3 * s, y2 - 2 * s }, imgui.GetColorU32(theme.UI_ACCENT), 1);
-                end);
-            end
-        end
-    end
-    imgui.EndChild();
-end
+local UI_CTX = {
+    id = 'wmd',
+    title = 'WhatsMyDamage',
+    groups = GROUPS,
+    page = function() return CFG.config_page or 'general'; end,
+    set_page = function(key) CFG.config_page = key; dirty(); end,
+    dirty = function() dirty(); end,
+    themes = {
+        order = theme.ORDER,
+        list = theme.THEMES,
+        current = function() return theme.key(CFG.config_theme); end,
+        set = function(key) CFG.config_theme = key; dirty(); end,
+    },
+    status = function()
+        if config.message ~= nil and os.clock() - config.message_time < 4 then return config.message, theme.UI_GOOD; end
+        if tracker.test then return 'Test mode is on (made-up numbers)', theme.UI_WARN; end
+        return nil;
+    end,
+};
 
 function config.draw(cfg, ctx)
     if not config.open[1] then return; end
     CFG, CTX = cfg, ctx;
-    local k = sc();
+    local k = tonumber(cfg.config_scale) or 1;
+    ui.scale = k;
     local pos = cfg.config_pos;
     if not config.placed then
         local x, y = tonumber(pos.x) or -1, tonumber(pos.y) or -1;
         if x < 0 or y < 0 then x, y = 160, 120; end
         local w, h = tonumber(pos.w) or -1, tonumber(pos.h) or -1;
         if w <= 0 or h <= 0 then
-            w, h = 790 * k, 660 * k;
+            w, h = 860 * k, 660 * k;
             pcall(function()
                 local dh = tonumber(imgui.GetIO().DisplaySize.y);
                 if dh ~= nil and dh > 300 then h = math.min(h, dh - 100); end
@@ -706,56 +673,13 @@ function config.draw(cfg, ctx)
         imgui.SetNextWindowSize({ w, h });
         config.placed = true;
     end
+    imgui.SetNextWindowSizeConstraints({ 700 * k, 460 * k }, { 4000, 4000 });
 
-    theme.push(nil, k, { border = true });
-    imgui.PushFont(nil, imgui.GetFontSize() * k);
-    local flags = bit.bor(ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0);
+    theme.push(theme.background(tonumber(cfg.look.config.alpha) or 0.97), k, { border = true });
+    uifont.push(k);
+    local flags = bit.bor(ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0, ImGuiWindowFlags_NoNav or 0);
     if imgui.Begin('WhatsMyDamage Settings##wmd_config', config.open, flags) then
-        local ok, err = pcall(function()
-            local nav_w = 160 * k;
-            local avail = imgui.GetContentRegionAvail();
-            local aw, ah;
-            if type(avail) == 'table' then aw, ah = avail.x or avail[1], avail.y or avail[2];
-            else aw, ah = imgui.GetContentRegionAvail(); end
-            aw, ah = tonumber(aw) or 600, tonumber(ah) or 500;
-
-            imgui.PushItemWidth(nav_w);
-            if imgui.InputTextWithHint ~= nil then
-                imgui.InputTextWithHint('##wmd_cfg_search', 'Search settings...', config.search, 64);
-            else
-                imgui.InputText('Search##wmd_cfg_search', config.search, 64);
-            end
-            imgui.PopItemWidth();
-            S.q = tostring(config.search[1] or ''):lower():gsub('^%s+', ''):gsub('%s+$', '');
-            imgui.SameLine();
-            if searching() then
-                if imgui.SmallButton('Clear##wmd_cfg_clear') then config.search[1] = ''; S.q = ''; end
-                imgui.SameLine();
-                imgui.TextColored(theme.UI_MUTED, ('Results for "%s"'):format(S.q));
-            elseif config.message ~= nil and os.clock() - config.message_time < 4 then
-                imgui.TextColored(theme.UI_GOOD, config.message);
-            elseif tracker.test then
-                imgui.TextColored(theme.UI_WARN, 'Test mode is on (made-up numbers)');
-            else
-                imgui.TextColored(theme.UI_MUTED, 'Saved per character');
-            end
-
-            local h = math.max(150, ah - imgui.GetFrameHeightWithSpacing() - 4);
-            draw_sidebar(nav_w, h);
-            imgui.SameLine(0, 10 * k);
-            begin_child('##wmd_cfg_body', { math.max(200, aw - nav_w - 10 * k), h });
-            S.hits = 0;
-            if searching() then
-                for _, g in ipairs(GROUPS) do
-                    for _, pg in ipairs(g.pages) do pg.draw(); end
-                end
-                if S.hits == 0 then imgui.TextColored(theme.UI_MUTED, 'No setting matches that.'); end
-            else
-                find_page(config.page).draw();
-            end
-            imgui.Dummy({ 1, 8 * k });
-            imgui.EndChild();
-        end);
+        local ok, err = pcall(ui.body, UI_CTX);
         if not ok then ctx.error('settings', err); end
 
         if not imgui.IsMouseDown(0) then
@@ -772,7 +696,7 @@ function config.draw(cfg, ctx)
         end
     end
     imgui.End();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
 end
 

@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.7.1
+**Version:** 1.7.2
 **Platform:** Ashita v4 / HorizonXI
 **Author:** Izumi (ShiroIzumi)
 
@@ -138,7 +138,7 @@ Which windows are shown, their frame and their positions.
 - **Look:** its own Size, and its own opacity, separate from every other window.
 
 ### Look → Theme & colors
-- **Theme:** Forest, Rust, Bone, Copper, Garnet, Silver, Amethyst, Emerald or Midnight. It colors the accents, tabs, borders and title bars.
+- **Theme:** Forest, Rust, Bone, Copper, Gold, Garnet, Fuchsia, Silver, Amethyst, Emerald or Midnight. It colors the accents, tabs, borders and title bars.
 - **Background:** use the theme's own background, or pick your own color, and the opacity of the target, History and Timers windows (unless one has its own opacity).
 - **Stat colors:** Kills / good, Deaths / bad, and Muted text.
 
@@ -174,6 +174,9 @@ Which windows are shown, their frame and their positions.
 - Everything is saved per character in Ashita's `config` folder on your PC.
 
 ## Changelog
+
+### 1.7.2 Eleven Themes
+- **Gold** and **Fuchsia** themes: every Izumi addon (MobHunt, WhatsMyDamage, IzClock, ScrollingCombatLog) now has the same eleven themes in the same order.
 
 ### 1.7.1 New Mini View
 - **The Mini target view is redesigned:** the zone under the name, then one row of tiles for **F**ights, **K**ills, **D**eaths and **Win** rate, each with its own colored strip (deaths only turn red when you have died).

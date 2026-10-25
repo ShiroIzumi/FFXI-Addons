@@ -29,25 +29,29 @@ local UI_WHITE          = { 1.00, 1.00, 1.00, 1.00 };
 --   text        : headers and selected-tab text (lighter, easier to read)
 --   title_active: focused title bar
 --   border      : window / separator border
+-- 1.6.0: the same eleven themes as every Izumi addon. bg = the theme's
+-- own background (used when "Use the theme's background" is on); control /
+-- title / popup are optional (neutral when absent; Midnight tints them).
 local UI_THEMES = {
-    garnet = {
-        label = 'Garnet',
-        accent = { 168, 52, 62 }, text = { 214, 112, 120 },
-        title_active = { 24, 9, 11 }, border = { 70, 30, 34 },
-    },
-    copper = {
-        label = 'Copper',
-        accent = { 196, 128, 80 }, text = { 224, 166, 120 },
-        title_active = { 24, 15, 9 }, border = { 72, 48, 32 },
-    },
-    amethyst = {
-        label = 'Amethyst',
-        accent = { 150, 118, 214 }, text = { 184, 160, 236 },
-        title_active = { 16, 11, 26 }, border = { 52, 42, 78 },
-    },
+    forest   = { label = 'Forest',   accent = { 111, 175, 79 },  text = { 164, 212, 136 }, title_active = { 20, 32, 18 },  border = { 44, 68, 38 },   bg = { 8, 10, 8 } },
+    rust     = { label = 'Rust',     accent = { 181, 82, 59 },   text = { 226, 140, 118 }, title_active = { 34, 20, 16 },  border = { 72, 40, 32 },   bg = { 10, 8, 8 } },
+    bone     = { label = 'Bone',     accent = { 207, 198, 176 }, text = { 232, 226, 210 }, title_active = { 28, 27, 25 },  border = { 64, 62, 56 },   bg = { 10, 10, 9 } },
+    copper   = { label = 'Copper',   accent = { 196, 128, 80 },  text = { 224, 166, 120 }, title_active = { 24, 15, 9 },   border = { 72, 48, 32 },   bg = { 9, 9, 10 } },
+    gold     = { label = 'Gold',     accent = { 214, 178, 92 },  text = { 240, 212, 148 }, title_active = { 34, 28, 14 },  border = { 76, 64, 36 },   bg = { 10, 9, 8 } },
+    garnet   = { label = 'Garnet',   accent = { 168, 52, 62 },   text = { 214, 112, 120 }, title_active = { 24, 9, 11 },   border = { 70, 30, 34 },   bg = { 9, 9, 10 } },
+    fuchsia  = { label = 'Fuchsia',  accent = { 214, 72, 170 },  text = { 240, 150, 214 }, title_active = { 30, 8, 24 },   border = { 82, 30, 66 },   bg = { 10, 8, 10 } },
+    silver   = { label = 'Silver',   accent = { 176, 188, 204 }, text = { 226, 232, 240 }, title_active = { 28, 30, 34 },  border = { 66, 72, 82 },   bg = { 9, 9, 10 } },
+    amethyst = { label = 'Amethyst', accent = { 150, 118, 214 }, text = { 184, 160, 236 }, title_active = { 16, 11, 26 },  border = { 52, 42, 78 },   bg = { 9, 8, 12 } },
+    emerald  = { label = 'Emerald',  accent = { 60, 180, 110 },  text = { 132, 222, 166 }, title_active = { 10, 28, 18 },  border = { 30, 70, 46 },   bg = { 8, 10, 9 } },
+    midnight = { label = 'Midnight', accent = { 104, 148, 226 }, text = { 168, 196, 242 }, title_active = { 14, 22, 44 },  border = { 42, 60, 100 },  bg = { 9, 14, 28 },
+                 control = { 20, 28, 48 }, control_hover = { 30, 42, 70 }, control_active = { 40, 56, 92 }, title = { 6, 10, 22 }, popup = { 10, 16, 32 } },
 };
 
-local UI_THEME_ORDER = { 'garnet', 'copper', 'amethyst' };
+local UI_THEME_ORDER = { 'forest', 'rust', 'bone', 'copper', 'gold', 'garnet', 'fuchsia', 'silver', 'amethyst', 'emerald', 'midnight' };
+local UI_NEUTRAL = {
+    control = { 25.5, 25.5, 28.05 }, control_hover = { 40.8, 40.8, 45.9 }, control_active = { 56.1, 56.1, 63.75 },
+    title = { 5.1, 5.1, 5.61 }, popup = { 12.75, 12.75, 14.28 },
+};
 local applied_theme = nil;
 
 local function set_rgb(dst, rgb)
@@ -62,16 +66,54 @@ local function apply_ui_theme()
     if not UI_THEMES[key] then
         key = 'garnet';
     end
+    -- 1.6.0: the window background (the theme's own or your color).
+    local b = settings.ui_bg;
+    local theme = UI_THEMES[key];
+    if type(b) == 'table' and b.use_theme == false and type(b.color) == 'table' then
+        UI_BG[1], UI_BG[2], UI_BG[3] = tonumber(b.color[1]) or 0.035, tonumber(b.color[2]) or 0.035, tonumber(b.color[3]) or 0.040;
+    else
+        set_rgb(UI_BG, theme.bg);
+    end
+    UI_BG[4] = (type(b) == 'table' and tonumber(b.alpha)) or 0.97;
+
     if applied_theme == key then
         return;
     end
 
-    local theme = UI_THEMES[key];
     set_rgb(UI_ACCENT, theme.accent);
     set_rgb(UI_ACCENT_TEXT, theme.text);
     set_rgb(UI_TITLE_ACTIVE, theme.title_active);
     set_rgb(UI_BORDER, theme.border);
+    set_rgb(UI_CONTROL, theme.control or UI_NEUTRAL.control);
+    set_rgb(UI_CONTROL_HOVER, theme.control_hover or UI_NEUTRAL.control_hover);
+    set_rgb(UI_CONTROL_ACTIVE, theme.control_active or UI_NEUTRAL.control_active);
+    set_rgb(UI_TITLE, theme.title or UI_NEUTRAL.title);
+    set_rgb(UI_POPUP, theme.popup or UI_NEUTRAL.popup);
     applied_theme = key;
+end
+
+-- 1.6.0: TAB never moves the keyboard focus into SCL's text fields: every
+-- window is drawn with "no tab stop" pushed (push_theme comes before Begin
+-- and pop_theme after End, so it covers the whole window).
+local notab_stack = {};
+local function notab_push()
+    local kind = 0;
+    if imgui.PushItemFlag ~= nil and ImGuiItemFlags_NoTabStop ~= nil then
+        if pcall(imgui.PushItemFlag, ImGuiItemFlags_NoTabStop, true) then kind = 1; end
+    end
+    if kind == 0 and imgui.PushTabStop ~= nil then
+        if pcall(imgui.PushTabStop, false) then kind = 2; end
+    end
+    if kind == 0 and imgui.PushAllowKeyboardFocus ~= nil then
+        if pcall(imgui.PushAllowKeyboardFocus, false) then kind = 3; end
+    end
+    notab_stack[#notab_stack + 1] = kind;
+end
+local function notab_pop()
+    local kind = table.remove(notab_stack);
+    if kind == 1 then pcall(imgui.PopItemFlag);
+    elseif kind == 2 then pcall(imgui.PopTabStop);
+    elseif kind == 3 then pcall(imgui.PopAllowKeyboardFocus); end
 end
 
 local function ui_accent(alpha_mul)
@@ -83,7 +125,9 @@ end
 -- Ashita build.
 local theme_stack = {};
 
-local function push_theme()
+-- alpha: this window's own background opacity (nil = the shared one from
+-- Look > Theme & colors).
+local function push_theme(alpha)
     apply_ui_theme();
 
     local color_count = 0;
@@ -104,7 +148,7 @@ local function push_theme()
     end
 
     -- Window surfaces.
-    color(ImGuiCol_WindowBg, UI_BG);
+    color(ImGuiCol_WindowBg, { UI_BG[1], UI_BG[2], UI_BG[3], tonumber(alpha) or UI_BG[4] });
     color(ImGuiCol_ChildBg, UI_TRANSPARENT);
     color(ImGuiCol_PopupBg, UI_POPUP);
     color(ImGuiCol_TitleBg, UI_TITLE);
@@ -166,11 +210,13 @@ local function push_theme()
     var(ImGuiStyleVar_ItemInnerSpacing, { 6, 4 });
 
     theme_stack[#theme_stack + 1] = { color_count, var_count };
+    notab_push();
 end
 
 local function pop_theme()
     local entry = table.remove(theme_stack);
     if entry == nil then return; end
+    notab_pop();
 
     if entry[2] > 0 then imgui.PopStyleVar(entry[2]); end
     if entry[1] > 0 then imgui.PopStyleColor(entry[1]); end
@@ -291,6 +337,7 @@ return {
     UI_WHITE = UI_WHITE,
     UI_THEMES = UI_THEMES,
     UI_THEME_ORDER = UI_THEME_ORDER,
+    apply_ui_theme = apply_ui_theme,
     ui_accent = ui_accent,
     push_theme = push_theme,
     pop_theme = pop_theme,

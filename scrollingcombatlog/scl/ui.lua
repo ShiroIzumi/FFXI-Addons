@@ -5,6 +5,7 @@ local events_mod = require('scl.events');
 local render_mod = require('scl.render');
 local theme_mod = require('scl.theme');
 local uifont = require('scl.uifont');
+local ui = require('scl.cfgui');
 local history_mod = require('scl.history');
 local clamp = core_mod.clamp;
 local copy_defaults = core_mod.copy_defaults;
@@ -447,106 +448,6 @@ local function draw_live_preview()
     end
 end
 
-local function draw_bool_setting(label, current, key)
-    local value = { current == true };
-    if imgui.Checkbox(label, value) then
-        settings[key] = value[1];
-        save_settings();
-    end
-end
-
-local function draw_event_option(label, key)
-    ensure_event_option(key);
-
-    local opt = settings.event_options[key];
-    local shown = { opt.show ~= false };
-
-    if imgui.Checkbox('##show_' .. key, shown) then
-        opt.show = shown[1];
-        save_settings();
-    end
-
-    imgui.SameLine();
-    imgui.Text(label);
-    imgui.SameLine();
-
-    local c = {
-        tonumber(opt.color[1]) or 1.0,
-        tonumber(opt.color[2]) or 1.0,
-        tonumber(opt.color[3]) or 1.0
-    };
-
-    if imgui.ColorEdit3('##color_' .. key, c, ImGuiColorEditFlags_NoInputs) then
-        opt.color[1] = c[1];
-        opt.color[2] = c[2];
-        opt.color[3] = c[3];
-        opt.color[4] = 1.0;
-        save_settings();
-    end
-end
-
-local function draw_lane_direction(key, title, accent)
-    local lane = settings[key];
-
-    imgui.TextColored(accent, title);
-
-    align_label();
-    imgui.Text('Text Direction');
-    imgui.SameLine(130);
-    if draw_toggle_button('Left', key .. '_orient_left', (lane.orientation or 'right') == 'left')
-        and (lane.orientation or 'right') ~= 'left' then
-        lane.orientation = 'left';
-        save_settings();
-    end
-
-    imgui.SameLine();
-    if draw_toggle_button('Right', key .. '_orient_right', (lane.orientation or 'right') == 'right')
-        and (lane.orientation or 'right') ~= 'right' then
-        lane.orientation = 'right';
-        save_settings();
-    end
-
-    imgui.TextDisabled('Left = text extends left from anchor; Right = extends right.');
-
-    align_label();
-    imgui.Text('Growth');
-    imgui.SameLine(130);
-    if draw_toggle_button('Up', key .. '_growth_up', (lane.growth or 'up') == 'up')
-        and (lane.growth or 'up') ~= 'up' then
-        lane.growth = 'up';
-        save_settings();
-    end
-
-    imgui.SameLine();
-    if draw_toggle_button('Down', key .. '_growth_down', (lane.growth or 'up') == 'down')
-        and (lane.growth or 'up') ~= 'down' then
-        lane.growth = 'down';
-        save_settings();
-    end
-
-    if settings.locked == true then
-        imgui.TextColored(UI_MUTED, ('Position locked at %.0f, %.0f'):fmt(
-            tonumber(lane.x) or 0,
-            tonumber(lane.y) or 0
-        ));
-    else
-        imgui.PushItemWidth(105);
-        local x = { tonumber(lane.x) or 0 };
-        local y = { tonumber(lane.y) or 0 };
-
-        if imgui.InputFloat('X##' .. key, x, 5.0, 20.0, '%.0f') then
-            lane.x = x[1];
-            save_settings();
-        end
-        imgui.SameLine();
-        if imgui.InputFloat('Y##' .. key, y, 5.0, 20.0, '%.0f') then
-            lane.y = y[1];
-            save_settings();
-        end
-        imgui.PopItemWidth();
-    end
-end
-
 local function add_test_events()
     add_event('outgoing', 'outgoing', '34' .. target_suffix('Diving Beetle'), 'melee_damage');
     add_event('outgoing', 'critical', '88' .. target_suffix('Diving Beetle'), 'criticals');
@@ -584,516 +485,363 @@ local function add_test_events()
     add_event('outgoing', 'ability', 'Savage Blade  1120' .. target_suffix('Diving Beetle'), 'weapon_skills', { amount = 1120 });
 end
 
-local function draw_general_config_tab()
-    section_header('DISPLAY & BEHAVIOR', UI_ACCENT_TEXT);
+-- ============================================================================
+-- 1.6.0: the settings pages, built on scl/cfgui.lua (the same settings kit as
+-- MobHunt, WhatsMyDamage and IzClock). Name on the left, the control at a
+-- fixed column; everything can be found with the search box.
+-- ============================================================================
 
-    imgui.PushItemWidth(235);
-
-    local theme_index = 0;
-    local theme_items = {};
-    for index, key in ipairs(UI_THEME_ORDER) do
-        theme_items[#theme_items + 1] = UI_THEMES[key].label;
-        if key == tostring(settings.ui_theme or 'garnet'):lower() then
-            theme_index = index - 1;
+ui.theme = {
+    text = theme_mod.UI_TEXT,
+    muted = UI_MUTED,
+    accent = UI_ACCENT,
+    accent_text = UI_ACCENT_TEXT,
+    control = theme_mod.UI_CONTROL,
+    danger = UI_RED,
+    section_header = function(title) section_header(title, UI_ACCENT_TEXT); end,
+    help_marker = help_marker,
+    tip = function(text_value)
+        if imgui.IsItemHovered() then
+            imgui.BeginTooltip();
+            imgui.PushTextWrapPos(420);
+            imgui.TextUnformatted(text_value);
+            imgui.PopTextWrapPos();
+            imgui.EndTooltip();
         end
-    end
+    end,
+    toggle_button = function(label, id, selected, size) return draw_toggle_button(label, id, selected, size); end,
+    align_label = align_label,
+};
 
-    local theme_value = { theme_index };
-    if imgui.Combo('Theme##scl_theme', theme_value, table.concat(theme_items, '\0') .. '\0\0') then
-        local chosen = UI_THEME_ORDER[(tonumber(theme_value[1]) or 0) + 1];
-        if chosen and chosen ~= settings.ui_theme then
-            settings.ui_theme = chosen;
+local function searching() return ui.searching(); end
+local function cfg_sc() return ui.scale or 1; end
+
+-- A dropdown at the control column over a { {key, label}, ... } list.
+local function cfg_combo(text, tbl, key, list, help_text, on_change)
+    if not ui.want(text, help_text) then return false; end
+    ui.label(text, help_text);
+    imgui.PushItemWidth(ui.SLIDER_W * cfg_sc());
+    local cur = tbl[key];
+    local index, labels = 0, {};
+    for i, item in ipairs(list) do
+        labels[#labels + 1] = item.label;
+        if item.key == cur then index = i - 1; end
+    end
+    local value = { index };
+    local changed = false;
+    if imgui.Combo('##cfgcombo_' .. tostring(tbl) .. tostring(key), value, table.concat(labels, '\0') .. '\0\0') then
+        local chosen = list[(tonumber(value[1]) or 0) + 1];
+        if chosen and chosen.key ~= cur then
+            tbl[key] = chosen.key;
+            if on_change then on_change(chosen.key); end
             save_settings();
+            changed = true;
         end
     end
-
-    local duration = { tonumber(settings.duration) or 3.5 };
-    if imgui.SliderFloat('Display Time##scl', duration, 0.5, 12.0, '%.1f sec') then
-        settings.duration = duration[1];
-        save_settings();
-    end
-
-    local speed = { tonumber(settings.scroll_speed) or 70.0 };
-    if imgui.SliderFloat('Scroll Speed##scl', speed, 0.0, 300.0, '%.0f px/s') then
-        settings.scroll_speed = speed[1];
-        save_settings();
-    end
-
-    local global_font = { tonumber(settings.font_scale) or 1.35 };
-    if imgui.SliderFloat('Global Font##scl', global_font, 0.75, 3.00, '%.2fx') then
-        settings.font_scale = global_font[1];
-        save_settings();
-    end
-
-    local max_visible = { math.floor(tonumber(settings.max_visible_events) or 14) };
-    if imgui.SliderInt('Maximum Visible Events##scl', max_visible, 4, 30) then
-        settings.max_visible_events = max_visible[1];
-        save_settings();
-    end
-
     imgui.PopItemWidth();
-    help_marker('Caps active scrolling rows to keep heavy combat readable and predictable.');
+    if help_text then help_marker(help_text); end
+    return changed;
+end
 
-    imgui.Spacing();
-    section_header('CONTENT', UI_ACCENT_TEXT);
-
-    local symbols = { settings.show_symbols == true };
-    if imgui.Checkbox('Event Symbols / Prefixes', symbols) then
-        settings.show_symbols = symbols[1];
+-- One event row: show it (checkbox) and its color.
+local function draw_event_option(label, key)
+    if not ui.want(label, 'event color show') then return; end
+    ensure_event_option(key);
+    local opt = settings.event_options[key];
+    local shown = { opt.show ~= false };
+    if imgui.Checkbox(label .. '##show_' .. key, shown) then
+        opt.show = shown[1];
         save_settings();
     end
-
-    local targets = { settings.show_target_names ~= false };
-    if imgui.Checkbox('Show Outgoing Target Names', targets) then
-        settings.show_target_names = targets[1];
+    imgui.SameLine(ui.LABEL_W * cfg_sc() + 120 * cfg_sc());
+    local c = { tonumber(opt.color[1]) or 1.0, tonumber(opt.color[2]) or 1.0, tonumber(opt.color[3]) or 1.0 };
+    if imgui.ColorEdit3('##color_' .. key, c, ImGuiColorEditFlags_NoInputs) then
+        opt.color[1] = c[1];
+        opt.color[2] = c[2];
+        opt.color[3] = c[3];
+        opt.color[4] = 1.0;
         save_settings();
     end
-    help_marker('When disabled, outgoing damage/spells omit the "-> Target" suffix.');
+    if imgui.IsItemHovered() then imgui.SetTooltip(label .. ' color'); end
+end
 
-    local sources = { settings.show_source_names ~= false };
-    if imgui.Checkbox('Show Incoming Source Names', sources) then
-        settings.show_source_names = sources[1];
-        save_settings();
-    end
-    help_marker('When disabled, incoming damage/effects omit the "<- Source" suffix.');
+local ORIENTATIONS = {
+    { key = 'left', label = 'Left', tip = 'The text extends left from the anchor.' },
+    { key = 'right', label = 'Right', tip = 'The text extends right from the anchor.' },
+};
+local GROWTHS = {
+    { key = 'up', label = 'Up' },
+    { key = 'down', label = 'Down' },
+};
+local MOTIONS = {
+    { key = 'scroll', label = 'Scroll', tip = 'Straight up (or down).' },
+    { key = 'arc', label = 'Arc', tip = 'Curves sideways as it rises.' },
+    { key = 'fade', label = 'Fade In', tip = 'Appears in place and drifts.' },
+};
 
-    local zeroes = { settings.show_zero_damage == true };
-    if imgui.Checkbox('Show 0 Damage / No-Damage Results', zeroes) then
-        settings.show_zero_damage = zeroes[1];
-        save_settings();
-    end
-    help_marker('Shows numeric zero-damage results. Full resists can still appear as [RESIST].');
-
-    local misses = { settings.show_misses ~= false };
-    if imgui.Checkbox('Show Misses', misses) then
-        settings.show_misses = misses[1];
-        save_settings();
-    end
-
-    local combine = { settings.combine_repeated_hits ~= false };
-    if imgui.Checkbox('Combine Rapid Repeated Hits', combine) then
-        settings.combine_repeated_hits = combine[1];
-        save_settings();
-    end
-    help_marker('Merges rapid melee/ranged hits from the same source/target into "total (N hits)".');
-
-    imgui.Spacing();
-    section_header('POSITIONING', UI_ACCENT_TEXT);
-
-    local locked = { settings.locked == true };
-    if imgui.Checkbox('Lock Positions', locked) then
-        settings.locked = locked[1];
-
-        if settings.locked then
-            state.move_mode = false;
+local function draw_lane_layout(key, name)
+    local lane = settings[key];
+    if lane.orientation == nil then lane.orientation = 'right'; end
+    if lane.growth == nil then lane.growth = 'up'; end
+    ui.choice('Text direction##' .. key, lane, 'orientation', ORIENTATIONS, 'Left = text extends left from the anchor; Right = extends right.');
+    ui.choice('Growth##' .. key, lane, 'growth', GROWTHS, 'Which way new lines push the old ones.');
+    if ui.want('Position##' .. key, name .. ' lane position x y') then
+        ui.label('Position##' .. key);
+        if settings.locked == true then
+            imgui.TextColored(UI_MUTED, ('Locked at %.0f, %.0f'):fmt(tonumber(lane.x) or 0, tonumber(lane.y) or 0));
         else
-            state.move_mode = true;
-            state.move_initialized.incoming = false;
-            state.move_initialized.outgoing = false;
-        end
-
-        save_settings();
-    end
-    help_marker('Unlocked positions show the handles: one center handle (Centered layout), or a box per lane (Free layout).');
-
-    -- 1.5.0: layout.
-    local L = settings.layout;
-    if L ~= nil then
-        imgui.Spacing();
-        imgui.AlignTextToFramePadding();
-        imgui.Text('Layout');
-        imgui.SameLine(0, 10);
-        local centered = L.mode == 'centered';
-        if theme_mod.draw_toggle_button('Centered on one point', 'scl_layout_c', centered) and not centered then
-            L.mode = 'centered';
-            state.move_initialized.center = false;
-            save_settings();
-        end
-        imgui.SameLine(0, 4);
-        if theme_mod.draw_toggle_button('Free (each lane)', 'scl_layout_f', not centered) and centered then
-            L.mode = 'free';
-            state.move_initialized.incoming = false;
-            state.move_initialized.outgoing = false;
-            state.move_initialized.notification = false;
-            save_settings();
-        end
-        help_marker('Centered: drag one handle onto your character; Incoming goes on its left, Outgoing on its right, Notifications above, evenly. Free: drag each lane on its own.');
-        if L.mode == 'centered' then
-            imgui.PushItemWidth(235);
-            local g = { math.floor(tonumber(L.gap) or 60) };
-            if imgui.SliderInt('Side gap##scl_lay_gap', g, 0, 400, '%d px') then L.gap = g[1]; save_settings(); end
-            help_marker('How far Incoming (left) and Outgoing (right) start from the center.');
-            local d = { math.floor(tonumber(L.down) or 40) };
-            if imgui.SliderInt('Side lanes start##scl_lay_down', d, -300, 400, '%d px') then L.down = d[1]; save_settings(); end
-            help_marker('The bottom of the side lanes, below (+) or above (-) the center. A lane set to grow Up scrolls up from here; a lane set to grow Down starts at the top of the band and scrolls down to here (Incoming / Outgoing pages > Growth).');
-            local hh = { math.floor(tonumber(L.height) or 260) };
-            if imgui.SliderInt('Side lane height##scl_lay_h', hh, 60, 900, '%d px') then L.height = hh[1]; save_settings(); end
-            help_marker('How far Incoming / Outgoing scroll up before fading out. Notifications sit above this.');
-            local ng = { math.floor(tonumber(L.note_gap) or 16) };
-            if imgui.SliderInt('Notifications gap##scl_lay_ng', ng, 0, 300, '%d px') then L.note_gap = ng[1]; save_settings(); end
-            help_marker('Space between the top of the side lanes and the Notifications (they grow upward from there).');
-            imgui.PopItemWidth();
-            if imgui.Button('Center on the screen##scl_lay_reset') then
-                L.cx, L.cy = -1, -1;
-                state.move_initialized.center = false;
+            imgui.PushItemWidth(105 * cfg_sc());
+            local x = { tonumber(lane.x) or 0 };
+            local y = { tonumber(lane.y) or 0 };
+            if imgui.InputFloat('X##' .. key, x, 5.0, 20.0, '%.0f') then
+                lane.x = x[1];
                 save_settings();
             end
             imgui.SameLine();
-            imgui.TextDisabled('Unlock positions to drag the center handle.');
+            if imgui.InputFloat('Y##' .. key, y, 5.0, 20.0, '%.0f') then
+                lane.y = y[1];
+                save_settings();
+            end
+            imgui.PopItemWidth();
+        end
+    end
+    if ui.button('Reset ' .. name .. ' position', 'scl_reset_' .. key, 'Moves the ' .. name .. ' lane back to where it started.') then
+        reset_anchor(key);
+    end
+end
+
+-- GENERAL ---------------------------------------------------------------------
+
+local function draw_general_config_tab()
+    ui.section('DISPLAY');
+    ui.slider_f('Display time', settings, 'duration', 0.5, 12.0, '%.1f sec', 'How long each line stays on screen.');
+    ui.slider_f('Scroll speed', settings, 'scroll_speed', 0.0, 300.0, '%.0f px/s', 'How fast the lines move.');
+    ui.slider_f('Global font size', settings, 'font_scale', 0.75, 3.00, '%.2fx', 'The size of all floating combat text (Text > Font Style has the size of each kind).');
+    ui.slider_i('Most lines on screen', settings, 'max_visible_events', 4, 30, '%d', 'Caps active scrolling rows to keep heavy combat readable and predictable.');
+
+    ui.section('CONTENT');
+    ui.check('Event symbols / prefixes', settings, 'show_symbols', 'Symbols like * for criticals and [MB] for magic bursts.');
+    ui.check('Show outgoing target names', settings, 'show_target_names', 'When off, outgoing damage / spells omit the "-> Target" part.', { default_on = true });
+    ui.check('Show incoming source names', settings, 'show_source_names', 'When off, incoming damage / effects omit the "<- Source" part.', { default_on = true });
+    ui.check('Show 0 damage / no-damage results', settings, 'show_zero_damage', 'Shows numeric zero-damage results. Full resists can still appear as [RESIST].');
+    ui.check('Show misses', settings, 'show_misses', nil, { default_on = true });
+    ui.check('Combine rapid repeated hits', settings, 'combine_repeated_hits', 'Merges rapid melee / ranged hits from the same source / target into "total (N hits)".', { default_on = true });
+
+    ui.section('POSITIONING');
+    ui.check('Lock positions', settings, 'locked', 'Unlocked positions show the handles: one center handle (Centered layout), or a box per lane (Free layout). /scl unlock and /scl lock do the same.', {
+        on_change = function(v)
+            if v then
+                state.move_mode = false;
+            else
+                state.move_mode = true;
+                state.move_initialized.incoming = false;
+                state.move_initialized.outgoing = false;
+            end
+        end,
+    });
+    local L = settings.layout;
+    if L ~= nil then
+        ui.choice('Layout', L, 'mode', {
+            { key = 'centered', label = 'Centered on one point', tip = 'Drag one handle onto your character; Incoming goes on its left, Outgoing on its right, Notifications above, evenly.' },
+            { key = 'free', label = 'Free (each lane)', tip = 'Drag each lane on its own.' },
+        }, 'Centered: one handle for everything. Free: each lane has its own handle.', {
+            on_change = function(mode)
+                if mode == 'centered' then
+                    state.move_initialized.center = false;
+                else
+                    state.move_initialized.incoming = false;
+                    state.move_initialized.outgoing = false;
+                    state.move_initialized.notification = false;
+                end
+            end,
+        });
+        if L.mode == 'centered' or searching() then
+            ui.sub(function()
+                ui.slider_i('Side gap', L, 'gap', 0, 400, '%d px', 'How far Incoming (left) and Outgoing (right) start from the center.');
+                ui.slider_i('Side lanes start', L, 'down', -300, 400, '%d px', 'The bottom of the side lanes, below (+) or above (-) the center. A lane set to grow Up scrolls up from here; a lane set to grow Down starts at the top of the band and scrolls down to here (Incoming / Outgoing pages > Growth).');
+                ui.slider_i('Side lane height', L, 'height', 60, 900, '%d px', 'How far Incoming / Outgoing scroll up before fading out. Notifications sit above this.');
+                ui.slider_i('Notifications gap', L, 'note_gap', 0, 300, '%d px', 'Space between the top of the side lanes and the Notifications (they grow upward from there).');
+                if ui.button('Center on the screen', 'scl_lay_reset', 'Puts the center handle back in the middle of the screen. Unlock positions to drag it.') then
+                    L.cx, L.cy = -1, -1;
+                    state.move_initialized.center = false;
+                    save_settings();
+                end
+            end);
         end
     end
 end
 
-local function draw_checkbox_setting(label, key, help)
-    local value = { settings[key] == true };
-    if imgui.Checkbox(label, value) then
-        settings[key] = value[1];
-        save_settings();
-    end
-    if help then help_marker(help); end
-end
+-- TEXT ------------------------------------------------------------------------
 
-local function draw_motion_choice(lane_key, title)
-    local lane = settings[lane_key];
-    local motion = tostring(lane.motion or 'scroll');
-
-    align_label();
-    imgui.Text(title);
-    imgui.SameLine(130);
-    for index, option in ipairs({ { 'scroll', 'Scroll' }, { 'arc', 'Arc' }, { 'fade', 'Fade In' } }) do
-        if index > 1 then imgui.SameLine(); end
-        if draw_toggle_button(option[2], lane_key .. '_motion_' .. option[1], motion == option[1])
-            and motion ~= option[1] then
-            lane.motion = option[1];
-            save_settings();
-        end
-    end
-end
-
-local function draw_notify_option(label, key)
-    local value = { settings.notify[key] == true };
-    if imgui.Checkbox(label .. '##notify_' .. key, value) then
-        settings.notify[key] = value[1];
-        save_settings();
-    end
-end
+local NOTIFY = {
+    { 'Level up', 'level_up' }, { 'Skillchains', 'skillchains' }, { 'Magic bursts', 'magic_bursts' },
+    { 'Zone change', 'zone_change' }, { 'Buff wearing off', 'wear_warning' },
+    { 'Big hits (copy of large outgoing damage)', 'big_hits' }, { 'Low HP warning', 'low_hp' },
+    { 'Buff wore off (Protect, Haste, ...)', 'status_removed' }, { 'Food running out (20s, then every 5s)', 'food_warning' },
+};
 
 local function draw_display_config_tab()
-    section_header('MOTION', UI_ACCENT_TEXT);
-    draw_motion_choice('outgoing', 'Outgoing');
-    draw_motion_choice('incoming', 'Incoming');
-    imgui.TextDisabled('Scroll = straight. Arc = curves sideways as it rises. Fade In = appears in place and drifts.');
-
-    imgui.Spacing();
-    section_header('EFFECTS', UI_ACCENT_TEXT);
-    draw_checkbox_setting('Critical Pop', 'crit_pop',
-        'Criticals briefly grow, then settle. Performance renderer only; Custom Font keeps a fixed size.');
-    draw_checkbox_setting('Element Colors', 'element_colors',
-        'Spells and additional effects use their element color (Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark) instead of the category color.');
-    draw_checkbox_setting('Combine AoE Hits', 'combine_aoe',
-        'One line for a spell / weapon skill / ability that hits several targets, e.g. "Firaga III  1840 (4 targets)".');
-
-    imgui.Spacing();
-    section_header('NOTIFICATIONS (CENTER LANE)', UI_ACCENT_TEXT);
-    imgui.TextDisabled('Checked events move to the center lane instead of scrolling.');
-    draw_notify_option('Level Up', 'level_up');
-    draw_notify_option('Skillchains', 'skillchains');
-    draw_notify_option('Magic Bursts', 'magic_bursts');
-    draw_notify_option('Zone Change', 'zone_change');
-    draw_notify_option('Buff Wearing Off', 'wear_warning');
-    draw_notify_option('Big Hits (copy of large outgoing damage)', 'big_hits');
-    draw_notify_option('Low HP Warning', 'low_hp');
-    draw_notify_option('Buff Wore Off (Protect, Haste, ...)', 'status_removed');
-    draw_notify_option('Food Running Out (20s, then every 5s)', 'food_warning');
-
-    imgui.PushItemWidth(235);
-    local threshold = { math.floor(tonumber(settings.big_hit_threshold) or 500) };
-    if imgui.SliderInt('Big Hit Threshold##scl', threshold, 50, 5000) then
-        settings.big_hit_threshold = threshold[1];
-        save_settings();
+    ui.section('MOTION');
+    for _, lane in ipairs({ { 'outgoing', 'Outgoing' }, { 'incoming', 'Incoming' } }) do
+        local t = settings[lane[1]];
+        if t.motion == nil then t.motion = 'scroll'; end
+        ui.choice(lane[2] .. ' motion', t, 'motion', MOTIONS, 'Scroll = straight. Arc = curves sideways as it rises. Fade In = appears in place and drifts.');
     end
-    local scale = { tonumber(settings.notify_scale) or 1.30 };
-    if imgui.SliderFloat('Notification Size##scl', scale, 0.80, 2.50, '%.2fx') then
-        settings.notify_scale = scale[1];
-        save_settings();
+
+    ui.section('EFFECTS');
+    ui.check('Critical pop', settings, 'crit_pop', 'Criticals briefly grow, then settle. Performance renderer only; Custom Font keeps a fixed size.');
+    ui.check('Element colors', settings, 'element_colors', 'Spells and additional effects use their element color (Fire, Ice, Wind, Earth, Thunder, Water, Light, Dark) instead of the category color.');
+    ui.check('Combine AoE hits', settings, 'combine_aoe', 'One line for a spell / weapon skill / ability that hits several targets, e.g. "Firaga III  1840 (4 targets)".');
+
+    ui.section('NOTIFICATIONS (CENTER LANE)');
+    ui.info('Checked events move to the center lane instead of scrolling.');
+    for _, n in ipairs(NOTIFY) do
+        ui.check(n[1] .. '##notify_' .. n[2], settings.notify, n[2]);
     end
-    imgui.PopItemWidth();
-    imgui.TextDisabled('Move the center lane with /scl unlock (Notifications handle).');
+    ui.slider_i('Big hit threshold', settings, 'big_hit_threshold', 50, 5000, '%d', 'Outgoing damage at or above this is also shown in Notifications (when Big hits is on).');
+    ui.slider_f('Notification size', settings, 'notify_scale', 0.80, 2.50, '%.2fx', 'The size of the center lane\'s text.');
+    if ui.button('Reset Notification position', 'scl_reset_notification', 'Moves the center lane back to where it started. /scl unlock shows its handle.') then
+        reset_anchor('notification');
+    end
 end
 
-
--- Generic dropdown over a { {key, label}, ... } list. Returns the chosen key
--- when it changed, otherwise nil.
-local function draw_choice_combo(label, list, current_key)
-    local index = 0;
-    local labels = {};
-    for i, item in ipairs(list) do
-        labels[#labels + 1] = item.label;
-        if item.key == current_key then index = i - 1; end
-    end
-    local value = { index };
-    if imgui.Combo(label, value, table.concat(labels, '\0') .. '\0\0') then
-        local chosen = list[(tonumber(value[1]) or 0) + 1];
-        if chosen and chosen.key ~= current_key then
-            return chosen.key;
-        end
-    end
-    return nil;
-end
+local RENDERERS = {
+    { key = 'performance', label = 'Performance', tip = 'Recommended: smooth ImGui renderer. Every effect is supported.' },
+    { key = 'custom', label = 'Custom Font', tip = 'Windows fonts via FontManager. Each style is built once and reused (no hitching).' },
+};
 
 local function draw_font_style_config_tab()
-    section_header('FONT STYLE', UI_ACCENT_TEXT);
+    local custom = (settings.renderer_mode or 'performance') == 'custom';
+    ui.section('FONT STYLE');
+    if settings.renderer_mode == nil then settings.renderer_mode = 'performance'; end
+    ui.choice('Renderer', settings, 'renderer_mode', RENDERERS, 'Performance draws with ImGui (every effect works). Custom Font uses Windows fonts through FontManager.', {
+        on_change = function(mode)
+            if mode == 'custom' then rebuild_font_pool(); else hide_unused_fonts(1); end
+        end,
+    });
+    custom = (settings.renderer_mode or 'performance') == 'custom';
 
-    local renderer = settings.renderer_mode or 'performance';
-    local custom = renderer == 'custom';
-
-    align_label();
-    imgui.Text('Renderer');
-    imgui.SameLine(130);
-
-    if draw_toggle_button('Performance', 'renderer_performance', renderer == 'performance')
-        and renderer ~= 'performance' then
-        settings.renderer_mode = 'performance';
-        hide_unused_fonts(1);
-        save_settings();
+    if ui.want('Font family', 'custom font family windows') then
+        ui.label('Font family', 'Custom Font renderer only.');
+        imgui.PushItemWidth(ui.SLIDER_W * cfg_sc());
+        local family = tostring(settings.font_family or 'Consolas');
+        local family_index = 0;
+        for i, name in ipairs(FONT_FAMILIES) do
+            if name == family then family_index = i - 1; end
+        end
+        local family_value = { family_index };
+        if imgui.Combo('##scl_font_family', family_value, table.concat(FONT_FAMILIES, '\0') .. '\0\0') then
+            local chosen = FONT_FAMILIES[(tonumber(family_value[1]) or 0) + 1];
+            if chosen and chosen ~= family then set_font_family(chosen); end
+        end
+        imgui.PopItemWidth();
+        imgui.SameLine();
+        if imgui.SmallButton('<##font_family_prev') then cycle_font_family(-1); end
+        imgui.SameLine();
+        if imgui.SmallButton('>##font_family_next') then cycle_font_family(1); end
+        if not custom then
+            imgui.SameLine();
+            imgui.TextColored(UI_MUTED, '(Custom Font only)');
+        end
     end
+    ui.check('Bold', settings, 'font_bold', nil, { on_change = function() if custom then rebuild_font_pool(); end end });
+    ui.check('Italic', settings, 'font_italic', 'Custom Font only.', { on_change = function() if custom then rebuild_font_pool(); end end });
+    ui.check('ALL CAPS', settings, 'all_caps');
+    if settings.text_opacity == nil then settings.text_opacity = 1.0; end
+    ui.slider_f('Text opacity', settings, 'text_opacity', 10, 100, '%.0f%%', 'How see-through the floating text is.', { mul = 100 });
 
-    imgui.SameLine();
-
-    if draw_toggle_button('Custom Font', 'renderer_custom', renderer == 'custom')
-        and renderer ~= 'custom' then
-        settings.renderer_mode = 'custom';
-        rebuild_font_pool();
-        save_settings();
-    end
-
-    if not custom then
-        imgui.TextColored(UI_MUTED, 'Recommended: smooth ImGui renderer. Every effect below is supported.');
-    else
-        imgui.TextColored(UI_MUTED, 'Windows fonts via FontManager. Each style is built once and reused (no hitching).');
-    end
-
-    imgui.Spacing();
-    imgui.PushItemWidth(235);
-
-    -- Font family (Custom Font). Dropdown plus the old < > buttons.
-    local family = tostring(settings.font_family or 'Consolas');
-    local family_index = 0;
-    for i, name in ipairs(FONT_FAMILIES) do
-        if name == family then family_index = i - 1; end
-    end
-    local family_value = { family_index };
-    if imgui.Combo('Font Family##scl_font_family', family_value, table.concat(FONT_FAMILIES, '\0') .. '\0\0') then
-        local chosen = FONT_FAMILIES[(tonumber(family_value[1]) or 0) + 1];
-        if chosen and chosen ~= family then set_font_family(chosen); end
-    end
-    imgui.SameLine();
-    if imgui.SmallButton('<##font_family_prev') then cycle_font_family(-1); end
-    imgui.SameLine();
-    if imgui.SmallButton('>##font_family_next') then cycle_font_family(1); end
-    if not custom then
-        imgui.TextColored(UI_MUTED, 'Font Family and Italic apply to Custom Font only.');
-    end
-
-    local bold = { settings.font_bold == true };
-    if imgui.Checkbox('Bold', bold) then
-        settings.font_bold = bold[1];
-        save_settings();
+    ui.section('TEXT EFFECT');
+    if settings.text_effect == nil then settings.text_effect = current_effect(); end
+    cfg_combo('Effect', settings, 'text_effect', TEXT_EFFECTS, 'An outline or shadow keeps the text readable over bright ground.', function(chosen)
+        settings.font_outline = effect_has_outline(chosen);
         if custom then rebuild_font_pool(); end
-    end
-    imgui.SameLine();
-
-    local italic = { settings.font_italic == true };
-    if imgui.Checkbox('Italic', italic) then
-        settings.font_italic = italic[1];
-        save_settings();
-        if custom then rebuild_font_pool(); end
-    end
-    imgui.SameLine();
-
-    local caps = { settings.all_caps == true };
-    if imgui.Checkbox('ALL CAPS', caps) then
-        settings.all_caps = caps[1];
-        save_settings();
-    end
-
-    local opacity = { clamp(tonumber(settings.text_opacity) or 1.0, 0.1, 1.0) };
-    if imgui.SliderFloat('Text Opacity##scl_text_opacity', opacity, 0.10, 1.00, '%.2f') then
-        settings.text_opacity = opacity[1];
-        save_settings();
-    end
-
-    imgui.Spacing();
-    section_header('TEXT EFFECT', UI_ACCENT_TEXT);
-
+    end);
     local effect = current_effect();
-    local chosen_effect = draw_choice_combo('Effect##scl_text_effect', TEXT_EFFECTS, effect);
-    if chosen_effect then
-        settings.text_effect = chosen_effect;
-        settings.font_outline = effect_has_outline(chosen_effect);
-        save_settings();
-        if custom then rebuild_font_pool(); end
-        effect = chosen_effect;
+    if custom and effect == 'glow' then ui.info('Glow is Performance-only; Custom Font shows plain text.'); end
+    if (effect ~= 'none' and effect ~= 'glow') or searching() then
+        if settings.effect_color == nil then settings.effect_color = 'black'; end
+        cfg_combo('Effect color', settings, 'effect_color', EFFECT_COLORS, 'The color of the outline / shadow.');
     end
-    if custom and effect == 'glow' then
-        imgui.TextColored(UI_MUTED, 'Glow is Performance-only; Custom Font shows plain text.');
+    if effect ~= 'none' or searching() then
+        if settings.effect_opacity == nil then settings.effect_opacity = 0.85; end
+        ui.slider_f('Effect strength', settings, 'effect_opacity', 10, 100, '%.0f%%', nil, { mul = 100 });
     end
-
-    if effect ~= 'none' and effect ~= 'glow' then
-        local chosen_color = draw_choice_combo('Effect Color##scl_effect_color', EFFECT_COLORS,
-            tostring(settings.effect_color or 'black'));
-        if chosen_color then
-            settings.effect_color = chosen_color;
-            save_settings();
-        end
+    if effect_has_shadow(effect) or searching() then
+        if settings.shadow_offset == nil then settings.shadow_offset = 2; end
+        ui.slider_i('Shadow distance', settings, 'shadow_offset', 1, 6, '%d px', custom and 'Custom Font shadow uses a second font copy behind the text.' or nil);
     end
 
-    if effect ~= 'none' then
-        local strength = { clamp(tonumber(settings.effect_opacity) or 0.85, 0.1, 1.0) };
-        if imgui.SliderFloat('Effect Strength##scl_effect_opacity', strength, 0.10, 1.00, '%.2f') then
-            settings.effect_opacity = strength[1];
-            save_settings();
-        end
+    ui.section('BACKING PLATE');
+    if settings.text_plate == nil then settings.text_plate = 'off'; end
+    cfg_combo('Plate', settings, 'text_plate', TEXT_PLATES, custom and 'The backing plate is drawn by the Performance renderer only.' or 'A soft box behind each line; helps on bright ground / snow.');
+    if tostring(settings.text_plate or 'off') ~= 'off' or searching() then
+        ui.sub(function()
+            if settings.plate_opacity == nil then settings.plate_opacity = 0.45; end
+            if settings.plate_rounding == nil then settings.plate_rounding = 4.0; end
+            ui.slider_f('Plate opacity', settings, 'plate_opacity', 5, 100, '%.0f%%', nil, { mul = 100 });
+            ui.slider_f('Plate rounding', settings, 'plate_rounding', 0.0, 12.0, '%.0f px');
+        end);
     end
 
-    if effect_has_shadow(effect) then
-        local offset = { math.floor(clamp(tonumber(settings.shadow_offset) or 2, 1, 6)) };
-        if imgui.SliderInt('Shadow Distance##scl_shadow_offset', offset, 1, 6, '%d px') then
-            settings.shadow_offset = offset[1];
-            save_settings();
-        end
-        if custom then
-            imgui.TextColored(UI_MUTED, 'Custom Font shadow uses a second font copy behind the text.');
-        end
-    end
-
-    imgui.Spacing();
-    section_header('BACKING PLATE', UI_ACCENT_TEXT);
-
-    local chosen_plate = draw_choice_combo('Plate##scl_text_plate', TEXT_PLATES, tostring(settings.text_plate or 'off'));
-    if chosen_plate then
-        settings.text_plate = chosen_plate;
-        save_settings();
-    end
-    if tostring(settings.text_plate or 'off') ~= 'off' then
-        local plate_opacity = { clamp(tonumber(settings.plate_opacity) or 0.45, 0.05, 1.0) };
-        if imgui.SliderFloat('Plate Opacity##scl_plate_opacity', plate_opacity, 0.05, 1.00, '%.2f') then
-            settings.plate_opacity = plate_opacity[1];
-            save_settings();
-        end
-        local rounding = { clamp(tonumber(settings.plate_rounding) or 4.0, 0.0, 12.0) };
-        if imgui.SliderFloat('Plate Rounding##scl_plate_rounding', rounding, 0.0, 12.0, '%.0f px') then
-            settings.plate_rounding = rounding[1];
-            save_settings();
-        end
-    end
-    if custom then
-        imgui.TextColored(UI_MUTED, 'The backing plate is drawn by the Performance renderer only.');
-    else
-        imgui.TextColored(UI_MUTED, 'A soft box behind each line; helps on bright ground / snow.');
-    end
-
-    imgui.PopItemWidth();
-
-    imgui.Spacing();
-    section_header('TYPOGRAPHY', UI_ACCENT_TEXT);
-
-    imgui.PushItemWidth(235);
-
-    local melee = { tonumber(settings.melee_scale) or 1.00 };
-    if imgui.SliderFloat('Normal Damage##scale', melee, 0.60, 2.00, '%.2fx') then
-        settings.melee_scale = melee[1];
-        save_settings();
-    end
-
-    local ability = { tonumber(settings.ability_scale) or 1.00 };
-    if imgui.SliderFloat('Abilities / WS##scale', ability, 0.60, 2.00, '%.2fx') then
-        settings.ability_scale = ability[1];
-        save_settings();
-    end
-
-    local heal = { tonumber(settings.heal_scale) or 1.00 };
-    if imgui.SliderFloat('Healing##scale', heal, 0.60, 2.00, '%.2fx') then
-        settings.heal_scale = heal[1];
-        save_settings();
-    end
-
-    local reward = { tonumber(settings.reward_scale) or 1.00 };
-    if imgui.SliderFloat('Rewards##scale', reward, 0.60, 2.00, '%.2fx') then
-        settings.reward_scale = reward[1];
-        save_settings();
-    end
-
-    imgui.PopItemWidth();
-
-    imgui.TextColored(
-        UI_MUTED,
-        'Criticals use Normal Damage size; * prefix and Critical color identify them.'
-    );
+    ui.section('SIZES');
+    ui.slider_f('Normal damage', settings, 'melee_scale', 0.60, 2.00, '%.2fx', 'Criticals use this size too; the * prefix and the Critical color identify them.');
+    ui.slider_f('Abilities / WS', settings, 'ability_scale', 0.60, 2.00, '%.2fx');
+    ui.slider_f('Healing', settings, 'heal_scale', 0.60, 2.00, '%.2fx');
+    ui.slider_f('Rewards', settings, 'reward_scale', 0.60, 2.00, '%.2fx');
 end
 
 local function draw_outgoing_config_tab()
-    section_header('OUTGOING EVENTS', UI_ACCENT_TEXT);
-
-    draw_event_option('Melee Damage', 'melee_damage');
-    draw_event_option('Ranged Damage', 'ranged_damage');
+    ui.section('OUTGOING EVENTS');
+    draw_event_option('Melee damage', 'melee_damage');
+    draw_event_option('Ranged damage', 'ranged_damage');
     draw_event_option('Criticals', 'criticals');
-    draw_event_option('Weapon Skills', 'weapon_skills');
+    draw_event_option('Weapon skills', 'weapon_skills');
     draw_event_option('Spells', 'spells');
-    draw_event_option('Magic Bursts', 'magic_bursts');
+    draw_event_option('Magic bursts', 'magic_bursts');
     draw_event_option('Skillchains', 'skillchains');
     draw_event_option('Abilities', 'outgoing_abilities');
-    draw_event_option('Pet Damage', 'pet_damage');
-    draw_event_option('Additional Effects', 'additional_effects');
-    draw_event_option('Counters / Retaliation', 'counters');
+    draw_event_option('Pet damage', 'pet_damage');
+    draw_event_option('Additional effects', 'additional_effects');
+    draw_event_option('Counters / retaliation', 'counters');
     draw_event_option('Buffs', 'buffs');
 
-    imgui.Spacing();
-    section_header('OUTGOING LAYOUT', UI_ACCENT_TEXT);
-    draw_lane_direction('outgoing', 'Outgoing Lane', UI_GOLD);
+    ui.section('OUTGOING LANE');
+    draw_lane_layout('outgoing', 'Outgoing');
 end
 
 local function draw_incoming_config_tab()
-    section_header('INCOMING EVENTS', UI_ACCENT_TEXT);
-
-    draw_event_option('Incoming Damage', 'incoming_damage');
-    draw_event_option('Incoming Abilities', 'incoming_abilities');
-    draw_event_option('Defenses (Evade/Parry/Block/Shadows)', 'defenses');
-    draw_event_option('Positive Status', 'status_positive');
-    draw_event_option('Negative Status', 'status_negative');
-    draw_event_option('Buff Wore Off', 'status_removed');
-    draw_event_option('Healing Received', 'healing_received');
-    draw_event_option('MP Recovery', 'mp_recovery');
-    draw_event_option('Resting (/heal) Ticks', 'resting');
-    draw_event_option('Regen Ticks', 'regen_ticks');
-    draw_event_option('Refresh Ticks', 'refresh_ticks');
+    ui.section('INCOMING EVENTS');
+    draw_event_option('Incoming damage', 'incoming_damage');
+    draw_event_option('Incoming abilities', 'incoming_abilities');
+    draw_event_option('Defenses (Evade / Parry / Block / Shadows)', 'defenses');
+    draw_event_option('Positive status', 'status_positive');
+    draw_event_option('Negative status', 'status_negative');
+    draw_event_option('Buff wore off', 'status_removed');
+    draw_event_option('Healing received', 'healing_received');
+    draw_event_option('MP recovery', 'mp_recovery');
+    draw_event_option('Resting (/heal) ticks', 'resting');
+    draw_event_option('Regen ticks', 'regen_ticks');
+    draw_event_option('Refresh ticks', 'refresh_ticks');
     draw_event_option('Drain / Aspir', 'drain_aspir');
-    draw_event_option('KO / Defeat', 'ko');
-    draw_event_option('Low HP Warning', 'low_hp');
-    imgui.PushItemWidth(235);
-    local low_hp = { math.floor(tonumber(settings.low_hp_percent) or 25) };
-    if imgui.SliderInt('Low HP Warning At##scl_lowhp', low_hp, 5, 75, '%d%%') then
-        settings.low_hp_percent = low_hp[1];
-        save_settings();
-    end
-    imgui.PopItemWidth();
+    draw_event_option('KO / defeat', 'ko');
+    draw_event_option('Low HP warning', 'low_hp');
+    ui.sub(function()
+        ui.slider_i('Low HP warning at', settings, 'low_hp_percent', 5, 75, '%d%%', 'The Low HP warning shows when your HP drops below this.');
+    end);
 
-    imgui.Spacing();
-    section_header('INCOMING LAYOUT', UI_ACCENT_TEXT);
-    draw_lane_direction('incoming', 'Incoming Lane', UI_RED);
+    ui.section('INCOMING LANE');
+    draw_lane_layout('incoming', 'Incoming');
 
-    imgui.Spacing();
-    section_header('REWARDS', UI_ACCENT_TEXT);
-
+    ui.section('REWARDS');
     draw_event_option('EXP / LP / CP / JP', 'exp');
     draw_event_option('Gil', 'gil');
-    draw_event_option('Level Up', 'level_up');
-    draw_event_option('Skill Ups', 'skill_ups');
-    draw_event_option('Item Drops (found in treasure pool)', 'item_drops');
-    draw_event_option('Items Obtained (received)', 'item_obtained');
-    draw_event_option('Zone Change (=== Area ===)', 'zone_change');
-    draw_event_option('Buff Wearing Off Warning', 'wear_warning');
-    draw_event_option('Food Running Out (20s, then every 5s)', 'food_warning');
+    draw_event_option('Level up', 'level_up');
+    draw_event_option('Skill ups', 'skill_ups');
+    draw_event_option('Item drops (found in treasure pool)', 'item_drops');
+    draw_event_option('Items obtained (received)', 'item_obtained');
+    draw_event_option('Zone change (=== Area ===)', 'zone_change');
+    draw_event_option('Buff wearing off warning', 'wear_warning');
+    draw_event_option('Food running out (20s, then every 5s)', 'food_warning');
 end
 
 
@@ -1439,7 +1187,8 @@ local function draw_session_window()
         state.session_geometry_initialized = true;
     end
 
-    push_theme();
+    local sl = settings.look and settings.look.session or {};
+    push_theme(sl.own_alpha and (tonumber(sl.alpha) or 0.97) or nil);
 
     if imgui.Begin('SCL Session##scl_session', state.session_open, ImGuiWindowFlags_NoNav) then
         capture_current_window_geometry('session');
@@ -1598,97 +1347,257 @@ local function draw_session_window()
     end
 end
 
+-- WINDOWS ---------------------------------------------------------------------
+
+-- Own opacity for one window (look = { own_alpha, alpha }).
+local function own_opacity(look, key_on, key_alpha, what)
+    ui.check('Own opacity##' .. what, look, key_on, 'Off: the ' .. what .. ' uses the background opacity from Look > Theme & colors. On: set it here.');
+    if look[key_on] or searching() then
+        ui.sub(function()
+            ui.slider_f('Opacity##' .. what, look, key_alpha, 10, 100, '%.0f%%', 'How see-through the background of the ' .. what .. ' is. Text stays solid.', { mul = 100 });
+        end);
+    end
+end
+
 -- 1.4.0: History page.
 local function draw_history_config_tab()
     local H = settings.history;
-    section_header('HISTORY WINDOW', UI_ACCENT_TEXT);
-    if imgui.Button((history_mod.open[1] and 'Close' or 'Open') .. ' the History window##scl_hist_open') then history_mod.toggle(); end
-    if imgui.IsItemHovered() then imgui.SetTooltip('Same as /scl history.'); end
-    local function chk(label, key, tip)
-        local v = { H[key] ~= false };
-        if imgui.Checkbox(label .. '##scl_hist_' .. key, v) then H[key] = v[1]; save_settings(); end
-        if tip then help_marker(tip); end
+    ui.section('WINDOW');
+    if ui.want('History window', 'open close /scl history') then
+        ui.label('History window', 'Same as /scl history.');
+        if draw_toggle_button(history_mod.open[1] and 'Open - click to close' or 'Closed - click to open', 'scl_hist_open', history_mod.open[1] == true) then history_mod.toggle(); end
     end
-    chk('Keep a history', 'enabled', 'Each side (Notifications, Incoming, Outgoing) keeps its last events for the History window.');
-    chk('Show the time of each line', 'show_time');
-    chk('Newest at the top', 'newest_first');
-    imgui.PushItemWidth(235);
-    local size = { math.floor(tonumber(H.size) or 50) };
-    if imgui.SliderInt('Events per side##scl_hist_size', size, 10, 200) then H.size = size[1]; save_settings(); end
-    local op = { math.floor((tonumber(H.opacity) or 0.92) * 100 + 0.5) };
-    if imgui.SliderInt('Background##scl_hist_op', op, 10, 100, '%d%%') then H.opacity = op[1] / 100; save_settings(); end
-    local nh = { math.floor((tonumber(H.notify_height) or 0.28) * 100 + 0.5) };
-    if imgui.SliderInt('Top part height##scl_hist_nh', nh, 10, 60, '%d%%') then H.notify_height = nh[1] / 100; save_settings(); end
-    imgui.PopItemWidth();
-    help_marker('How much of the window the Notifications part (top) takes. Incoming is on the left, Outgoing on the right, like the floating text.');
+    ui.check('Keep a history', H, 'enabled', 'Each side (Notifications, Incoming, Outgoing) keeps its last events for the History window.', { default_on = true });
+    ui.check('Show the time of each line', H, 'show_time', nil, { default_on = true });
+    ui.check('Newest at the top', H, 'newest_first', nil, { default_on = true });
+    ui.slider_i('Events per side', H, 'size', 10, 200, '%d', 'How many lines each side keeps.');
+    ui.slider_f('Top part height', H, 'notify_height', 10, 60, '%.0f%%', 'How much of the window the Notifications part (top) takes. Incoming is on the left, Outgoing on the right, like the floating text.', { mul = 100 });
 
-    -- 1.4.1: text size of the History lines. - / + (hold to repeat), not a
-    -- slider: a slider in a window it resizes jumps under the mouse.
-    state.hist_hold = state.hist_hold or {};
-    local function step(label, id, dir)
-        imgui.Button(label .. '##' .. id, { 26, 0 });
-        if imgui.IsItemActive() then
-            local t = os.clock();
-            local st = state.hist_hold[id];
-            if st == nil then
-                state.hist_hold[id] = { start = t, last = t };
-                return dir;
-            end
-            if t - st.start > 0.40 and t - st.last > 0.08 then st.last = t; return dir; end
-        else
-            state.hist_hold[id] = nil;
-        end
-        return 0;
-    end
-    local pct = math.floor(clamp(tonumber(H.font_scale) or 1.0, 0.60, 2.50) * 100 + 0.5);
-    local d = step('-', 'scl_hist_fsm', -5);
-    imgui.SameLine(0, 4);
-    imgui.AlignTextToFramePadding();
-    local txt = ('%d%%'):fmt(pct);
-    local tw = tonumber((imgui.CalcTextSize('250%'))) or 40;
-    local cw = tonumber((imgui.CalcTextSize(txt))) or 30;
-    imgui.SetCursorPosX(imgui.GetCursorPosX() + math.max(0, (tw - cw) / 2));
-    imgui.Text(txt);
-    imgui.SameLine(0, 4 + math.max(0, (tw - cw) / 2));
-    d = d + step('+', 'scl_hist_fsp', 5);
-    imgui.SameLine(0, 10);
-    imgui.Text('Text size');
-    help_marker('Size of the lines in the History window (on top of Fonts & Tooltips > Text size). Hold - or + to keep going.');
-    if pct ~= 100 then
-        imgui.SameLine(0, 10);
-        if imgui.SmallButton('Reset##scl_hist_fsr') then H.font_scale = 1.0; save_settings(); end
-    end
-    if d ~= 0 then
-        H.font_scale = clamp((pct + d) / 100, 0.60, 2.50);
-        history_mod.size_dirty = os.clock();
-    end
-    if history_mod.size_dirty ~= nil and state.hist_hold.scl_hist_fsm == nil and state.hist_hold.scl_hist_fsp == nil then
+    ui.section('LOOK');
+    -- Size: presets plus the old - / + steps (5%); the History lines only
+    -- (the title bar keeps its size).
+    if ui.scale_presets('Size', H, 'font_scale', 'Size of the lines in the History window (on top of Fonts & Tooltips > Text size).') then
         history_mod.size_dirty = nil;
+    end
+    if ui.want('Size (fine)', 'history text size steps') then
+        ui.label('Size (fine)', 'Hold - or + to keep going.');
+        state.hist_hold = state.hist_hold or {};
+        local function step(label, id, dir)
+            imgui.Button(label .. '##' .. id, { 26 * cfg_sc(), 0 });
+            if imgui.IsItemActive() then
+                local t = os.clock();
+                local st = state.hist_hold[id];
+                if st == nil then
+                    state.hist_hold[id] = { start = t, last = t };
+                    return dir;
+                end
+                if t - st.start > 0.40 and t - st.last > 0.08 then st.last = t; return dir; end
+            else
+                state.hist_hold[id] = nil;
+            end
+            return 0;
+        end
+        local pct = math.floor(clamp(tonumber(H.font_scale) or 1.0, 0.60, 2.50) * 100 + 0.5);
+        local d = step('-', 'scl_hist_fsm', -5);
+        imgui.SameLine(0, 4);
+        imgui.AlignTextToFramePadding();
+        imgui.Text(('%d%%'):fmt(pct));
+        imgui.SameLine(0, 4);
+        d = d + step('+', 'scl_hist_fsp', 5);
+        if d ~= 0 then
+            H.font_scale = clamp((pct + d) / 100, 0.60, 2.50);
+            history_mod.size_dirty = os.clock();
+        end
+        if history_mod.size_dirty ~= nil and state.hist_hold.scl_hist_fsm == nil and state.hist_hold.scl_hist_fsp == nil then
+            history_mod.size_dirty = nil;
+            save_settings();
+        end
+    end
+    own_opacity(H, 'own_alpha', 'opacity', 'History window');
+end
+
+local ITEMS_SIDES = {
+    { key = 'right', label = 'Right' },
+    { key = 'left', label = 'Left' },
+    { key = 'below', label = 'Below' },
+    { key = 'inside', label = 'Inside', tip = 'In the Session window itself (the old list).' },
+};
+
+local function draw_session_config_tab()
+    ui.section('WINDOW');
+    if ui.want('Session window', 'open close /scl session') then
+        ui.label('Session window', 'Same as /scl session: your EXP, gil, kills and items this session.');
+        if draw_toggle_button(state.session_open[1] and 'Open - click to close' or 'Closed - click to open', 'scl_sess_open', state.session_open[1] == true) then
+            state.session_open[1] = not state.session_open[1];
+            state.session_geometry_initialized = false;
+        end
+    end
+    if settings.session_items_side == nil then settings.session_items_side = 'right'; end
+    ui.choice('Items panel', settings, 'session_items_side', ITEMS_SIDES, 'Where the Items Obtained list sits: a panel attached to the Session window, or inside it.');
+
+    ui.section('LOOK');
+    ui.scale_presets('Size', settings, 'session_font_scale', 'Text size of the Session window (the title bar keeps its size). Also on the window itself.');
+    ui.slider_f('Size (fine)##session', settings, 'session_font_scale', 0.75, 2.50, '%.2fx', 'The same setting as Size, in small steps.');
+    own_opacity(settings.look.session, 'own_alpha', 'alpha', 'Session window');
+end
+
+local function draw_settings_window_tab()
+    ui.section('SETTINGS WINDOW');
+    ui.scale_presets('Settings size', settings, 'config_scale', 'Text and spacing of this window and the Preview & Tools window.');
+    ui.slider_f('Opacity##config', settings.look.config, 'alpha', 10, 100, '%.0f%%', 'How see-through this settings window is. It has its own opacity, separate from the other windows.', { mul = 100 });
+    if ui.button('Reset size and position', 'scl_cfg_reset', 'Puts this window and the Preview & Tools window back in their starting place and size.') then
+        for k, v in pairs(defaults.config_window) do settings.config_window[k] = v; end
+        for k, v in pairs(defaults.config_tools_window) do settings.config_tools_window[k] = v; end
+        state.config_geometry.main_initialized = false;
+        state.config_geometry.tools_initialized = false;
         save_settings();
     end
+
+    ui.section('PREVIEW & TOOLS WINDOW');
+    ui.info('Opens next to this window: a live preview of the floating text, test events and resets.');
+    own_opacity(settings.look.tools, 'own_alpha', 'alpha', 'Preview & Tools window');
+end
+
+-- LOOK ------------------------------------------------------------------------
+
+local function theme_buttons()
+    if not ui.want('Theme', 'Colors of SCL\'s windows. Forest Rust Bone Copper Gold Garnet Fuchsia Silver Amethyst Emerald Midnight') then return; end
+    ui.label('Theme', 'Colors of SCL\'s windows: accents, tabs, borders and title bars.');
+    local s = cfg_sc();
+    local col_x = ui.LABEL_W * s;
+    local avail = imgui.GetContentRegionAvail();
+    if type(avail) == 'table' then avail = avail.x or avail[1]; end
+    local right = col_x + (tonumber(avail) or 500);
+    local chip = 9 * s;
+    local current = tostring(settings.ui_theme or 'garnet'):lower();
+    for i, key in ipairs(UI_THEME_ORDER) do
+        local th = UI_THEMES[key];
+        local text = '      ' .. th.label;
+        local bw = (tonumber((imgui.CalcTextSize(text))) or 60) + 16 * s;
+        if i > 1 then
+            imgui.SameLine(0, 4);
+            if imgui.GetCursorPosX() + bw > right then
+                imgui.NewLine();
+                imgui.SetCursorPosX(col_x);
+            end
+        end
+        if draw_toggle_button(text, 'scl_theme_' .. key, key == current) then
+            settings.ui_theme = key;
+            save_settings();
+        end
+        pcall(function()
+            local x1, y1 = imgui.GetItemRectMin();
+            local _, y2 = imgui.GetItemRectMax();
+            x1, y1, y2 = tonumber(x1), tonumber(y1), tonumber(y2);
+            local cy = (y1 + y2) / 2;
+            local a = th.accent;
+            imgui.GetWindowDrawList():AddRectFilled({ x1 + 8 * s, cy - chip / 2 }, { x1 + 8 * s + chip, cy + chip / 2 },
+                imgui.GetColorU32({ a[1] / 255, a[2] / 255, a[3] / 255, 1 }), 2);
+        end);
+    end
+    imgui.Dummy({ 1, 4 * s });
+end
+
+local function draw_theme_config_tab()
+    ui.section('THEME');
+    theme_buttons();
+    ui.section('BACKGROUND');
+    local B = settings.ui_bg;
+    ui.check("Use the theme's background", B, 'use_theme', 'Each theme has its own dark background (Midnight is deep navy). Off: pick your own color below.', { default_on = true });
+    if B.use_theme == false or searching() then
+        ui.sub(function() ui.color('Background color', B.color, 'The background of SCL\'s windows.', false); end);
+    end
+    ui.slider_f('Opacity', B, 'alpha', 10, 100, '%.0f%%', 'How see-through the Session, Preview & Tools and move-handle windows are (unless one has its own opacity on its page).', { mul = 100 });
+    ui.info('The floating combat text is not a window: its look is on the Text pages.');
 end
 
 -- 1.4.0: the font of SCL's windows. The floating text keeps Font Style.
 local function draw_uifont_config_tab()
-    local start_x = imgui.GetCursorPosX();
-    local label_w = (tonumber((imgui.CalcTextSize('Tooltip background'))) or 140) + 18;
     uifont.settings_page(settings.ui_font, {
-        header = function(t) section_header(t, UI_ACCENT_TEXT); end,
-        label = function(text_value)
-            imgui.AlignTextToFramePadding();
-            imgui.Text(text_value);
-            imgui.SameLine();
-            imgui.SetCursorPosX(start_x + label_w);
-        end,
+        header = function(t) ui.section(t); end,
+        label = function(text_value, help_text) ui.label(text_value, help_text); end,
         dirty = function() save_settings(); end,
-        want = function() return true; end,
-        ctrl_w = 235,
+        want = function(text_value, help_text) return ui.want(text_value, help_text); end,
+        ctrl_w = ui.SLIDER_W * cfg_sc(),
         accent = UI_ACCENT_TEXT,
         muted = UI_MUTED,
     });
-    imgui.Spacing();
-    imgui.TextDisabled('For the Config, Session and History windows. The floating combat text uses Font Style.');
+    ui.info('For the Settings, Preview & Tools, Session and History windows. The floating combat text uses Text > Font Style.');
 end
+
+-- HELP ------------------------------------------------------------------------
+
+local CMDS = {
+    { '/scl', 'show / hide the combat text' },
+    { '/scl config', 'this window' },
+    { '/scl unlock', 'show the handles to move the lanes' },
+    { '/scl lock', 'save and lock the positions' },
+    { '/scl test', 'show sample events' },
+    { '/scl clear', 'clear the text on screen' },
+    { '/scl pause', 'pause / resume' },
+    { '/scl history', 'the History window' },
+    { '/scl session', 'the Session window' },
+    { '/scl debug', 'log unmapped messages to a file' },
+    { '/scl help', 'list the commands in chat' },
+};
+
+local function draw_commands_config_tab()
+    ui.section('COMMANDS');
+    for _, c in ipairs(CMDS) do
+        if ui.want(c[1], c[2]) then
+            imgui.TextColored(UI_ACCENT_TEXT, c[1]);
+            imgui.SameLine(ui.LABEL_W * cfg_sc());
+            imgui.TextColored(UI_MUTED, c[2]);
+        end
+    end
+    ui.section('ABOUT');
+    ui.value('Version', tostring(addon.version));
+    ui.info('ScrollingCombatLog by Izumi. Written for HorizonXI. Self-only: completed actions, incoming effects and your own rewards; nothing is shown when an enemy starts an action.');
+end
+
+local CONFIG_GROUPS = {
+    { label = 'GENERAL', pages = {
+        { key = 'general', label = 'General', desc = 'How long the text stays, what it includes, and where the lanes sit.', draw = draw_general_config_tab },
+    } },
+    { label = 'TEXT', pages = {
+        { key = 'display', label = 'Display', desc = 'How the text moves, the extra effects, and which events go to the center (Notifications) lane.', draw = draw_display_config_tab },
+        { key = 'font', label = 'Font Style', desc = 'The look of the floating combat text: renderer, font, effect, backing plate and sizes.', draw = draw_font_style_config_tab },
+        { key = 'outgoing', label = 'Outgoing', desc = 'What you do: which events show, their colors, and the Outgoing lane.', draw = draw_outgoing_config_tab },
+        { key = 'incoming', label = 'Incoming', desc = 'What happens to you and your rewards: which events show, their colors, and the Incoming lane.', draw = draw_incoming_config_tab },
+    } },
+    { label = 'WINDOWS', pages = {
+        { key = 'history', label = 'History', desc = 'The window with the last events of each side.', draw = draw_history_config_tab },
+        { key = 'session', label = 'Session', desc = 'The window with your EXP, gil, kills and items this session.', draw = draw_session_config_tab },
+        { key = 'settings', label = 'Settings window', desc = 'This window and the Preview & Tools window next to it.', draw = draw_settings_window_tab },
+    } },
+    { label = 'LOOK', pages = {
+        { key = 'theme', label = 'Theme & colors', desc = 'The theme and the background of SCL\'s windows.', draw = draw_theme_config_tab },
+        { key = 'uifont', label = 'Fonts & Tooltips', desc = 'The font of SCL\'s windows (not the floating text), and how tooltips look.', draw = draw_uifont_config_tab },
+    } },
+    { label = 'HELP', pages = {
+        { key = 'commands', label = 'Commands', desc = 'Type these in chat.', draw = draw_commands_config_tab },
+    } },
+};
+
+local CONFIG_CTX = {
+    id = 'scl',
+    title = 'SCL',
+    groups = CONFIG_GROUPS,
+    page = function() return settings.config_page or 'general'; end,
+    set_page = function(key) settings.config_page = key; save_settings(); end,
+    dirty = function() save_settings(); end,
+    themes = {
+        order = UI_THEME_ORDER,
+        list = UI_THEMES,
+        current = function() return tostring(settings.ui_theme or 'garnet'):lower(); end,
+        set = function(key) settings.ui_theme = key; save_settings(); end,
+    },
+    status = function()
+        if settings.paused == true then return 'Paused (/scl pause)', UI_GOLD; end
+        if settings.enabled == false then return 'Hidden (/scl to show)', UI_GOLD; end
+        return nil;
+    end,
+};
 
 local function draw_config()
     if not state.config_open[1] then
@@ -1700,7 +1609,9 @@ local function draw_config()
         return;
     end
 
-    push_theme();
+    local k = clamp(tonumber(settings.config_scale) or 1.0, 0.85, 2.0);
+    ui.scale = k;
+    push_theme(tonumber(settings.look.config.alpha) or 0.97);
 
     if not state.config_geometry.main_initialized then
         imgui.SetNextWindowPos({
@@ -1708,112 +1619,34 @@ local function draw_config()
             tonumber(settings.config_window.y) or defaults.config_window.y
         });
         imgui.SetNextWindowSize({
-            tonumber(settings.config_window.w) or defaults.config_window.w,
+            math.max(820, tonumber(settings.config_window.w) or defaults.config_window.w),
             tonumber(settings.config_window.h) or defaults.config_window.h
         });
         state.config_geometry.main_initialized = true;
     end
 
-    imgui.SetNextWindowSizeConstraints({ 620, 560 }, { 1200, 1200 });
+    imgui.SetNextWindowSizeConstraints({ 700 * k, 460 * k }, { 4000, 4000 });
 
-    uifont.push(1.0);
-    if imgui.Begin('Scrolling Combat Text - Config##scl_config', state.config_open, ImGuiWindowFlags_NoNav) then
+    uifont.push(k);
+    if imgui.Begin('SCL Settings##scl_config', state.config_open, bit.bor(ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoCollapse or 0)) then
         capture_current_window_geometry('main');
-        imgui.TextColored(UI_ACCENT_TEXT, 'SELF-ONLY COMBAT DISPLAY');
-        imgui.SameLine();
-        imgui.TextColored(UI_MUTED, 'v' .. tostring(addon.version));
-        imgui.TextDisabled('Completed actions, incoming effects, and personal rewards only.');
-
-        imgui.Spacing();
-
-        local config_tabs = {
-            { label = 'General', id = 'scl_tab_general', draw = draw_general_config_tab,
-              keys = 'general theme display behavior enabled lock pause test reset renderer symbols target source zero misses combine' },
-            { label = 'Display', id = 'scl_tab_display', draw = draw_display_config_tab,
-              keys = 'display lanes direction motion scroll notifications notify big hit size scale visible events' },
-            { label = 'Font Style', id = 'scl_tab_font', draw = draw_font_style_config_tab,
-              keys = 'font style floating combat text family bold italic outline shadow effect plate caps' },
-            { label = 'Outgoing', id = 'scl_tab_outgoing', draw = draw_outgoing_config_tab,
-              keys = 'outgoing melee ranged critical weapon skills spells magic burst skillchain abilities pet colors' },
-            { label = 'Incoming', id = 'scl_tab_incoming', draw = draw_incoming_config_tab,
-              keys = 'incoming damage healing mp regen refresh buffs status exp gil level skill drops zone warning food low hp colors' },
-            { label = 'History', id = 'scl_tab_history', draw = draw_history_config_tab,
-              keys = 'history window past events log notifications incoming outgoing time' },
-            { label = 'Fonts & Tooltips', id = 'scl_tab_uifont', draw = draw_uifont_config_tab,
-              keys = 'fonts tooltips window font tahoma text size' },
-        };
-
-        local selected_tab = tonumber(state.config_tab) or 1;
-        if selected_tab < 1 or selected_tab > #config_tabs then
-            selected_tab = 1;
-        end
-
-        -- 1.4.0: pages on the left with a search box (finds pages by keyword).
-        state.config_search = state.config_search or { '' };
-        local side_w = 160;
-        imgui.BeginChild('##scl_config_side', { side_w, 0 }, 0);
-        imgui.PushItemWidth(side_w - 6);
-        imgui.InputText('##scl_config_search', state.config_search, 48);
-        imgui.PopItemWidth();
-        if (state.config_search[1] or '') == '' and not imgui.IsItemActive() then
-            local x1, y1 = imgui.GetItemRectMin();
-            if x1 ~= nil then
-                imgui.GetWindowDrawList():AddText({ tonumber(x1) + 6, tonumber(y1) + 3 }, imgui.GetColorU32(UI_MUTED), 'Search...');
-            end
-        end
-        local q = tostring(state.config_search[1] or ''):lower():gsub('^%s+', ''):gsub('%s+$', '');
-        imgui.Spacing();
-        for index, tab in ipairs(config_tabs) do
-            local match = q == '' or (tab.label .. ' ' .. tab.keys):lower():find(q, 1, true) ~= nil;
-            if q ~= '' and not match then
-                imgui.TextColored(UI_MUTED, tab.label);
-            else
-                local sel = (q == '' and index == selected_tab) or (q ~= '' and match);
-                if sel then imgui.PushStyleColor(ImGuiCol_Text, UI_ACCENT_TEXT); end
-                if imgui.Selectable(tab.label .. '##' .. tab.id, sel) then
-                    selected_tab = index;
-                    state.config_search[1] = '';
-                end
-                if sel then imgui.PopStyleColor(1); end
-            end
-        end
-        imgui.Spacing();
-        imgui.Separator();
-        imgui.Spacing();
-        if imgui.Selectable('Open History##scl_cfg_hist', history_mod.open[1]) then history_mod.toggle(); end
-        if imgui.IsItemHovered() then imgui.SetTooltip('The last events of each side (/scl history).'); end
-        imgui.EndChild();
-        state.config_tab = selected_tab;
-
-        imgui.SameLine();
-        -- Only the page content scrolls.
-        imgui.BeginChild('##scl_config_content', { 0, 0 });
-        local any = false;
-        for index, tab in ipairs(config_tabs) do
-            local show;
-            if q == '' then show = index == selected_tab; else show = (tab.label .. ' ' .. tab.keys):lower():find(q, 1, true) ~= nil; end
-            if show then
-                any = true;
-                if q ~= '' then section_header(tab.label:upper(), UI_ACCENT_TEXT); end
-                tab.draw();
-                imgui.Spacing();
-            end
-        end
-        if not any then imgui.TextColored(UI_MUTED, 'Nothing matches the search.'); end
-        imgui.EndChild();
+        local ok, err = pcall(ui.body, CONFIG_CTX);
+        if not ok then imgui.TextColored(UI_RED, tostring(err)); end
     end
     imgui.End();
     uifont.pop();
+    pop_theme();
 
     if state.config_open[1] then
         -- Grow the Tools window so the live preview always fits.
         local needed_w = math.floor((tonumber(state.preview_needed_w) or 0) + 48);
         local min_w = math.max(380, math.min(needed_w, 1600));
         imgui.SetNextWindowSizeConstraints({ min_w, 520 }, { math.max(800, min_w), 1200 });
+        local tl = settings.look.tools;
+        push_theme(tl.own_alpha and (tonumber(tl.alpha) or 0.97) or nil);
         draw_config_companion();
+        pop_theme();
     end
-
-    pop_theme();
 end
 
 return {

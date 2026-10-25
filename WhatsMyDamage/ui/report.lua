@@ -18,6 +18,7 @@
 require('common');
 local imgui = require('imgui');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local data = require('core.data');
 local tracker = require('core.tracker');
 
@@ -129,17 +130,24 @@ function report.tick()
     report.next_send = now + 1.1;
 end
 
+-- 1.1.0: a window's background (its own opacity when it has one).
+local function look_bg(look)
+    if look ~= nil and look.own_alpha then return theme.background(tonumber(look.alpha) or 0.97); end
+    return theme.background();
+end
+
 function report.draw(cfg, ctx)
     if not report.open_flag[1] then return; end
     local rc = cfg.report;
-    local s = tonumber(cfg.config_scale) or 1;
+    local look = cfg.look and cfg.look.report or {};
+    local s = tonumber(look.scale) or tonumber(cfg.config_scale) or 1;
     if report.pos ~= nil then
         imgui.SetNextWindowPos(report.pos);
         report.pos = nil;
     end
-    theme.push(nil, s, { border = true });
-    imgui.PushFont(nil, imgui.GetFontSize() * s);
-    local flags = bit.bor(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0);
+    theme.push(look_bg(look), s, { border = true });
+    uifont.push(s);
+    local flags = bit.bor(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0, ImGuiWindowFlags_NoNav or 0);
     if imgui.Begin('Report to chat##wmd_report', report.open_flag, flags) then
         local ok, err = pcall(function()
             theme.align_label();
@@ -195,7 +203,7 @@ function report.draw(cfg, ctx)
         if not ok then ctx.error('report window', err); end
     end
     imgui.End();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
 end
 

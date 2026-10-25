@@ -13,6 +13,7 @@
 require('common');
 local imgui = require('imgui');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local vana = require('core.vana');
 local schedule = require('core.schedule');
 
@@ -291,7 +292,7 @@ function info.hover(cfg, c, v)
     local h = cfg.hover or {};
     local hs = tonumber(h.scale) or 1;
     theme.push(nil, hs, { border = true });
-    imgui.PushFont(nil, imgui.GetFontSize() * hs);
+    uifont.push(hs);
     imgui.BeginTooltip();
     local any = false;
     local function sec(on, fn, ...)
@@ -306,7 +307,7 @@ function info.hover(cfg, c, v)
     imgui.Spacing();
     imgui.TextColored(muted(), 'Click the clock for everything.');
     imgui.EndTooltip();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
 end
 
@@ -328,9 +329,11 @@ function info.draw(cfg, ctx)
         imgui.SetNextWindowPos({ px, py });
         info.placed = true;
     end
-    theme.push(nil, s, { border = true });
-    imgui.PushFont(nil, imgui.GetFontSize() * s);
-    local flags = bit.bor(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0);
+    -- 3.2.0: its own opacity when it has one.
+    local look = cfg.look and cfg.look.info or {};
+    theme.push(look.own_alpha and theme.background(tonumber(look.alpha) or 0.97) or nil, s, { border = true });
+    uifont.push(s);
+    local flags = bit.bor(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoCollapse or 0, ImGuiWindowFlags_NoSavedSettings or 0, ImGuiWindowFlags_NoNav or 0);
     if imgui.Begin('Vana\'diel##izclock_info', info.open, flags) then
         -- Big header: time, day, moon.
         local base = imgui.GetFontSize();
@@ -373,7 +376,7 @@ function info.draw(cfg, ctx)
         end
     end
     imgui.End();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
 end
 

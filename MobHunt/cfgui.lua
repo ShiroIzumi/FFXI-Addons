@@ -1,8 +1,8 @@
 --[[
-    cfgui.lua - the settings window kit (same layout as MogSuite's settings)
+    MobHunt - cfgui.lua: the settings window kit (same layout as MogSuite's settings)
 
-    Used by MobHunt (and, later, the other single addons) so every settings
-    window looks and works the same:
+    MobHunt's copy. The same file is in MobHunt, WhatsMyDamage, IzClock and
+    ScrollingCombatLog so every settings window looks and works the same:
 
       * a search box at the top finds any setting by its name or help text
         and lists the matches grouped by page
@@ -324,6 +324,7 @@ function ui.preview() return not ui.searching(); end
 --   themes   = { order = { keys }, list = { [key] = { label, accent = {r,g,b 0-255} } },
 --                current = function() return key end, set = function(key) end },
 --   reserve_right = function() return px end   (optional: space kept free at the top right)
+--   status   = function() return text, color end   (optional: a message instead of "Saved per character")
 -- }
 -- ----------------------------------------------------------------------------
 
@@ -426,7 +427,15 @@ function ui.body(ctx)
         imgui.TextColored(t.muted, ('%d result%s for "%s"'):format(n, n == 1 and '' or 's', S.q));
     else
         t.align_label();
-        imgui.TextColored(t.muted, 'Saved per character');
+        -- ctx.status(): an optional short message (text, color) shown
+        -- instead of "Saved per character" (e.g. "All data cleared.").
+        local st, stc = nil, nil;
+        if type(ctx.status) == 'function' then st, stc = ctx.status(); end
+        if st ~= nil and st ~= '' then
+            imgui.TextColored(stc or t.muted, tostring(st));
+        else
+            imgui.TextColored(t.muted, 'Saved per character');
+        end
     end
 
     -- Quick theme swatches, top right.

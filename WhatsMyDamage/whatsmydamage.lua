@@ -1,6 +1,6 @@
 --[[
     WhatsMyDamage (WMD) - Ashita v4 / HorizonXI
-    Version 1.0.0
+    Version 1.1.0
 
     A damage meter in the style of WoW's Details!: colored bars with
     "1. Name" on the left and "amount (share%)" on the right, for
@@ -43,11 +43,13 @@
       ui/report.lua        report to chat
       ui/newparty.lua      "reset the meters?" when you join a new party
       ui/config.lua        settings window
+      cfgui.lua            settings window kit (same as MobHunt / IzClock / SCL)
+      uifont.lua           the window font (Tahoma) and tooltips
 ]]
 
 addon.name      = 'whatsmydamage';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.0.1';
+addon.version   = '1.1.0';
 addon.desc      = 'WhatsMyDamage: a Details!-style damage, healing and damage taken meter.';
 addon.link      = '';
 
@@ -55,6 +57,7 @@ require('common');
 local imgui = require('imgui');
 local settings = require('settings');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local cursor = require('core.cursor');
 local gamestate = require('core.gamestate');
 local fonts = require('core.fonts');
@@ -130,8 +133,29 @@ local defaults = T{
     config_theme = 'silver',
     config_scale = 1.0,
     config_pos = { x = -1, y = -1, w = -1, h = -1 },
+    config_page = 'general',
+
+    -- 1.1.0: each window's own look (size and, optionally, opacity), the
+    -- shared background of the settings / details / report / new party
+    -- windows, stat colors and the window font (Tahoma).
+    look = {
+        detail = { own_alpha = false, alpha = 0.97 },
+        report = { scale = 1.0, own_alpha = false, alpha = 0.97 },
+        newparty = { scale = 1.0, own_alpha = false, alpha = 0.97 },
+        config = { alpha = 0.97 },
+    },
+    look_v = 0,
+    ui_bg = { use_theme = true, color = { 0.035, 0.035, 0.040, 1 }, alpha = 0.97 },
+    colors = {
+        good = { 0.43, 0.80, 0.50, 1 }, bad = { 0.90, 0.36, 0.36, 1 },
+        warn = { 0.92, 0.70, 0.32, 1 }, muted = { 0.62, 0.62, 0.66, 1 },
+    },
+    ui_font = {},
     pointer = { enabled = true, size = 1.4, color = { 1.00, 0.10, 0.75, 1.00 }, outline = { 0.05, 0.00, 0.05, 1.00 }, shadow = true },
 };
+
+uifont.addon = 'whatsmydamage';
+uifont.defaults(defaults.ui_font);   -- Tahoma 15 and the tooltip look
 
 local cfg = settings.load(defaults);
 
@@ -153,13 +177,49 @@ local function fill(dst, def)
     end
 end
 
-local function profile()
-    theme.set_profile({ theme = cfg.config_theme, opacity = 0.97, use_theme_bg = true, text_effect = 'shadow' });
-    theme.apply(cfg.config_theme);
+local DEFAULT_COLORS = copy(defaults.colors);
+
+local function set4(dst, src)
+    if type(src) ~= 'table' then return; end
+    dst[1], dst[2], dst[3], dst[4] = tonumber(src[1]) or dst[1], tonumber(src[2]) or dst[2], tonumber(src[3]) or dst[3], tonumber(src[4]) or 1;
 end
 
-fill(cfg, defaults);
+local function profile()
+    local b = cfg.ui_bg or defaults.ui_bg;
+    theme.set_profile({ theme = cfg.config_theme, opacity = tonumber(b.alpha) or 0.97, use_theme_bg = b.use_theme ~= false,
+        background = b.color, text_effect = 'shadow' });
+    theme.apply(cfg.config_theme);
+    -- Stat colors (the tables are shared by reference, so update in place).
+    local c = cfg.colors or defaults.colors;
+    set4(theme.UI_GOOD, c.good);
+    set4(theme.UI_DANGER, c.bad);
+    set4(theme.UI_WARN, c.warn);
+    set4(theme.UI_MUTED, c.muted);
+end
+
+-- 1.1.0: the report and new party windows used the settings window's size;
+-- they start at that size now, with their own setting.
+local function migrate()
+    if (tonumber(cfg.look_v) or 0) >= 1 then return; end
+    local s = tonumber(cfg.config_scale) or 1;
+    cfg.look.report.scale = s;
+    cfg.look.newparty.scale = s;
+    cfg.look_v = 1;
+end
+
+local function prepare()
+    fill(cfg, defaults);
+    for _, k in ipairs({ 'detail', 'report', 'newparty', 'config' }) do fill(cfg.look[k], defaults.look[k]); end
+    fill(cfg.colors, defaults.colors);
+    fill(cfg.ui_bg, defaults.ui_bg);
+    uifont.defaults(cfg.ui_font);
+    migrate();
+    uifont.set_global(cfg.ui_font);
+end
+
+prepare();
 profile();
+uifont.install_tooltips();
 
 local save_at = nil;
 local function dirty()
@@ -198,6 +258,10 @@ ctx = {
         cfg.windows[1].snap_to, cfg.windows[1].snap_side = 0, '';
         dirty();
     end,
+    reset_colors = function()
+        cfg.colors = copy(DEFAULT_COLORS);
+        dirty();
+    end,
     reset_positions = function()
         for i = 1, 3 do
             local d = defaults.windows[i];
@@ -211,7 +275,7 @@ ctx = {
 settings.register('settings', 'wmd_settings_update', function(s)
     if s == nil then return; end
     cfg = s;
-    fill(cfg, defaults);
+    prepare();
     if cfg.bars.style == 'striped' then cfg.bars.style = 'rounded'; end   -- 1.0.1
     for i = 1, 3 do fill(cfg.windows[i], defaults.windows[i]); end
     profile();
@@ -342,6 +406,7 @@ end);
 -- Fonts are added once here, outside of drawing.
 ashita.events.register('load', 'wmd_load_cb', function()
     pcall(fonts.load_all);
+    pcall(uifont.load, cfg.ui_font);
 end);
 
 ashita.events.register('packet_in', 'wmd_packet_in_cb', function(e)

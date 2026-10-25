@@ -1,8 +1,8 @@
 --[[
     IzClock - core/theme.lua (same as Triage)
 
-    House look: black base with one accent color. Six themes (Silver is the
-    default), the ImGui style stack, small widgets (tabs, toggles, section
+    House look: black base with one accent color. Eleven themes, the same
+    in every Izumi addon (Silver is the default here), the ImGui style stack, small widgets (tabs, toggles, section
     headers, help markers) and draw-list text with an optional shadow or
     outline at any size.
 
@@ -40,15 +40,20 @@ theme.UI_WARN           = { 0.92, 0.70, 0.32, 1.00 };
 --   bg          : window background (when "Use the theme's background" is on)
 --   control...  : optional tinted controls (Midnight)
 theme.THEMES = {
-    silver   = { label = 'Silver',   accent = { 176, 188, 204 }, text = { 226, 232, 240 }, title_active = { 28, 30, 34 },  border = { 66, 72, 82 },   bg = { 9, 9, 10 } },
+    forest   = { label = 'Forest',   accent = { 111, 175, 79 },  text = { 164, 212, 136 }, title_active = { 20, 32, 18 },  border = { 44, 68, 38 },   bg = { 8, 10, 8 } },
+    rust     = { label = 'Rust',     accent = { 181, 82, 59 },   text = { 226, 140, 118 }, title_active = { 34, 20, 16 },  border = { 72, 40, 32 },   bg = { 10, 8, 8 } },
+    bone     = { label = 'Bone',     accent = { 207, 198, 176 }, text = { 232, 226, 210 }, title_active = { 28, 27, 25 },  border = { 64, 62, 56 },   bg = { 10, 10, 9 } },
+    copper   = { label = 'Copper',   accent = { 196, 128, 80 },  text = { 224, 166, 120 }, title_active = { 24, 15, 9 },   border = { 72, 48, 32 },   bg = { 9, 9, 10 } },
     gold     = { label = 'Gold',     accent = { 214, 178, 92 },  text = { 240, 212, 148 }, title_active = { 34, 28, 14 },  border = { 76, 64, 36 },   bg = { 10, 9, 8 } },
+    garnet   = { label = 'Garnet',   accent = { 168, 52, 62 },   text = { 214, 112, 120 }, title_active = { 24, 9, 11 },   border = { 70, 30, 34 },   bg = { 9, 9, 10 } },
+    fuchsia  = { label = 'Fuchsia',  accent = { 214, 72, 170 },  text = { 240, 150, 214 }, title_active = { 30, 8, 24 },   border = { 82, 30, 66 },   bg = { 10, 8, 10 } },
+    silver   = { label = 'Silver',   accent = { 176, 188, 204 }, text = { 226, 232, 240 }, title_active = { 28, 30, 34 },  border = { 66, 72, 82 },   bg = { 9, 9, 10 } },
+    amethyst = { label = 'Amethyst', accent = { 150, 118, 214 }, text = { 184, 160, 236 }, title_active = { 16, 11, 26 },  border = { 52, 42, 78 },   bg = { 9, 8, 12 } },
     emerald  = { label = 'Emerald',  accent = { 60, 180, 110 },  text = { 132, 222, 166 }, title_active = { 10, 28, 18 },  border = { 30, 70, 46 },   bg = { 8, 10, 9 } },
     midnight = { label = 'Midnight', accent = { 104, 148, 226 }, text = { 168, 196, 242 }, title_active = { 14, 22, 44 },  border = { 42, 60, 100 },  bg = { 9, 14, 28 },
                  control = { 20, 28, 48 }, control_hover = { 30, 42, 70 }, control_active = { 40, 56, 92 }, title = { 6, 10, 22 }, popup = { 10, 16, 32 } },
-    amethyst = { label = 'Amethyst', accent = { 150, 118, 214 }, text = { 184, 160, 236 }, title_active = { 16, 11, 26 },  border = { 52, 42, 78 },   bg = { 9, 8, 12 } },
-    fuchsia  = { label = 'Fuchsia',  accent = { 214, 72, 170 },  text = { 240, 150, 214 }, title_active = { 30, 8, 24 },   border = { 82, 30, 66 },   bg = { 10, 8, 10 } },
 };
-theme.ORDER = { 'silver', 'gold', 'emerald', 'midnight', 'amethyst', 'fuchsia' };
+theme.ORDER = { 'forest', 'rust', 'bone', 'copper', 'gold', 'garnet', 'fuchsia', 'silver', 'amethyst', 'emerald', 'midnight' };
 theme.DEFAULT = 'silver';
 
 local NEUTRAL = {
@@ -107,6 +112,35 @@ function theme.background(opacity_override)
     end
     local c = p.background or { 0.035, 0.035, 0.040 };
     return { tonumber(c[1]) or 0.035, tonumber(c[2]) or 0.035, tonumber(c[3]) or 0.040, op };
+end
+
+-- ============================================================================
+-- TAB never moves the keyboard focus into this addon's text fields: every
+-- window is drawn with "no tab stop" pushed (pushed before Begin, popped
+-- after End, so it covers the whole window).
+-- ============================================================================
+
+local notab_stack = {};
+
+function theme.notab_push()
+    local kind = 0;
+    if imgui.PushItemFlag ~= nil and ImGuiItemFlags_NoTabStop ~= nil then
+        if pcall(imgui.PushItemFlag, ImGuiItemFlags_NoTabStop, true) then kind = 1; end
+    end
+    if kind == 0 and imgui.PushTabStop ~= nil then
+        if pcall(imgui.PushTabStop, false) then kind = 2; end
+    end
+    if kind == 0 and imgui.PushAllowKeyboardFocus ~= nil then
+        if pcall(imgui.PushAllowKeyboardFocus, false) then kind = 3; end
+    end
+    notab_stack[#notab_stack + 1] = kind;
+end
+
+function theme.notab_pop()
+    local kind = table.remove(notab_stack);
+    if kind == 1 then pcall(imgui.PopItemFlag);
+    elseif kind == 2 then pcall(imgui.PopTabStop);
+    elseif kind == 3 then pcall(imgui.PopAllowKeyboardFocus); end
 end
 
 -- ============================================================================
@@ -187,11 +221,13 @@ function theme.push(bg, scale, opts)
     v(ImGuiStyleVar_WindowMinSize, { 8, 8 });
 
     stack[#stack + 1] = { nc, nv };
+    theme.notab_push();
 end
 
 function theme.pop()
     local e = table.remove(stack);
     if e == nil then return; end
+    theme.notab_pop();
     if e[2] > 0 then imgui.PopStyleVar(e[2]); end
     if e[1] > 0 then imgui.PopStyleColor(e[1]); end
 end

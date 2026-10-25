@@ -140,9 +140,11 @@ function history.draw()
     end
     imgui.SetNextWindowSizeConstraints({ 420, 300 }, { 4000, 4000 });
 
+    -- 1.6.0: its own opacity (on by default, as before), or the shared one.
     push_theme();
     local BG = theme_mod.UI_BG;
-    imgui.PushStyleColor(ImGuiCol_WindowBg, { BG[1], BG[2], BG[3], clamp(tonumber(H.opacity) or 0.92, 0.10, 1.00) });
+    local hist_alpha = (H.own_alpha ~= false) and clamp(tonumber(H.opacity) or 0.92, 0.10, 1.00) or BG[4];
+    imgui.PushStyleColor(ImGuiCol_WindowBg, { BG[1], BG[2], BG[3], hist_alpha });
     uifont.push(1.0);
     if imgui.Begin('SCL History##scl_history', history.open, bit.bor(ImGuiWindowFlags_NoNav, ImGuiWindowFlags_NoCollapse or 0)) then
         -- 1.4.1: text size of the window contents (Config > History).

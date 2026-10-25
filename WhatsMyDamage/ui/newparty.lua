@@ -22,6 +22,7 @@
 require('common');
 local imgui = require('imgui');
 local theme = require('core.theme');
+local uifont = require('uifont');
 local roster = require('core.roster');
 local tracker = require('core.tracker');
 
@@ -111,13 +112,20 @@ local CHOICES = {
     { key = 'keep', label = 'Always keep', tip = 'Never reset; don\'t ask.' },
 };
 
+-- 1.1.0: a window's background (its own opacity when it has one).
+local function look_bg(look)
+    if look ~= nil and look.own_alpha then return theme.background(tonumber(look.alpha) or 0.97); end
+    return theme.background();
+end
+
 function newparty.draw(cfg, ctx, meter_rect)
     if not newparty.open_flag[1] then return; end
     if os.clock() - newparty.opened_at > AUTO_CLOSE then
         newparty.open_flag[1] = false;
         return;
     end
-    local s = tonumber(cfg.config_scale) or 1;
+    local look = cfg.look and cfg.look.newparty or {};
+    local s = tonumber(look.scale) or tonumber(cfg.config_scale) or 1;
     -- Show it right above the first meter (or near the middle of the screen).
     if newparty.pos == nil then
         if meter_rect ~= nil then
@@ -129,8 +137,8 @@ function newparty.draw(cfg, ctx, meter_rect)
         end
         imgui.SetNextWindowPos(newparty.pos);
     end
-    theme.push(nil, s, { border = true });
-    imgui.PushFont(nil, imgui.GetFontSize() * s);
+    theme.push(look_bg(look), s, { border = true });
+    uifont.push(s);
     local flags = bit.bor(ImGuiWindowFlags_AlwaysAutoResize, ImGuiWindowFlags_NoCollapse or 0,
         ImGuiWindowFlags_NoSavedSettings or 0, ImGuiWindowFlags_NoFocusOnAppearing or 0);
     if imgui.Begin('New party##wmd_newparty', newparty.open_flag, flags) then
@@ -165,7 +173,7 @@ function newparty.draw(cfg, ctx, meter_rect)
         if not ok then ctx.error('new party question', err); end
     end
     imgui.End();
-    imgui.PopFont();
+    uifont.pop();
     theme.pop();
 end
 

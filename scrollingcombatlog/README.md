@@ -1,12 +1,21 @@
 # ScrollingCombatLog
 
-**Version:** 1.5.2  
+**Version:** 1.6.0  
 **Platform:** Ashita v4 / HorizonXI  
 **Author:** Izumi (ShiroIzumi)
 
 ScrollingCombatLog (SCL) is a self-focused scrolling combat text addon for Final Fantasy XI. It is designed to show **what you do** and **what happens to you** without becoming a full party/alliance damage parser.
 
 It separates combat into configurable **Outgoing** and **Incoming** lanes and supports combat damage, abilities, spells, healing, statuses, progression/rewards, and several FFXI-specific combat mechanics.
+
+## Changes in 1.6.0
+
+- **New settings window, the same layout as MobHunt, WhatsMyDamage and IzClock:** a search box that finds any setting by name or help text, "Saved per character" and the theme swatches on one line, and a sidebar grouped into **General**, **Text** (Display, Font Style, Outgoing, Incoming), **Windows** (History, Session, Settings window), **Look** (Theme & colors, Fonts & Tooltips) and **Help** (Commands). Every page has a title and a line about what it is for, and its settings in two columns with (?) help. Every setting from before is kept; the window remembers the last page.
+- **Eleven themes**, the same in every Izumi addon: Forest, Rust, Bone, Copper, Gold, Garnet (still the default), Fuchsia, Silver, Amethyst, Emerald and Midnight (Midnight also tints buttons, title bars and popups).
+- **Background:** use the theme's own background or your own color, with one opacity for SCL's windows (Look > Theme & colors).
+- **Each window has its own look:** the settings window has a size (85% - 200%) and its own opacity; History, Session and Preview & Tools each have a size and an optional own opacity on their page. History keeps the opacity it had.
+- **TAB no longer jumps into SCL's text fields** (the settings search box, the lane X / Y boxes): nothing in SCL's windows takes keyboard focus from TAB.
+- Lane positions can be reset from the Outgoing, Incoming and Display pages too (still also on Preview & Tools).
 
 ## Changes in 1.5.2
 
@@ -175,52 +184,23 @@ Opening:
 /scl config
 ```
 
-displays two windows.
+displays two windows: **SCL Settings** and **SCL Preview & Tools** next to it.
 
-### Main Config
+### SCL Settings
 
-Tabs:
+A **search box** at the top finds any setting by name or help text. The theme swatches at the top right switch the theme in one click. Hover any **(?)** for an explanation. The pages, in the sidebar:
 
-#### General
-
-Controls display/content behavior such as:
-
-- Theme (Garnet / Copper / Amethyst)
-- Display Time
-- Scroll Speed
-- Global Font scale
-- Maximum Visible Events (per lane)
-- Event Symbols / Prefixes
-- Show Outgoing Target Names
-- Show Incoming Source Names
-- Show 0 Damage / No-Damage Results
-- Show Misses
-- Combine Rapid Repeated Hits
-- Lock Positions
-
-#### Font Style
-
-Controls:
-
-- Performance renderer / Custom Font renderer
-- Font Family
-- Bold
-- Italic
-- Outline
-- Normal Damage scale
-- Abilities / WS scale
-- Healing scale
-- Rewards scale
-
-The Custom Font renderer uses Ashita FontManager functionality and supports installed Windows font families.
-
-#### Outgoing
-
-Contains Show/Hide and color controls for outgoing categories plus outgoing lane layout/orientation.
-
-#### Incoming
-
-Contains Show/Hide and color controls for incoming categories and includes the **Rewards** section.
+- **General → General:** Display Time, Scroll Speed, Global Font size, Most Lines on Screen; event symbols / prefixes, target and source names, 0 damage results, misses, combining rapid repeated hits; Lock Positions and the layout (Centered on one point, or Free, with the side gap, start, height and notifications gap).
+- **Text → Display:** each lane's motion (Scroll, Arc, Fade In), Critical Pop, Element Colors, Combine AoE Hits, which events go to the Notifications (center) lane, the big hit threshold and the notification size.
+- **Text → Font Style:** Performance or Custom Font renderer, font family, Bold, Italic, ALL CAPS, text opacity; the text effect, its color, strength and shadow distance; the backing plate, its opacity and rounding; the sizes of normal damage, abilities / WS, healing and rewards. The Custom Font renderer uses Ashita FontManager and installed Windows fonts.
+- **Text → Outgoing:** show / hide and the color of every outgoing category, plus the Outgoing lane's direction, growth and position.
+- **Text → Incoming:** show / hide and the color of every incoming category (with the Low HP warning level), the Incoming lane's direction, growth and position, and the **Rewards** section.
+- **Windows → History:** open it, keep a history, times, newest at the top, events per side, the top part's height; its size and own opacity.
+- **Windows → Session:** open it, where the Items panel sits; its size and own opacity.
+- **Windows → Settings window:** this window's size and opacity, a reset for its size and position, and the Preview & Tools window's own opacity.
+- **Look → Theme & colors:** the eleven themes, the theme's own background or your color, and the opacity of SCL's windows.
+- **Look → Fonts & Tooltips:** the font of SCL's windows (Tahoma by default) and how tooltips look. The floating combat text keeps Font Style.
+- **Help → Commands:** every command and the version.
 
 ### Preview & Tools
 
@@ -231,6 +211,8 @@ The second config window contains:
 - Clear Active Text
 - Reset Outgoing Position
 - Reset Incoming Position
+- Reset Notification Position
+- Session Summary and Debug Log toggles
 - Reset All Settings
 - Command reference
 

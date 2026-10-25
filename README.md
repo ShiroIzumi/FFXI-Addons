@@ -99,7 +99,7 @@ WhatsMyDamage (WMD) is a damage meter in the style of WoW's Details!, with color
 - **Hover and details:** hover a bar for every source with its accuracy, crits and magic bursts. Click a bar for a details window with per-source tables, targets, pets and a death recap.
 - **Report:** posts the numbers to party, linkshell or say, one line a second, only when you press Send.
 - **New party:** asks whether to reset the meters when you join a new party.
-- **Look:** 9 bar styles, 40+ Windows fonts, job colors and XIUI job icons, six themes and a test mode.
+- **Look:** 9 bar styles, 40+ Windows fonts, job colors and XIUI job icons, eleven themes and a test mode.
 
 ---
 

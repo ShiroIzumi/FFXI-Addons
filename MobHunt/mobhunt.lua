@@ -1,6 +1,6 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.7.1
+    Version 1.7.2
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
@@ -38,7 +38,7 @@
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.7.1';
+addon.version   = '1.7.2';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -95,6 +95,9 @@ local UI_THEMES = {
     copper   = { label = 'Copper',   accent = { 196, 128, 80 },  text = { 224, 166, 120 }, title_active = { 24, 15, 9 },  border = { 72, 48, 32 },  bg = { 9, 9, 10 } },
     garnet   = { label = 'Garnet',   accent = { 168, 52, 62 },   text = { 214, 112, 120 }, title_active = { 24, 9, 11 },  border = { 70, 30, 34 },  bg = { 9, 9, 10 } },
     silver   = { label = 'Silver',   accent = { 176, 188, 204 }, text = { 226, 232, 240 }, title_active = { 28, 30, 34 }, border = { 66, 72, 82 },  bg = { 9, 9, 10 } },
+    -- 1.7.2: Gold and Fuchsia (from WhatsMyDamage / IzClock): every Izumi addon has the same eleven.
+    gold     = { label = 'Gold',     accent = { 214, 178, 92 },  text = { 240, 212, 148 }, title_active = { 34, 28, 14 }, border = { 76, 64, 36 },  bg = { 10, 9, 8 } },
+    fuchsia  = { label = 'Fuchsia',  accent = { 214, 72, 170 },  text = { 240, 150, 214 }, title_active = { 30, 8, 24 },  border = { 82, 30, 66 },  bg = { 10, 8, 10 } },
     amethyst = { label = 'Amethyst', accent = { 150, 118, 214 }, text = { 184, 160, 236 }, title_active = { 16, 11, 26 }, border = { 52, 42, 78 },  bg = { 9, 8, 12 } },
     emerald  = { label = 'Emerald',  accent = { 60, 180, 110 },  text = { 132, 222, 166 }, title_active = { 10, 28, 18 }, border = { 30, 70, 46 },  bg = { 8, 10, 9 } },
     midnight = { label = 'Midnight', accent = { 104, 148, 226 }, text = { 168, 196, 242 }, title_active = { 14, 22, 44 }, border = { 42, 60, 100 }, bg = { 9, 14, 28 },
@@ -104,7 +107,7 @@ UI_THEMES.forest.bg = { 8, 10, 8 };
 UI_THEMES.rust.bg = { 10, 8, 8 };
 UI_THEMES.bone.bg = { 10, 10, 9 };
 
-local UI_THEME_ORDER = { 'forest', 'rust', 'bone', 'copper', 'garnet', 'silver', 'amethyst', 'emerald', 'midnight' };
+local UI_THEME_ORDER = { 'forest', 'rust', 'bone', 'copper', 'gold', 'garnet', 'fuchsia', 'silver', 'amethyst', 'emerald', 'midnight' };
 -- MobHunt's own neutral control / title / popup colors (0-255), for themes
 -- that don't tint them.
 local UI_NEUTRAL = {
@@ -4222,7 +4225,7 @@ end
 
 function CFG.page_theme()
     ui.section('THEME');
-    if ui.want('Theme', 'Colors every MobHunt window: accents, tabs, borders and title bars. Forest Rust Bone Copper Garnet Silver Amethyst Emerald Midnight') then
+    if ui.want('Theme', 'Colors every MobHunt window: accents, tabs, borders and title bars. Forest Rust Bone Copper Gold Garnet Fuchsia Silver Amethyst Emerald Midnight') then
         ui.label('Theme', 'Colors every MobHunt window: accents, tabs, borders and title bars.');
         local current = normalize_theme_key(state.theme);
         -- One button per theme with its color chip; wraps onto the next line

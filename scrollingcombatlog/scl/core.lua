@@ -44,8 +44,20 @@ local defaults = T{
     -- Combat text font rendering.
     renderer_mode = 'performance',
 
-    -- Config window color theme: 'garnet', 'copper' or 'amethyst'.
+    -- Config window color theme (1.6.0: the eleven themes of every Izumi
+    -- addon; see scl/theme.lua). Garnet is SCL's default.
     ui_theme = 'garnet',
+
+    -- 1.6.0: the shared background of SCL's windows, each window's own
+    -- look, the settings window's size and its last page.
+    ui_bg = T{ use_theme = true, color = { 0.035, 0.035, 0.040, 1.00 }, alpha = 0.97 },
+    look = T{
+        config = T{ alpha = 0.97 },
+        tools = T{ own_alpha = false, alpha = 0.97 },
+        session = T{ own_alpha = false, alpha = 0.97 },
+    },
+    config_scale = 1.00,
+    config_page = 'general',
 
     font_family = 'Consolas',
     font_bold = false,
@@ -169,6 +181,7 @@ local defaults = T{
         opacity = 0.92,
         notify_height = 0.28,    -- share of the window the top (Notifications) part uses
         font_scale = 1.0,        -- 1.4.1: text size of the lines (title bar keeps its size)
+        own_alpha = true,        -- 1.6.0: History always had its own opacity
         x = -1, y = -1, w = 820, h = 560,
         visible = false,
     },
@@ -239,15 +252,27 @@ local function fill_new_defaults()
     fill('session_window', defaults.session_window);
     fill('history', defaults.history);
     fill('layout', defaults.layout);
-    if type(settings.ui_font) ~= 'table' then settings.ui_font = T{}; end
-
-    for _, lane in ipairs({ 'outgoing', 'incoming' }) do
-        if type(settings[lane]) == 'table' and settings[lane].motion == nil then
-            settings[lane].motion = 'scroll';
+    -- 1.6.0 (deep copies: these tables are edited in place by the settings window).
+    local function dcopy(v)
+        if type(v) ~= 'table' then return v; end
+        local o = T{};
+        for k, x in pairs(v) do o[k] = dcopy(x); end
+        return o;
+    end
+    local function deep_fill(dst, src)
+        for k, v in pairs(src) do
+            if dst[k] == nil or type(dst[k]) ~= type(v) or (type(v) == 'table' and dst[k] == v) then
+                dst[k] = dcopy(v);
+            elseif type(v) == 'table' and #v == 0 then
+                deep_fill(dst[k], v);
+            end
         end
     end
-
-    for _, key in ipairs({ 'notify_scale', 'big_hit_threshold', 'crit_pop', 'element_colors', 'combine_aoe', 'session_font_scale', 'session_items_side', 'regen_ticks_always', 'low_hp_percent' }) do
+    if type(settings.ui_bg) ~= 'table' or settings.ui_bg == defaults.ui_bg then settings.ui_bg = T{}; end
+    deep_fill(settings.ui_bg, defaults.ui_bg);
+    if type(settings.look) ~= 'table' or settings.look == defaults.look then settings.look = T{}; end
+    deep_fill(settings.look, defaults.look);
+    for _, key in ipairs({ 'config_scale', 'config_page', 'notify_scale', 'big_hit_threshold', 'crit_pop', 'element_colors', 'combine_aoe', 'session_font_scale', 'session_items_side', 'regen_ticks_always', 'low_hp_percent' }) do
         if settings[key] == nil then
             settings[key] = defaults[key];
         end
