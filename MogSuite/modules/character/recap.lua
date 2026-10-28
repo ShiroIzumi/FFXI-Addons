@@ -46,11 +46,33 @@ local function unpack_bits(data_raw, pos, n)
     return ashita.bits.unpack_be(data_raw, 0, pos, n);
 end
 
+-- 1.6.8: every read is checked against the packet's size first. Big action
+-- packets (an AoE on a crowd) can say they hold more targets / results than
+-- the packet really has; reading on past its end read memory that isn't
+-- there and crashed the addon (EXCEPTION_ACCESS_VIOLATION in packet_in, which
+-- pcall can't catch). A packet like that is now skipped.
+local TOO_SHORT = {};
+
 function parse_action(e)
     local raw = e.data_raw;
     if raw == nil then return nil; end
+    local size = tonumber(e.size) or 0;
+    if size <= 0 and type(e.data) == 'string' then size = #e.data; end
+    local limit = size * 8;
+    if limit < 150 then return nil; end
     local pos = 40;
-    local function b(n) local v = unpack_bits(raw, pos, n); pos = pos + n; return v; end
+    local function b(n)
+        if pos + n > limit then error(TOO_SHORT); end
+        local v = unpack_bits(raw, pos, n);
+        pos = pos + n;
+        return v;
+    end
+    local ok, a = pcall(function() return parse_action_body(b); end);
+    if not ok then return nil; end
+    return a;
+end
+
+function parse_action_body(b)
     local a = {};
     a.actor = b(32);
     local ntargets = b(6);
@@ -60,10 +82,10 @@ function parse_action(e)
     b(16);
     a.recast = b(32);
     a.targets = {};
-    for _ = 1, math.min(ntargets, 64) do
+    for _ = 1, math.min(ntargets, 15) do
         local t = { id = b(32), actions = {} };
         local nact = b(4);
-        for _ = 1, nact do
+        for _ = 1, math.min(nact, 8) do
             local act = {};
             act.reaction = b(5);
             act.animation = b(12);

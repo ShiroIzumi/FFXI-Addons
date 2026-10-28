@@ -1,6 +1,6 @@
 --[[
     MobHunt - Ashita v4 / HorizonXI
-    Version 1.7.2
+    Version 1.8.2
 
     Tracks monsters by Zone + Mob Name:
       * Fights / encounters
@@ -38,7 +38,7 @@
 
 addon.name      = 'MobHunt';
 addon.author    = 'Izumi (ShiroIzumi)';
-addon.version   = '1.7.2';
+addon.version   = '1.8.2';
 addon.desc      = 'Tracks mob encounters, kills, deaths, and observed drops by zone.';
 addon.link      = '';
 
@@ -430,6 +430,8 @@ local defaults = T{
         -- 1.6.0
         track_abilities = true,     -- count mob TP moves / spells
         abilities_target = true,    -- top abilities in the target window
+        show_level = true,          -- 1.8.0: the mob's level (from your checks) in the target window
+        auto_check = false,         -- 1.8.1: check a mob once when a fight with it starts (1.8.2: off by default)
         abilities_rows = 4,         -- how many (one per row)
         zone_highlight = true,      -- highlight this zone's mobs when All Zones is shown
     },
@@ -664,6 +666,12 @@ local function ensure_config_tables()
     if config.timers_window == nil then config.timers_window = T{}; end
     if config.records == nil then config.records = T{}; end
     if config.active_encounters == nil then config.active_encounters = T{}; end
+    -- 1.8.2: "Check when a fight starts" is off by default; saves from 1.8.1
+    -- had it on, so it is turned off once.
+    if config.behavior.auto_check_v182 ~= true then
+        config.behavior.auto_check = false;
+        config.behavior.auto_check_v182 = true;
+    end
 
     local names = { 'background', 'accent', 'success', 'danger', 'muted' };
     for _, name in ipairs(names) do
@@ -970,6 +978,91 @@ local function get_current_target()
     return info;
 end
 
+-- ============================================================================
+-- 1.8.0: mob levels, from your own checks.
+-- A check result is a 0x029 battle message from you to the mob: messages
+-- 170-178 (LandSandBoat EQUIP_INSPECT: 174 = even defense / evasion, +-1 for
+-- defense, +-3 for evasion) with the mob's level in param 1; 249 = "impossible
+-- to gauge" (NMs). MobHunt never checks on its own: it only records the checks
+-- you do (/check, the checker addon, a macro...).
+-- 1.8.1: and, when "Check when a fight starts" is on, MobHunt checks the mob
+-- itself once per spawn as the fight begins (John: fine on HorizonXI, other
+-- addons do the same).
+-- Record fields: lvl_min, lvl_max, lvl_checks, lvl_counts { ['level'] = n },
+-- lvl_last, lvl_nm. Each spawn counts once (cleared when it dies).
+-- (A global table: the main chunk is near LuaJIT's 200-local limit.)
+-- ============================================================================
+MH_LEVEL = MH_LEVEL or {};
+MH_LEVEL.checked = MH_LEVEL.checked or {};   -- [mob server id] = level this spawn
+
+function MH_LEVEL.is_check(msg)
+    msg = tonumber(msg) or 0;
+    return (msg >= 170 and msg <= 178) or msg == 249;
+end
+
+-- "3-6", "5", "??" or nil.
+function MH_LEVEL.range_text(rec)
+    if rec == nil then return nil; end
+    local lo, hi = tonumber(rec.lvl_min), tonumber(rec.lvl_max);
+    if lo == nil or hi == nil then
+        if rec.lvl_nm then return '??'; end
+        return nil;
+    end
+    if lo == hi then return tostring(lo); end
+    return ('%d-%d'):fmt(lo, hi);
+end
+
+-- Levels seen, lowest first: { { level, count }, ... }.
+function MH_LEVEL.counts(rec)
+    local out = {};
+    if rec == nil or type(rec.lvl_counts) ~= 'table' then return out; end
+    for k, n in pairs(rec.lvl_counts) do
+        local l = tonumber(k);
+        if l ~= nil and (tonumber(n) or 0) > 0 then out[#out + 1] = { l, tonumber(n) }; end
+    end
+    table.sort(out, function(a, b) return a[1] < b[1]; end);
+    return out;
+end
+
+-- 1.8.1: one /check of a mob as its fight starts. Once per spawn (skipped
+-- when it's already checked), never closer than 1 s to the last one, only
+-- within 45 yalms (the server ignores checks past 50). The packet is the
+-- client's own /check (0x0DD EQUIP_INSPECT: UniqueNo u32, ActIndex u32,
+-- Kind u8 = 0 Check, 3 bytes padding).
+function MH_LEVEL.auto_check(info)
+    if config.behavior.auto_check ~= true or info == nil then return; end
+    local sid, idx = tonumber(info.id), tonumber(info.index);
+    if sid == nil or sid == 0 or idx == nil or idx <= 0 then return; end
+    if MH_LEVEL.checked[sid] ~= nil then return; end
+    local now = os.clock();
+    MH_LEVEL.sent = MH_LEVEL.sent or {};
+    if MH_LEVEL.sent[sid] ~= nil and now - MH_LEVEL.sent[sid] < 30 then return; end
+    if MH_LEVEL.last_send ~= nil and now - MH_LEVEL.last_send < 1.0 then return; end
+    local near = true;
+    pcall(function()
+        local d = tonumber(AshitaCore:GetMemoryManager():GetEntity():GetDistance(idx));
+        if d ~= nil and d > 0 and math.sqrt(d) > 45 then near = false; end
+    end);
+    if not near then return; end
+    MH_LEVEL.sent[sid] = now;
+    MH_LEVEL.last_send = now;
+    local function b(v, n) return bit.band(bit.rshift(v, 8 * n), 0xFF); end
+    local pkt = { 0xDD, 0x08, 0x00, 0x00,
+        b(sid, 0), b(sid, 1), b(sid, 2), b(sid, 3),
+        b(idx, 0), b(idx, 1), b(idx, 2), b(idx, 3),
+        0x00, 0x00, 0x00, 0x00 };
+    local ok = pcall(function() AshitaCore:GetPacketManager():AddOutgoingPacket(0xDD, pkt); end);
+    if state.debug[1] then print(('[MobHunt] Auto check: %s (%s)'):fmt(tostring(info.name), ok and 'sent' or 'failed')); end
+end
+
+function MH_LEVEL.forget(mob_id)
+    mob_id = tonumber(mob_id);
+    if mob_id ~= nil then
+        MH_LEVEL.checked[mob_id] = nil;
+        if MH_LEVEL.sent then MH_LEVEL.sent[mob_id] = nil; end
+    end
+end
+
 local function get_or_create_record(info)
     if info == nil or info.name == nil or info.name == '' or info.is_mob ~= true then return nil, nil; end
 
@@ -1001,6 +1094,35 @@ local function get_or_create_record(info)
     if rec.name == nil or rec.name == '' then rec.name = info.name; end
 
     return rec, key;
+end
+
+-- 1.8.0: a check result for one of your checks (see MH_LEVEL above).
+function MH_LEVEL.record(p)
+    local info = get_entity_info(p.target_index, p.target);
+    if info == nil or info.is_mob ~= true or info.id ~= tonumber(p.target) then return; end
+    local rec = get_or_create_record(info);
+    if rec == nil then return; end
+    if tonumber(p.message) == 249 then
+        if not rec.lvl_nm then rec.lvl_nm = true; state.data_dirty = true; end
+        MH_LEVEL.checked[info.id] = '??';
+        return;
+    end
+    local level = tonumber(p.param1) or 0;
+    if level < 1 or level > 150 then return; end
+    local prev = MH_LEVEL.checked[info.id];
+    MH_LEVEL.checked[info.id] = level;
+    rec.lvl_last = level;
+    if prev == level then return; end   -- the same spawn checked again
+    rec.lvl_min = math.min(tonumber(rec.lvl_min) or level, level);
+    rec.lvl_max = math.max(tonumber(rec.lvl_max) or level, level);
+    rec.lvl_checks = (tonumber(rec.lvl_checks) or 0) + 1;
+    if type(rec.lvl_counts) ~= 'table' then rec.lvl_counts = T{}; end
+    local k = tostring(level);
+    rec.lvl_counts[k] = (tonumber(rec.lvl_counts[k]) or 0) + 1;
+    state.data_dirty = true;
+    if state.debug[1] then
+        print(('[MobHunt] Check: %s Lv.%d (range %s, %d checked)'):fmt(tostring(rec.name), level, tostring(MH_LEVEL.range_text(rec)), rec.lvl_checks));
+    end
 end
 
 local function get_session_record(key)
@@ -1139,6 +1261,7 @@ local function start_encounter(info, reason)
         end
 
         persist_encounter(state.encounters[info.id]);
+        pcall(MH_LEVEL.auto_check, info);   -- 1.8.1
         state.debug_counters.resumes = (tonumber(state.debug_counters.resumes) or 0) + 1;
         dbg(('Resumed existing encounter after reload: %s (%s), reason=%s'):fmt(
             info.name, info.zone_name, tostring(reason)));
@@ -1177,6 +1300,7 @@ local function start_encounter(info, reason)
     };
 
     persist_encounter(state.encounters[info.id]);
+    pcall(MH_LEVEL.auto_check, info);   -- 1.8.1: check the mob once as the fight starts
 
     state.debug_counters.starts = (tonumber(state.debug_counters.starts) or 0) + 1;
     state.data_dirty = true;
@@ -1331,6 +1455,7 @@ end
 local function count_kill(mob_id, hinted_index, source)
     mob_id = tonumber(mob_id);
     if mob_id == nil or mob_id == 0 then return; end
+    MH_LEVEL.forget(mob_id);   -- 1.8.0: the next spawn is checked fresh
 
     local last = state.recent_kills[mob_id];
     if last ~= nil and (os.clock() - last) < 2.0 then
@@ -3020,6 +3145,53 @@ local function draw_record_summary(rec, key, include_header)
     end
 end
 
+-- 1.8.0: level pill after the mob's name: "Lv 5  3-6" (this spawn's checked
+-- level, then the range you have seen) or "Lv 3-6" / "Lv ??" (NM).
+function MH_LEVEL.draw_pill(rec, sid)
+    local range = MH_LEVEL.range_text(rec);
+    local cur = sid and MH_LEVEL.checked[tonumber(sid) or 0] or nil;
+    if range == nil and cur == nil then return; end
+    local main, rest;
+    local col = UI_ACCENT_TEXT;
+    if cur == '??' or (cur == nil and range == '??') then
+        main, rest, col = 'Lv ??', nil, state.danger;
+    elseif cur ~= nil then
+        main = 'Lv ' .. tostring(cur);
+        if range ~= nil and range ~= tostring(cur) then rest = range; end
+    else
+        main = 'Lv ' .. range;
+    end
+    imgui.SameLine(0, 10);
+    local dl = imgui.GetWindowDrawList();
+    local px, py = imgui.GetCursorScreenPos();
+    px, py = tonumber(px) or 0, tonumber(py) or 0;
+    local lh = imgui.GetTextLineHeight();
+    local w1 = tw_text(main);
+    local w2 = rest and (tw_text(rest) + 8) or 0;
+    local w = w1 + w2 + 14;
+    local a = UI_ACCENT;
+    if cur == nil then
+        -- Not checked this spawn: a quieter outline pill.
+        dl:AddRect({ px, py }, { px + w, py + lh + 2 }, imgui.GetColorU32({ a[1], a[2], a[3], 0.45 }), (lh + 2) / 2, 0, 1.0);
+        dl:AddText({ px + 7, py + 1 }, imgui.GetColorU32(state.muted), main);
+    else
+        dl:AddRectFilled({ px, py }, { px + w, py + lh + 2 }, imgui.GetColorU32({ col[1], col[2], col[3], 0.20 }), (lh + 2) / 2);
+        dl:AddText({ px + 7, py + 1 }, imgui.GetColorU32(col), main);
+        if rest then dl:AddText({ px + 7 + w1 + 8, py + 1 }, imgui.GetColorU32(state.muted), rest); end
+    end
+    imgui.Dummy({ w, lh + 2 });
+    if imgui.IsItemHovered() then
+        imgui.BeginTooltip();
+        if cur ~= nil and cur ~= '??' then imgui.Text(('This one: level %s (checked)'):fmt(tostring(cur))); end
+        if range ~= nil and range ~= '??' then
+            imgui.Text(('Levels seen: %s (%d checked)'):fmt(range, tonumber(rec.lvl_checks) or 0));
+        end
+        if rec and rec.lvl_nm then imgui.TextColored(state.danger, 'Checks as "impossible to gauge"'); end
+        imgui.TextColored(state.muted, 'From your own /check of this mob.');
+        imgui.EndTooltip();
+    end
+end
+
 local function draw_target_window()
     if not state.visible[1] then
         state.target_apply_geometry = true;
@@ -3075,6 +3247,7 @@ local function draw_target_window()
             local srec = state.session[key];
 
             imgui.TextColored(UI_ACCENT_TEXT, tostring(target.name));
+            if config.behavior.show_level ~= false then pcall(MH_LEVEL.draw_pill, rec, target.id); end
             if state.encounters[target.id] ~= nil then
                 -- "IN COMBAT" pill.
                 imgui.SameLine(0, 10);
@@ -3249,6 +3422,10 @@ local function filtered_history()
         elseif state.history_sort == 'zone' then
             av = tostring(a.rec.zone_name or ''):lower();
             bv = tostring(b.rec.zone_name or ''):lower();
+        elseif state.history_sort == 'level' then
+            -- 1.8.0: highest level seen, then lowest; unchecked mobs last.
+            av = (tonumber(a.rec.lvl_max) or -1) * 1000 + (tonumber(a.rec.lvl_min) or 0);
+            bv = (tonumber(b.rec.lvl_max) or -1) * 1000 + (tonumber(b.rec.lvl_min) or 0);
         elseif state.history_sort == 'fights' then
             av = tonumber(a.rec.fights) or 0;
             bv = tonumber(b.rec.fights) or 0;
@@ -3557,7 +3734,7 @@ local function draw_history_window()
         imgui.Spacing();
 
         if imgui.BeginTable ~= nil then
-            local ncols = item_search and 8 or 7;
+            local ncols = item_search and 9 or 8;
             local flags = bit.bor(
                 ImGuiTableFlags_RowBg or 0,
                 ImGuiTableFlags_BordersInnerH or 0,
@@ -3571,6 +3748,7 @@ local function draw_history_window()
                 local pct_w = math.max(text_w('Death % v'), text_w('100.0%')) + 10;
                 imgui.TableSetupColumn('Mob', ImGuiTableColumnFlags_WidthStretch or 0, 1.35);
                 imgui.TableSetupColumn('Zone', ImGuiTableColumnFlags_WidthStretch or 0, 1.0);
+                imgui.TableSetupColumn('Lv', ImGuiTableColumnFlags_WidthFixed or 0, math.max(text_w('Lv v'), text_w('75-75')) + 10);
                 imgui.TableSetupColumn('Fights', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
                 imgui.TableSetupColumn('Kills', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
                 imgui.TableSetupColumn('Deaths', ImGuiTableColumnFlags_WidthFixed or 0, num_w);
@@ -3584,6 +3762,7 @@ local function draw_history_window()
                 imgui.TableNextRow(ImGuiTableRowFlags_Headers or 1);
                 imgui.TableNextColumn(); sort_header('Mob', 'name', false);
                 imgui.TableNextColumn(); sort_header('Zone', 'zone', false);
+                imgui.TableNextColumn(); sort_header('Lv', 'level', true);
                 imgui.TableNextColumn(); sort_header('Fights', 'fights', true);
                 imgui.TableNextColumn(); sort_header('Kills', 'kills', true);
                 imgui.TableNextColumn(); sort_header('Deaths', 'deaths', true);
@@ -3631,6 +3810,9 @@ local function draw_history_window()
                         end
                     end
                     imgui.TableNextColumn(); imgui.TextColored(here and config.appearance.zone_highlight or state.muted, tostring(rec.zone_name or '--'));
+                    imgui.TableNextColumn();
+                    local lv = MH_LEVEL.range_text(rec);
+                    cell_right(lv or '--', (lv == '??' and state.danger) or (lv and UI_ACCENT_TEXT) or state.muted);
                     imgui.TableNextColumn(); cell_right(tonumber(rec.fights) or 0);
                     imgui.TableNextColumn(); cell_right(tonumber(rec.kills) or 0, state.success);
                     imgui.TableNextColumn();
@@ -3879,6 +4061,47 @@ local function stat_tiles(items)
     imgui.Dummy({ #items * (w + 6) - 6, h + 4 });
 end
 
+-- 1.8.0: level chart for Mob Details: one column per level from the lowest
+-- to the highest seen, its height = how many of your checks were that level.
+function MH_LEVEL.draw_levels(lvls)
+    local lo, hi = lvls[1][1], lvls[#lvls][1];
+    local by = {};
+    local most, total = 0, 0;
+    for _, v in ipairs(lvls) do
+        by[v[1]] = v[2];
+        total = total + v[2];
+        if v[2] > most then most = v[2]; end
+    end
+    local n = hi - lo + 1;
+    if n > 40 then n = 40; hi = lo + 39; end
+    local dl = imgui.GetWindowDrawList();
+    local x0, y0 = imgui.GetCursorScreenPos();
+    x0, y0 = tonumber(x0) or 0, tonumber(y0) or 0;
+    local lh = imgui.GetTextLineHeight();
+    local col_w = math.max(tw_text('75') + 10, 22);
+    local gap = 4;
+    local bar_h = lh * 2.4;
+    local a = UI_ACCENT;
+    for i = 0, n - 1 do
+        local l = lo + i;
+        local c = by[l] or 0;
+        local x = x0 + i * (col_w + gap);
+        local base = y0 + lh + bar_h;
+        -- count on top, bar, level under it
+        dl:AddRectFilled({ x, y0 + lh }, { x + col_w, base }, imgui.GetColorU32({ UI_CONTROL[1], UI_CONTROL[2], UI_CONTROL[3], 0.55 }), 3);
+        if c > 0 then
+            local h = math.max(3, bar_h * c / math.max(most, 1));
+            dl:AddRectFilled({ x, base - h }, { x + col_w, base }, imgui.GetColorU32({ a[1], a[2], a[3], c == most and 0.95 or 0.55 }), 3);
+            local ct = tostring(c);
+            dl:AddText({ x + (col_w - tw_text(ct)) / 2, y0 }, imgui.GetColorU32(state.muted), ct);
+        end
+        local lt = tostring(l);
+        dl:AddText({ x + (col_w - tw_text(lt)) / 2, base + 2 }, imgui.GetColorU32(c > 0 and UI_ACCENT_TEXT or state.muted), lt);
+    end
+    imgui.Dummy({ n * (col_w + gap) - gap, lh * 2 + bar_h + 4 });
+    imgui.TextColored(state.muted, ('%d checked. Level = the number under each bar; the number above = how many.'):fmt(total));
+end
+
 -- Mob detail window, docked beside History. Opens when a mob is clicked.
 local function draw_detail_window()
     if not state.history_visible[1] or not state.detail_open then return; end
@@ -3948,7 +4171,17 @@ local function draw_detail_window()
             { 'Avg fight', time_text },
             { 'Total EXP', tostring(math.floor(tonumber(rec.exp_total) or 0)) },
             { 'Streak', ('%d (best %d)'):fmt(tonumber(rec.current_streak) or 0, tonumber(rec.best_streak) or 0) },
+            { 'Level', MH_LEVEL.range_text(rec) or '--', (rec.lvl_nm and state.danger) or (rec.lvl_min and UI_ACCENT_TEXT) or nil },
+            { 'Checked', tostring(tonumber(rec.lvl_checks) or 0) },
         }, 3);
+
+        -- 1.8.0: how often each level came up in your checks.
+        local lvls = MH_LEVEL.counts(rec);
+        if #lvls > 0 then
+            imgui.Spacing();
+            section_header('Levels');
+            pcall(MH_LEVEL.draw_levels, lvls);
+        end
 
         imgui.Spacing();
         section_header('Times');
@@ -4173,6 +4406,12 @@ function CFG.page_target()
     ui.check('Observed drops', state.show_drops, 1, 'The drops you have seen from this mob, with their drop rate.');
     ui.check('Kills per hour', state.show_kills_per_hour, 1, 'Kills per hour for this session.');
     ui.check('Per-job stats', state.show_by_job, 1, 'Your kills and deaths on this mob for each job you fought it as.');
+    ui.check('Mob level', config.behavior, 'show_level', 'The level from your checks next to the name: this one\'s level (once checked) and the range you have seen.', { default_on = true });
+    if config.behavior.show_level ~= false or ui.searching() then
+        ui.sub(function()
+            ui.check('Check when a fight starts', config.behavior, 'auto_check', 'MobHunt checks the mob once when a fight with it starts (the IN COMBAT tag), so every mob gets its level. Once per spawn, and only when it isn\'t checked yet. Off (the default): only your own checks are recorded.');
+        end);
+    end
     ui.check('Top abilities', config.behavior, 'abilities_target', 'The abilities your target uses most, one per row with their share and how often they get interrupted. The full list is in History > Mob Details.', { default_on = true });
     if config.behavior.abilities_target ~= false or ui.searching() then
         ui.sub(function()
@@ -4642,6 +4881,12 @@ ashita.events.register('packet_in', 'mobhunt_packet_in_cb', function(e)
     elseif e.id == 0x029 then
         local p = parse_action_message(e);
         if p == nil then return; end
+
+        -- 1.8.0: your check of a mob: record its level.
+        if MH_LEVEL.is_check(p.message) and p.actor == player_id and p.target ~= player_id then
+            pcall(MH_LEVEL.record, p);
+            return;
+        end
 
         if DEATH_MESSAGES:contains(p.message) then
             if p.target == player_id and p.actor ~= player_id then

@@ -11,7 +11,7 @@
 | **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
 | **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.6.7
+**Version:** 1.6.9
 **Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
 
 <table>
@@ -109,6 +109,7 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 - **Abilities:** main job (two-hour first, then by level), pet commands and support job abilities, with badges (SP, JA, PET, ROLL, QD, MAN, MRT).
 - **Weapon Skills:** for your main and ranged weapon, with your skill level, a CAPPED tag, and a bar to the next weapon skill.
 - **Magic:** every spell your jobs can use, by school, split into Usable and Unusable, with element, MP cost and the scrolls you are still missing. Blue Magic shows the spells you have set. Ninjutsu shows your tool counts.
+- **Job traits:** your main and support job traits after the abilities, each with what it does and its value at that tier when you hover it.
 - **Pets:** your pet's HP / MP / TP while it is out, its commands, and for Summoner every blood pact (Rage / Ward) of the avatar that is out.
 - **Using:** double-click a row, click a pinned action, or right-click for Use on me / a party member / a selected enemy.
 
@@ -227,6 +228,13 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.6.9
+- **Actions: job traits explain themselves.** Hover a trait (or select it) to see what it does and this tier's value, e.g. Subtle Blow III: "the enemy gains less TP when you hit it... Subtle Blow +15". Covers every trait in the lists: the bonuses, resistances, killers, Martial Arts, Dual Wield, Store TP, Clear Mind and more. Values are LandSandBoat's (HorizonXI can differ).
+- Traits no longer show a "Macro: /ja ..." line: they're passive and can't be used.
+
+### 1.6.8
+- Fixed a crash in crowded fights (`EXCEPTION_ACCESS_VIOLATION` in `packet_in`, MogSuite unloaded): the death recap reads action packets with every field checked against the packet's length, and skips one that claims more targets than it holds.
 
 ### 1.6.7
 - Character, changing gear: "worn" marks only the item you actually have on. With two identical items (two Warp Cudgels) both showed as worn.

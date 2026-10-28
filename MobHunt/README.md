@@ -1,6 +1,6 @@
 # MobHunt
 
-**Version:** 1.7.2
+**Version:** 1.8.2
 **Platform:** Ashita v4 / HorizonXI
 **Author:** Izumi (ShiroIzumi)
 
@@ -62,6 +62,7 @@ MobHunt keeps a lifetime record of every monster you fight, by **zone + mob name
   - **Drop rate** = kills where the item dropped / total kills. Three Fire Crystals from one kill is one drop at 100%, with a quantity of 3.
 - **Mob abilities:** every TP move and spell the mob **starts**, how many it **finished**, and how often it got interrupted (Stun, Silence, Paralyze, or the mob died first). They are only added to the record once the mob is dead; nothing is shown during the fight.
 - **Session:** fights, kills, deaths, kills per hour and EXP since you logged in or reset the session.
+- **Levels:** every check of a mob (your `/check`, or the checker addon's) records its level. With Check when a fight starts turned on (off by default), MobHunt also checks each mob once as the fight starts. It keeps the range you have seen (lowest to highest) and how often each level came up; each spawn counts once. NMs that check as "impossible to gauge" show as `??`. Windows > Target window > Check when a fight starts turns the automatic check on.
 - Players, party members, trusts and normal NPCs are never recorded as monsters.
 - Reloading MobHunt in the middle of a fight does not count the fight twice.
 
@@ -70,7 +71,7 @@ MobHunt keeps a lifetime record of every monster you fight, by **zone + mob name
 Shows the record of the monster you have targeted. It grows and shrinks with its contents, so you only set its width.
 
 - **Full view:**
-  - The mob's name with a pulsing **IN COMBAT** pill, and the zone.
+  - The mob's name with a **level pill** and a pulsing **IN COMBAT** pill, and the zone. The level pill shows this mob's level once you've checked it (`Lv 5  3-6`), or the range you have seen (`Lv 3-6`). Hover it for details.
   - Tiles for **Fights**, **Kills**, **Deaths** and **Win** rate.
   - Avg EXP, Avg fight and Last kill on one line.
   - **Abilities:** its most used TP moves and spells, each with its share and how often it gets interrupted.
@@ -78,7 +79,7 @@ Shows the record of the monster you have targeted. It grows and shrinks with its
   - **Per-job stats**, once you have fought it on two or more jobs.
   - **Observed Drops:** every item with its count and drop-rate bar.
   - Buttons for History, Config, Timers and Mini.
-- **Mini view:** a small window with the zone, a row of F / K / D / Win tiles, the last kill and session kills on one line, the best drop with its rate, and buttons for Full, History, Config and Timers. Full and Mini each remember their own place and width.
+- **Mini view:** a small window with the name and level pill, the zone, a row of F / K / D / Win tiles, the last kill and session kills on one line, the best drop with its rate, and buttons for Full, History, Config and Timers. Full and Mini each remember their own place and width.
 
 ## History and Mob Details
 
@@ -88,10 +89,12 @@ Shows the record of the monster you have targeted. It grows and shrinks with its
   - **Current Zone** / **All Zones** tabs. With All Zones, the mobs of the zone you are in are written in their own color.
   - **Search** by mob, zone or **item**: typing an item name (for example `Honey`) lists every mob that dropped it, with an extra column for the item's drop rate.
   - Totals as chips: Mobs, Kills, Deaths.
+  - A **Lv** column with the level range you have seen.
   - Click a column title to sort by it. **Most Dangerous** sorts by Death % (deaths per fight).
 - **Mob Details:** click a mob in History to open it beside the list; click it again or the X to close it.
   - Tiles for Kills, Deaths, Win rate and Avg fight.
-  - **Lifetime:** fights, kills, deaths, win and death rate, Avg EXP, Total EXP, Avg fight and streak (with best).
+  - **Lifetime:** fights, kills, deaths, win and death rate, Avg EXP, Total EXP, Avg fight, streak (with best), level range and how many you've checked.
+  - **Levels:** a small chart, one bar per level, showing how often each level came up in your checks.
   - **Times:** first seen, last kill and last death.
   - **By Job:** fights, kills, deaths, win %, Avg EXP and Avg fight per job.
   - **Abilities:** each ability with its type, uses, share bar, finished, interrupted % and uses per fight.
@@ -122,7 +125,7 @@ Which windows are shown, their frame and their positions.
   - **Mini view** on / off.
   - Lock position.
 - **Look:** its own Size (85% to 200%) and, optionally, its own opacity.
-- **Content:** turn on or off This session, Observed drops, Kills per hour, Per-job stats and Top abilities, and how many ability rows it lists.
+- **Content:** turn on or off This session, Observed drops, Kills per hour, Per-job stats, Mob level (and Check when a fight starts) and Top abilities, and how many ability rows it lists.
 
 ### Windows → History
 - **Window:** show it, lock position and size, and which tab it opens on (Current Zone or All Zones).
@@ -174,6 +177,17 @@ Which windows are shown, their frame and their positions.
 - Everything is saved per character in Ashita's `config` folder on your PC.
 
 ## Changelog
+
+### 1.8.2
+- **Check when a fight starts** is now off by default (also turned off once for saves from 1.8.1). Turn it on in Windows > Target window.
+
+### 1.8.1 Check When a Fight Starts
+- MobHunt checks a mob once when a fight with it starts (the IN COMBAT tag), so every mob you fight gets its level. Once per spawn, only when it isn't checked yet, only within 45 yalms, and never more than one check a second. Windows > Target window > Check when a fight starts turns it off.
+
+### 1.8.0 Mob Levels
+- **Levels from your checks:** each `/check` of a mob (yours or the checker addon's) records its level; MobHunt keeps the range and how often each level came up, once per spawn. "Impossible to gauge" shows as `??`. Nothing is ever checked automatically.
+- **Target window (Full and Mini):** a level pill after the name: this one's checked level plus the range (`Lv 5  3-6`), or just the range until you check it. Hover for details. Windows > Target window > Mob level turns it off.
+- **History:** a sortable **Lv** column. **Mob Details:** Level and Checked in Lifetime, and a **Levels** chart.
 
 ### 1.7.2 Eleven Themes
 - **Gold** and **Fuchsia** themes: every Izumi addon (MobHunt, WhatsMyDamage, IzClock, ScrollingCombatLog) now has the same eleven themes in the same order.

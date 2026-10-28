@@ -131,6 +131,24 @@ function draw_details(row, as_tooltip)
         imgui.TextWrapped(desc);
         imgui.PopTextWrapPos();
     end
+    -- 1.6.9: what a job trait does (the game has no description for traits).
+    if row.k == 'trait' then
+        local ti = trait_info(row);
+        local wrap = as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0;
+        imgui.PushTextWrapPos(wrap);
+        if ti ~= nil then
+            imgui.TextWrapped(ti.desc);
+            if ti.tier ~= nil then
+                imgui.TextColored(UI_MUTED, 'This tier:');
+                imgui.SameLine(0, 6);
+                imgui.TextColored(config.value_color, ti.tier);
+            end
+        else
+            imgui.TextColored(UI_MUTED, 'A passive trait: always on while you are this job and level.');
+        end
+        imgui.TextColored(UI_MUTED, (row.status == 'ready') and 'Always on - nothing to use.' or ('Unlocks at %s.'):format(job_level_text(row.job, row.level)));
+        imgui.PopTextWrapPos();
+    end
     local hz = horizon_note(row);
     if hz ~= nil then
         imgui.PushTextWrapPos(as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0);
@@ -210,7 +228,7 @@ function draw_details(row, as_tooltip)
         imgui.TextColored(UI_MUTED, t);
     end
 
-    if row.status == 'ready' then
+    if row.status == 'ready' and row.k ~= 'trait' then   -- 1.6.9: traits can't be used, so no macro
         local line = macro_line(row);
         imgui.TextColored(UI_MUTED, 'Macro:');
         imgui.SameLine(0, 6);

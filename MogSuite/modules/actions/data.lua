@@ -513,5 +513,96 @@ function horizon_note(row)
     return HORIZON_NOTES[row.name];
 end
 
+-- ============================================================================
+-- 1.6.9: what each job trait does, for the hover / details.
+-- desc = what it does; v = the value per tier (I, II, III ...), fmt = how a
+-- tier's value reads ('%d' = that tier's value). Values are LandSandBoat's
+-- (the server HorizonXI is built on); Horizon can differ.
+-- ============================================================================
+local T4 = { 10, 22, 35, 48 };
+TRAIT_INFO = {
+    ['Accuracy Bonus'] = { desc = 'Raises your Accuracy and Ranged Accuracy.', v = T4, fmt = '+%d Accuracy and Ranged Accuracy' },
+    ['Attack Bonus'] = { desc = 'Raises your Attack and Ranged Attack.', v = T4, fmt = '+%d Attack and Ranged Attack' },
+    ['Defense Bonus'] = { desc = 'Raises your Defense.', v = T4, fmt = '+%d Defense' },
+    ['Evasion Bonus'] = { desc = 'Raises your Evasion.', v = T4, fmt = '+%d Evasion' },
+    ['Magic Attack Bonus'] = { desc = 'Your offensive spells hit harder.', v = { 20, 24, 28, 32 }, fmt = '+%d Magic Attack Bonus' },
+    ['Magic Defense Bonus'] = { desc = 'You take less damage from enemy spells.', v = { 10, 12, 14, 16 }, fmt = '+%d Magic Defense Bonus' },
+    ['Double Attack'] = { desc = 'Sometimes you swing twice in one attack round.', v = { 10 }, fmt = '%d%% chance to attack twice' },
+    ['Triple Attack'] = { desc = 'Sometimes you swing three times in one attack round.', v = { 5 }, fmt = '%d%% chance to attack three times' },
+    ['Martial Arts'] = { desc = 'Your hand-to-hand attacks come faster (lower attack delay).', v = { 80, 100, 120, 140, 160, 180 }, fmt = 'Hand-to-hand delay -%d' },
+    ['Subtle Blow'] = { desc = 'The enemy gains less TP when you hit it, so it uses its TP moves less often.', v = { 5, 10, 15, 20, 25 }, fmt = 'Subtle Blow +%d: the enemy gains %d%% less TP from your hits' },
+    ['Counter'] = { desc = 'Sometimes you counterattack when an enemy attacks you.', v = { 10 }, fmt = '%d%% chance to counter' },
+    ['Kick Attacks'] = { desc = 'Sometimes you add a kick to your attack round.', v = { 10, 12 }, fmt = '%d%% chance of a kick attack' },
+    ['Max HP Boost'] = { desc = 'Raises your maximum HP.', v = { 30, 60, 120, 180, 240, 280 }, fmt = '+%d max HP' },
+    ['Max MP Boost'] = { desc = 'Raises your maximum MP.', v = { 10, 20, 40, 60 }, fmt = '+%d max MP' },
+    ['Clear Mind'] = { desc = 'You recover more MP while resting (/heal).', v = { 3, 6, 9, 12, 15 }, fmt = '+%d MP per tick while resting' },
+    ['Auto Regen'] = { desc = 'You slowly regain HP all the time.', v = { 1 }, fmt = '+%d HP every 3 seconds' },
+    ['Auto Refresh'] = { desc = 'You slowly regain MP all the time.', v = { 1 }, fmt = '+%d MP every 3 seconds' },
+    ['Conserve MP'] = { desc = 'Sometimes a spell costs less MP.', v = { 25 }, fmt = 'About a %d%% chance to save MP on a spell' },
+    ['Fast Cast'] = { desc = 'Your spells take less time to cast.', v = { 10, 15, 20 }, fmt = 'Casting time -%d%%' },
+    ['Store TP'] = { desc = 'You gain more TP from each of your hits.', v = { 10, 15, 20, 25 }, fmt = '+%d%% TP per hit' },
+    ['Zanshin'] = { desc = 'When you miss, you sometimes get another attack right away.', v = { 15, 25, 35, 45 }, fmt = '%d%% chance of another attack after a miss' },
+    ['Dual Wield'] = { desc = 'Lets you hold a weapon in each hand, and lowers the delay while you do.', v = { 10, 15, 25, 30 }, fmt = 'Dual-wield delay -%d%%' },
+    ['Rapid Shot'] = { desc = 'Sometimes a ranged attack is aimed much faster (2-50% shorter), and it can do extra damage.', v = { 25 }, fmt = 'About a %d%% chance per shot' },
+    ['Shield Mastery'] = { desc = 'You gain TP when you block an attack with your shield.', v = { 10, 20, 30 }, fmt = '+%d TP per block' },
+    ['Desperate Blows'] = { desc = 'While Last Resort is up, your two-handed weapon attacks faster.', v = { 5, 10, 15 }, fmt = 'Delay -%d%% under Last Resort' },
+    ['Treasure Hunter'] = { desc = 'Raises the chance of rare drops from monsters you attack.', v = { 1, 2 }, fmt = 'Treasure Hunter %d' },
+    ['Gilfinder'] = { desc = 'You get more gil from monsters.' },
+    ['Wide Scan'] = { desc = 'Lets you use Wide Scan to see monsters and people around you; each tier reaches farther.', v = { 1, 2, 3, 4 }, fmt = 'Wide Scan range tier %d' },
+    ['Alertness'] = { desc = 'A minor Ranger trait; the game does not show what it changes and no numbers are documented.' },
+    ['Dead Aim'] = { desc = 'Your ranged critical hits do more damage.' },
+    ['Stealth'] = { desc = 'Monsters are less likely to notice you.' },
+    ['Ninja Tool Expertise'] = { desc = 'Sometimes casting ninjutsu doesn\'t use up the ninja tool.' },
+    ['Assassin'] = { desc = 'Strengthens Trick Attack.' },
+    ['Divine Veil'] = { desc = 'With Divine Seal, your status-removal spells (-na, Erase) reach your whole party.' },
+    ['Strafe'] = { desc = 'Your wyvern\'s breath attacks are more accurate.' },
+    ['Empathy'] = { desc = 'Spirit Link also copies your good status effects onto your wyvern (more per merit).' },
+    ['Muted Soul'] = { desc = 'You build less enmity while Souleater is up (more per merit).' },
+    ['Tandem Strike'] = { desc = 'You and your pet are more accurate when you both attack the same target.' },
+    ['Beast Healer'] = { desc = 'Your pet slowly regains HP.' },
+    ['Winning Streak'] = { desc = 'Phantom Roll effects last longer (more per merit).' },
+    ['Loaded Deck'] = { desc = 'Random Deal can reset up to 2 abilities.' },
+};
+
+local ROMAN = { I = 1, II = 2, III = 3, IV = 4, V = 5, VI = 6, VII = 7, VIII = 8 };
+local RESIST_OF = { Virus = 'Virus (disease)', Petrify = 'Petrification', Gravity = 'Weight (Gravity)', Sleep = 'Sleep',
+    Paralyze = 'Paralysis', Silence = 'Silence', Poison = 'Poison', Blind = 'Blindness', Bind = 'Bind', Slow = 'Slow' };
+local KILLER_OF = { Vermin = 'vermin', Bird = 'birds', Amorph = 'amorphs', Lizard = 'lizards', Aquan = 'aquans',
+    Plantoid = 'plantoids', Beast = 'beasts', Demon = 'demons', Dragon = 'dragons', Undead = 'undead', Arcana = 'arcana' };
+
+-- What a trait row does: { desc, tier } (tier = this tier's value text or nil).
+function trait_info(row)
+    if row == nil or row.k ~= 'trait' then return nil; end
+    local name = tostring(row.name or '');
+    local base, num = name:match('^(.-)%s+([IVX]+)$');
+    local rank = 1;
+    if base ~= nil and ROMAN[num] ~= nil then rank = ROMAN[num]; else base = name; end
+
+    local r = base:match('^Resist (.+)$');
+    if r ~= nil then
+        local v = ({ 10, 15, 20, 25 })[rank];
+        return { desc = ('Makes you more resistant to %s.'):format(RESIST_OF[r] or r:lower()),
+                 tier = v and ('+%d resistance'):format(v) or nil };
+    end
+    local k = base:match('^(.+) Killer$');
+    if k ~= nil then
+        local fam = KILLER_OF[k] or k:lower();
+        return { desc = ('%s sometimes freeze up in fear (intimidated) and lose their action when they attack you, and they intimidate you less.'):format(fam:sub(1, 1):upper() .. fam:sub(2)),
+                 tier = 'About an 8% chance' };
+    end
+
+    local t = TRAIT_INFO[base];
+    if t == nil then return nil; end
+    local tier = nil;
+    if t.v ~= nil and t.fmt ~= nil then
+        local v = t.v[rank];
+        if v ~= nil then
+            local ok, s = pcall(string.format, t.fmt, v, v);
+            tier = ok and s or nil;
+        end
+    end
+    return { desc = t.desc, tier = tier };
+end
+
 SUB_MAX_LEVEL = 37;   -- support job cap at 75
 LEVEL_CAP = 75;
