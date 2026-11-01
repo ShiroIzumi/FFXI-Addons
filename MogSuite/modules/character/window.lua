@@ -129,7 +129,8 @@ function draw_main()
 
         imgui.Spacing();
         draw_vitals(hp, hpmax, mp, mpmax, tp);
-        imgui.Spacing();
+        -- 1.8.0: a little room between the bars and the tabs.
+        imgui.Dummy({ 1, 7 * scale });
 
         -- Tabs + Config.
         local tabs_x = imgui.GetCursorPosX();

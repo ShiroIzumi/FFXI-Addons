@@ -56,12 +56,36 @@ FILTERS = {
 item_cache = {};   -- [id] = info table
 icon_cache = {};   -- [id] = { tex = texture, id = imgui id } or false
 
+-- The game's special text codes, replaced as plain text (1.7.0): several of
+-- them are Lua pattern characters ('\xEF\x24' = '$', '\xEF\x25' = '%',
+-- '\xEF\x28' = '('), so a gsub broke on them ("malformed pattern") and the
+-- item lost its description.
+local TEXT_CODES = {
+    { '\x81\x60', '~' },
+    { '\xEF\x1F', 'Fire' }, { '\xEF\x20', 'Ice' }, { '\xEF\x21', 'Wind' }, { '\xEF\x22', 'Earth' },
+    { '\xEF\x23', 'Lightning' }, { '\xEF\x24', 'Water' }, { '\xEF\x25', 'Light' }, { '\xEF\x26', 'Dark' },
+    { '\xEF\x27', '' }, { '\xEF\x28', '' },
+    { '\r\n', '\n' }, { '\r', '\n' },
+};
+
+local function replace_plain(text, find, with)
+    local out, pos = {}, 1;
+    while true do
+        local a, b = text:find(find, pos, true);
+        if a == nil then break; end
+        out[#out + 1] = text:sub(pos, a - 1);
+        out[#out + 1] = with;
+        pos = b + 1;
+    end
+    out[#out + 1] = text:sub(pos);
+    return table.concat(out);
+end
+
 function clean_desc(text)
     text = tostring(text or '');
-    text = text:gsub('\x81\x60', '~')
-        :gsub('\xEF\x1F', 'Fire'):gsub('\xEF\x20', 'Ice'):gsub('\xEF\x21', 'Wind')
-        :gsub('\xEF\x22', 'Earth'):gsub('\xEF\x23', 'Lightning'):gsub('\xEF\x24', 'Water')
-        :gsub('\xEF\x25', 'Light'):gsub('\xEF\x26', 'Dark');
+    for _, c in ipairs(TEXT_CODES) do
+        if text:find(c[1], 1, true) then text = replace_plain(text, c[1], c[2]); end
+    end
     return text;
 end
 
@@ -93,6 +117,8 @@ function get_item_info(id)
     pcall(function() info.slots = tonumber(res.Slots) or 0; end);
     pcall(function() info.level = tonumber(res.Level) or 0; end);
     pcall(function() info.jobs = tonumber(res.Jobs) or 0; end);
+    pcall(function() info.races = tonumber(res.Races) or 0; end);    -- 1.7.0: in-game tooltip
+    pcall(function() info.skill = tonumber(res.Skill) or 0; end);
     pcall(function() info.stack = tonumber(res.StackSize) or 1; end);
     pcall(function() info.charges = tonumber(res.MaxCharges) or 0; end);   -- enchanted gear (Use when equipped)
     pcall(function() info.bitmap = res.Bitmap; info.image_size = tonumber(res.ImageSize) or 0; end);

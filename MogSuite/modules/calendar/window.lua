@@ -932,9 +932,12 @@ local function top_box(id, title, lines, until_t)
             if type(l) == 'table' then imgui.TextColored(l[2] or UI_TEXT, l[1]); else imgui.TextColored(UI_TEXT, tostring(l)); end
         end
         imgui.Spacing();
-        if imgui.SmallButton('OK##' .. id) then close = true; end
+        -- Plain ## ids: the window id itself starts with ##, and 'OK' .. '####x'
+        -- would contain ###, which makes both buttons share one id (ImGui then
+        -- reports a conflict and neither button can be clicked).
+        if imgui.SmallButton('OK##cal_top_ok') then close = true; end
         imgui.SameLine();
-        if imgui.SmallButton('Open Calendar##' .. id) then state.visible[1] = true; close = true; end
+        if imgui.SmallButton('Open Calendar##cal_top_open') then state.visible[1] = true; close = true; end
         imgui.PopFont();
         -- Kept open while the mouse is over it (or dragging it).
         hold = imgui.IsWindowHovered() or imgui.IsMouseDown(0) and imgui.IsWindowFocused();

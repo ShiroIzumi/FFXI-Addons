@@ -188,6 +188,10 @@ local function fonts_page(ctx)
     end
 
     ui.section('TOOLTIPS');
+    ui.choice('Item tooltips', G, 'item_tip_style', {
+        { key = 'game', label = 'In-game', tip = 'The game\'s item window: navy with a pale frame, icon, Rare / Ex, slot and races, description, level and jobs (like the FFXI Safe page).' },
+        { key = 'theme', label = 'Theme', tip = 'The look before 1.7.0: the tooltip settings below and the theme colors.' },
+    }, 'How item tooltips look in the Inventory and in the Character gear panel. Both show the same MogSuite lines.', { default = 'game' });
     ui.check('Customize tooltips', G, 'tooltip_custom', 'Off: tooltips look like the window they come from.', { default_on = true });
     if G.tooltip_custom ~= false then
         ui.sub(function()
@@ -315,7 +319,7 @@ local function about(ctx)
         imgui.TextColored(theme.UI_ACCENT_TEXT, 'MogSuite');
         imgui.SameLine();
         imgui.TextDisabled('v' .. ctx.version);
-        imgui.Text('by Izumi (ShiroIzumi) and Kyrias (.kyri)');
+        imgui.Text('by Izumi (ShiroIzumi)');
         imgui.PushTextWrapPos(0);
         imgui.TextColored(theme.UI_MUTED, 'Your character, your bags and everything you can do, in one place. Made for HorizonXI (level 75 era) on Ashita v4.');
         imgui.PopTextWrapPos();

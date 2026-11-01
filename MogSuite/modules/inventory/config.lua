@@ -14,6 +14,7 @@ local VIEWS = {
     { key = 'list', label = 'List', tip = 'Icon, name and quantity on each row.' },
     { key = 'grid', label = 'Grid', tip = 'An icon grid with the quantity in the corner.' },
     { key = 'categories', label = 'Categories', tip = 'Items grouped into sections (Weapons, Armor, Usable, ...).' },
+    { key = 'catgrid', label = 'Categories (icons)', tip = 'The same sections, each drawn as an icon grid with the quantity in the corner (hover an icon for the item).' },
     { key = 'usable', label = 'Usable', tip = 'Food, medicines, scrolls, ninja tools and ammo, each in its own section.' },
     { key = 'cleanup', label = 'Cleanup', tip = 'Suggestions only: stacks to merge, items spread over bags, NPC-only sell items, outgrown gear.' },
     { key = 'upgrades', label = 'Upgrades', tip = 'Gear in your Inventory / Wardrobes that beats what you wear.' },
@@ -56,6 +57,7 @@ local function config_window()
     ui.slider_i('Grid cell size', config, 'grid_icon', 24, 80, '%d px', 'Cell size in the Grid view (before Size).');
     ui.slider_i('Row spacing', config, 'row_spacing', 0, 10, '%d px', 'Extra space above and below each row.');
     ui.check('Show E / Rare / Ex tags in the list', config, 'show_tags', 'E = equipped, Rare, Ex, and Split for partial stacks.', ON);
+    ui.check('Mark equipped items with their slot', config, 'equip_badge', 'The copy you are wearing gets an "E: Sub" pill in the list and a slot badge with a frame in the grid, so with two of the same item you can tell which one is worn.', ON);
 end
 
 local function config_items()
@@ -149,7 +151,7 @@ end
 
 local function config_categories()
     ui.section('CATEGORIES VIEW');
-    ui.info('Pick Categories in the view menu of the inventory window.');
+    ui.info('Pick Categories in the view menu of the inventory window. Categories (icons) always draws the sections as icon grids.');
     local cs = { cat_style = (config.cat_style == 'grid') and 'grid' or 'list' };
     if ui.choice('Each section shows as', cs, 'cat_style', CAT_STYLES, 'How the items inside each category section are drawn.') then
         config.cat_style = cs.cat_style;

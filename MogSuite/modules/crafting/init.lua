@@ -43,6 +43,26 @@ function module_toggle(force)
 end
 
 function module_close_all() state.visible[1] = false; end
+
+-- 1.8.0: the Character window's Skills tab opens a craft here.
+MS.has_craft = function(name)
+    for _, c in ipairs(CRAFTS) do if c.name == name then return true; end end
+    return false;
+end
+MS.open_craft = function(name)
+    for _, c in ipairs(CRAFTS) do
+        if c.name == name then
+            config.craft = c.name;
+            config.only_skill = false;
+            config.tab = 'recipes';
+            state.search[1] = '';
+            state.list_cache = nil;
+            module_toggle(true);
+            return true;
+        end
+    end
+    return false;
+end
 function module_is_open() return state.visible[1] == true; end
 
 function module_reset_position()

@@ -2,7 +2,8 @@
     MogSuite - modules/character/currencies.lua
 
     The Currencies tab. Read from the game's own Currencies list (packet 0x113) when
-    you open Main Menu > Currencies; MogSuite never asks the server for it.
+    you open Main Menu > Currencies, or when you press Refresh (1.8.0): that
+    sends the same request the game's menu sends (0x10F), only on the click.
 ]]
 
 -- ============================================================================
@@ -199,19 +200,27 @@ function draw_currencies_tab()
     end
     tip('Also list currencies you have none of');
     local note = have_data and currency_ago(saved.at) or 'not loaded yet';
-    require_width(search_w + text_width('Show zero') + text_width(note) + 50 * scale);
+    local asking = currency_asking(saved);
+    if asking then note = 'asking the server...'; end
+    local rw = text_width('Refresh') + 16 * scale;
+    require_width(search_w + text_width('Show zero') + text_width(note) + rw + 60 * scale);
     imgui.SameLine();
-    imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8 * scale, start_x + full_w - text_width(note)));
+    imgui.SetCursorPosX(math.max(imgui.GetCursorPosX() + 8 * scale, start_x + full_w - text_width(note) - rw - 8 * scale));
+    if imgui.Button('Refresh##cs_cur_refresh') then currency_refresh(); end
+    if imgui.IsItemHovered() then
+        imgui.SetTooltip('Asks the server for your currencies, the same way the game\'s Currencies menu does.\nOnly sent when you click (at most once every 3 seconds).');
+    end
+    imgui.SameLine(0, 8 * scale);
     imgui.AlignTextToFramePadding();
     imgui.TextColored(state.muted_color, note);
     if imgui.IsItemHovered() then
-        imgui.SetTooltip('Open Main Menu > Currencies in game to refresh.');
+        imgui.SetTooltip('Press Refresh, or open Main Menu > Currencies in game, to update.');
     end
 
     if not have_data then
         imgui.Spacing();
         imgui.TextColored(state.muted_color, 'No currency data for this character yet.');
-        imgui.TextColored(state.muted_color, 'Open Main Menu > Currencies in game once; MogSuite remembers it.');
+        imgui.TextColored(state.muted_color, 'Press Refresh, or open Main Menu > Currencies in game once; MogSuite remembers it.');
         return;
     end
 
@@ -244,4 +253,27 @@ function draw_currencies_tab()
         imgui.Spacing();
         imgui.TextColored(state.muted_color, 'No currency matches the search.');
     end
+end
+
+
+-- 1.8.0: Refresh = the request the game's Currencies menu sends (client 0x10F,
+-- header only; LandSandBoat answers with 0x113). Click only, 3 s apart, never
+-- on a timer.
+local CUR_REQ = { at = -100, saved_at = nil };
+
+function currency_refresh()
+    if os.clock() - CUR_REQ.at < 3 then return; end
+    CUR_REQ.at = os.clock();
+    CUR_REQ.saved_at = (config.currencies and config.currencies.at) or 0;
+    pcall(function()
+        AshitaCore:GetPacketManager():AddOutgoingPacket(0x10F, { 0x0F, 0x03, 0x00, 0x00 });
+    end);
+end
+
+-- True for a few seconds after Refresh, until the answer arrives.
+function currency_asking(saved)
+    if CUR_REQ.saved_at == nil then return false; end
+    if (tonumber(saved.at) or 0) ~= CUR_REQ.saved_at then CUR_REQ.saved_at = nil; return false; end
+    if os.clock() - CUR_REQ.at > 5 then CUR_REQ.saved_at = nil; return false; end
+    return true;
 end

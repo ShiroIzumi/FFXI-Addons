@@ -15,12 +15,13 @@ function capture_geometry(geom)
     end
 end
 
-VIEW_LABELS = { list = 'List', grid = 'Grid', categories = 'Categories', usable = 'Usable', cleanup = 'Cleanup', upgrades = 'Upgrades' };
-VIEW_ORDER = { 'list', 'grid', 'categories', 'usable', 'cleanup', 'upgrades' };
+VIEW_LABELS = { list = 'List', grid = 'Grid', categories = 'Categories', catgrid = 'Categories (icons)', usable = 'Usable', cleanup = 'Cleanup', upgrades = 'Upgrades' };
+VIEW_ORDER = { 'list', 'grid', 'categories', 'catgrid', 'usable', 'cleanup', 'upgrades' };
 VIEW_TIPS = {
     list = 'Icon, name and quantity on each row',
     grid = 'An icon grid',
     categories = 'Weapons, Armor, Usable, ... sections',
+    catgrid = 'Weapons, Armor, Usable, ... sections, each an icon grid',
     usable = 'Food, medicines, scrolls, ninja tools and ammo',
     cleanup = 'Suggestions: stacks to merge, items spread over bags, NPC-only sell items, outgrown gear',
     upgrades = 'Gear in your Inventory / Wardrobes better than what you wear',
@@ -394,7 +395,7 @@ function draw_inventory_window(popout)
 
         -- Toolbar: search, sort, view, log, config, close.
         local sort_w = key_items and 0 or (text_w('Newest v') + 34);
-        local view_w = key_items and 0 or (text_w('Categories') + 34);
+        local view_w = key_items and 0 or (text_w(V.view == 'catgrid' and 'Categories (icons)' or 'Categories') + 34);
         local log_w = (popout == nil) and (text_w('Log') + 16) or 0;
         local cfg_w = (popout == nil) and (text_w('Config') + 16) or 0;
         local compact = config.compact_header ~= false;
@@ -556,6 +557,8 @@ function draw_inventory_window(popout)
             imgui.TextDisabled(msg);
         elseif V.view == 'categories' then
             draw_categories_view(rows, show_bag);
+        elseif V.view == 'catgrid' then
+            draw_categories_view(rows, show_bag, true);
         elseif V.view == 'usable' then
             draw_usable_view(rows, show_bag);
         elseif V.view == 'grid' then

@@ -328,6 +328,15 @@ function gear_for_slot(slot)
     local worn = equipped_ids()[slot];
     local worn_bag, worn_index = equipped_location(slot);
     local worn_score = 0;
+    -- 1.7.1: where every other slot's item sits, so a copy worn elsewhere
+    -- (the Archer's Knife in Sub while choosing Main) is marked "in Sub".
+    local worn_elsewhere = {};
+    for s2 = 0, 15 do
+        if s2 ~= slot then
+            local b2, i2 = equipped_location(s2);
+            if b2 ~= nil then worn_elsewhere[b2 .. ':' .. i2] = s2; end
+        end
+    end
     local groups = { usable = {}, later = {}, unusable = {} };
     local seen = {};
     for _, it in ipairs(state.equip_scan or {}) do
@@ -346,6 +355,7 @@ function gear_for_slot(slot)
                     is_worn = (it.id == worn);
                 end
                 if is_worn then entry.worn = true; worn_score = entry.score; end
+                if not is_worn then entry.worn_in = worn_elsewhere[it.bag .. ':' .. it.index]; end
                 groups[kind][#groups[kind] + 1] = entry;
             end
         end
@@ -515,7 +525,7 @@ local function draw_entry(dl, e, slot, width, scale)
         equip_panel.ctx = e;
         imgui.OpenPopup('##ms_eq_ctx');
     end
-    local bg = e.worn and { UI_ACCENT[1], UI_ACCENT[2], UI_ACCENT[3], 0.16 } or (hovered and { 1, 1, 1, 0.06 } or { 1, 1, 1, 0.02 });
+    local bg = (e.worn or e.worn_in ~= nil) and { UI_ACCENT[1], UI_ACCENT[2], UI_ACCENT[3], (e.worn and 0.16 or 0.10) } or (hovered and { 1, 1, 1, 0.06 } or { 1, 1, 1, 0.02 });
     dl:AddRectFilled({ x, y }, { x + width, y + h }, imgui.GetColorU32(bg), 4.0);
     local tex = item_icon(it.id);
     if tex ~= nil and tex.id ~= nil then
@@ -539,6 +549,8 @@ local function draw_entry(dl, e, slot, width, scale)
     nx = nx + 6 * scale;
     if e.worn then
         text_at(nx, y + 4 * scale, UI_ACCENT_TEXT, 'worn');
+    elseif e.worn_in ~= nil then
+        text_at(nx, y + 4 * scale, UI_ACCENT_TEXT, 'worn in ' .. (EQUIP_SHORT and EQUIP_SHORT[e.worn_in] or tostring(e.worn_in)));
     elseif e.best then
         text_at(nx, y + 4 * scale, state.good_color, '* best');
     elseif e.better then
@@ -556,7 +568,30 @@ local function draw_entry(dl, e, slot, width, scale)
     end
     imgui.SetCursorScreenPos({ x, y + h + 2 * scale });
     imgui.Dummy({ 1, 0 });
-    if hovered and not imgui.IsPopupOpen('##ms_eq_ctx') then
+    if hovered and not imgui.IsPopupOpen('##ms_eq_ctx') and game_tip ~= nil and game_tip.enabled() then
+        -- 1.7.0: the game's item window look (core/gametip.lua), then the gear panel's lines.
+        local GT = game_tip;
+        local res = it.res;
+        local flags, typ, skill = 0, 0, 0;
+        pcall(function() flags = tonumber(res.Flags) or 0; typ = tonumber(res.Type) or 0; skill = tonumber(res.Skill) or 0; end);
+        GT.begin({
+            name = it.name, rare = bit.band(flags, 0x8000) ~= 0, ex = bit.band(flags, 0x6040) ~= 0,
+            icon = tex, equip = true, skill = (typ == 4) and skill or 0, slots = it.slots, races = it.races,
+            desc = it.desc, level = it.level, jobs_text = jobs_list_text(it.jobs),
+        });
+        GT.sep();
+        pcall(latents.draw_game, GT, it.id);
+        if e.worn then GT.line(GT.GOLD, 'Worn now'); end
+        if e.worn_in ~= nil then GT.line(GT.GOLD, 'Worn now in ' .. (EQUIP_SHORT and EQUIP_SHORT[e.worn_in] or tostring(e.worn_in)) .. ' (this copy)'); end
+        GT.line(GT.MUTED, EQUIP_BAG_NAMES[it.bag] or '');
+        if ch ~= nil then
+            GT.line(GT.BLUE, ('%d/%d charges'):fmt(it.charges, it.max_charges) .. ((timer ~= nil) and (' - usable in' .. timer) or ''));
+        end
+        if e.why ~= nil then GT.line((e.kind == 'later') and GT.GOLD or GT.BAD, e.why); end
+        GT.line(GT.MUTED, ('Upgrade score %.0f (Settings > Character > Upgrade finder)'):fmt(e.score));
+        if can then GT.line(GT.GOLD, 'Double-click to equip'); end
+        GT.finish();
+    elseif hovered and not imgui.IsPopupOpen('##ms_eq_ctx') then
         imgui.BeginTooltip();
         imgui.TextColored(UI_ACCENT_TEXT, it.name);
         imgui.TextColored(state.muted_color, ('Lv %d  -  %s  -  %s'):fmt(it.level, jobs_list_text(it.jobs), EQUIP_BAG_NAMES[it.bag] or ''));
@@ -568,6 +603,7 @@ local function draw_entry(dl, e, slot, width, scale)
             end
         end
         if it.desc ~= '' then imgui.TextWrapped(it.desc); end
+        pcall(latents.draw_theme, it.id, nil, state.muted_color, UI_TEXT);
         if e.why ~= nil then imgui.TextColored((e.kind == 'later') and state.warn_color or state.bad_color, e.why); end
         imgui.TextColored(state.muted_color, ('Upgrade score %.0f (Settings > Character > Upgrade finder)'):fmt(e.score));
         if can then imgui.TextColored(UI_ACCENT_TEXT, 'Double-click to equip'); end

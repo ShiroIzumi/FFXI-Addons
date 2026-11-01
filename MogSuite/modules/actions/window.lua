@@ -37,17 +37,7 @@ function draw_header(width)
         tip('Close the Actions window');
     end
 
-    -- HP / MP / TP bars.
-    if config.show_bars ~= false then
-        local sx, sy = imgui.GetCursorScreenPos();
-        local h = math.floor(imgui.GetTextLineHeight() * 0.95);
-        local gap = 6;
-        local bw = (width - gap * 2) / 3;
-        draw_bar(dl, sx, sy, bw, h, me.hpmax > 0 and me.hp / me.hpmax or 0, COL_HP, ('HP %d'):fmt(me.hp));
-        draw_bar(dl, sx + bw + gap, sy, bw, h, me.mpmax > 0 and me.mp / me.mpmax or 0, COL_MP, ('MP %d'):fmt(me.mp));
-        draw_bar(dl, sx + (bw + gap) * 2, sy, bw, h, me.tp / 3000, COL_TP, ('TP %d'):fmt(me.tp), 1 / 3);
-        imgui.Dummy({ width, h + 2 });
-    end
+    -- 1.8.0: the HP / MP / TP bars moved to the Character window (above its tabs).
 end
 
 function draw_pinned(width)

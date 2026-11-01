@@ -252,11 +252,96 @@ local function fame_event(data, with_nums)
     state.settings_dirty = true;
 end
 
+-- Conquest regions (1.6.10): what each region covers and where its outpost
+-- is. Zones: LandSandBoat GetCurrentRegion. Outposts and warp levels:
+-- HorizonXI wiki / bg-wiki (warp level = your own nation's outpost warp;
+-- Jeuno's teleporters need rank 3).
+REGION_INFO = {
+    { zones = 'East / West Ronfaure, Ghelsba Outpost, Fort Ghelsba, Yughott Grotto, Horlais Peak, King Ranperre\'s Tomb, Bostaunieux Oubliette', outpost = 'West Ronfaure', grid = 'G-9', lvl = 20 },
+    { zones = 'La Theine Plateau, Valkurm Dunes, Konschtat Highlands, Selbina, Gusgen Mines, Ordelle\'s Caves', outpost = 'Valkurm Dunes', grid = 'H-7', lvl = 20 },
+    { zones = 'Jugner Forest, Batallia Downs, Davoi, The Eldieme Necropolis, Monastic Cavern, Carpenters\' Landing, Phanauet Channel', outpost = 'Jugner Forest', grid = 'I-8', lvl = 25 },
+    { zones = 'North / South Gustaberg, Dangruf Wadi, Palborough Mines, Zeruhn Mines, Korroloka Tunnel, Waughroon Shrine', outpost = 'North Gustaberg', grid = 'D-10', lvl = 20 },
+    { zones = 'Pashhow Marshlands, Rolanberry Fields, Beadeaux, Qulun Dome, Crawlers\' Nest', outpost = 'Pashhow Marshlands', grid = 'K-6', lvl = 25 },
+    { zones = 'East / West Sarutabaruta, Giddeus, Inner / Outer Horutoto Ruins, Toraimarai Canal, Balga\'s Dais, Full Moon Fountain', outpost = 'West Sarutabaruta', grid = 'H-6', lvl = 20 },
+    { zones = 'Tahrongi Canyon, Buburimu Peninsula, Mhaura, Maze of Shakhrami, Labyrinth of Onzozo, Bibiki Bay, Manaclipper', outpost = 'Buburimu Peninsula', grid = 'E-7', lvl = 20 },
+    { zones = 'Meriphataud Mountains, Sauromugue Champaign, Castle Oztroja, Garlaige Citadel, Attohwa Chasm, Boneyard Gully, Altar Room', outpost = 'Meriphataud Mountains', grid = 'E-5', lvl = 25 },
+    { zones = 'Beaucedine Glacier, Ranguemont Pass, Fei\'Yin, Pso\'Xja, The Shrouded Maw, Qu\'Bia Arena, Cloister of Frost', outpost = 'Beaucedine Glacier', grid = 'H-9', lvl = 35 },
+    { zones = 'Xarcabard, Uleguerand Range, Bearclaw Pinnacle, Castle Zvahl Baileys / Keep, Throne Room', outpost = 'Xarcabard', grid = 'H-9', lvl = 40 },
+    { zones = 'Qufim Island, Lower / Middle / Upper Delkfutt\'s Tower, Behemoth\'s Dominion, Stellar Fulcrum', outpost = 'Qufim Island', grid = 'F-6', lvl = 25 },
+    { zones = 'The Sanctuary of Zi\'Tah, Ro\'Maeve, The Boyahda Tree, Dragon\'s Aery, Hall of the Gods, Cloister of Storms', outpost = 'The Sanctuary of Zi\'Tah', grid = 'H-9', lvl = 35 },
+    { zones = 'Eastern / Western Altepa Desert, Rabao, Quicksand Caves, Chamber of Oracles, Cloister of Tremors', outpost = 'Eastern Altepa Desert', grid = 'F-10', lvl = 40 },
+    { zones = 'Cape Teriggan, Valley of Sorrows, Kuftal Tunnel, Gustav Tunnel, Cloister of Gales', outpost = 'Cape Teriggan', grid = 'G-8', lvl = 65 },
+    { zones = 'Yuhtunga Jungle, Kazham, Norg, Sea Serpent Grotto', outpost = 'Yuhtunga Jungle', grid = 'G-11', lvl = 35 },
+    { zones = 'Yhoator Jungle, Temple of Uggalepih, Den of Rancor, Ifrit\'s Cauldron, Cloister of Flames / Tides, Sacrificial Chamber', outpost = 'Yhoator Jungle', grid = 'I-8', lvl = 45 },
+    { zones = 'Ru\'Aun Gardens, The Shrine of Ru\'Avitau, Ve\'Lugannon Palace, La\'Loff Amphitheater, The Celestial Nexus', outpost = nil, note = 'No outpost: no warp and no supply run.' },
+    { zones = 'Oldton / Newton Movalpolos, Mine Shaft #2716', outpost = 'Oldton Movalpolos', grid = 'F-10', note = 'No warp; the outpost only has a vendor (Bartabaq).' },
+    { zones = 'Lufaise Meadows, Misareaux Coast, Phomiuna Aqueducts, Sacrarium, Riverne Site #A01 / #B01, Monarch Linn, Sealion\'s Den', outpost = 'Lufaise Meadows', grid = 'E-8', lvl = 30, note = 'The supply run needs Chains of Promathia 3-5.' },
+};
+
+-- Your outposts (1.6.10). The game has no "do I have it" list on the
+-- client; the server only sends your outpost bits inside an NPC event, so
+-- MogSuite reads them when you talk to one (it never asks for them):
+--   Gate guard (overseer) event   arg5 = your outpost bits; bit region+5 = have it
+--   Outpost teleporter event      arg8 = bits that are NOT allowed
+-- LandSandBoat scripts/globals/conquest.lua.
+function ensure_outpost_config()
+    local p = config.progress;
+    if p.outposts == nil then p.outposts = T{}; end
+    if p.outposts.manual == nil then p.outposts.manual = T{}; end
+    return p.outposts;
+end
+
+local function outpost_event(data)
+    if #data < 0x30 then return; end
+    local num = {};
+    for k = 0, 7 do num[k] = u32(data, 0x08 + k * 4); end
+    local player = nil;
+    pcall(function() player = AshitaCore:GetMemoryManager():GetPlayer(); end);
+    local nation = tonumber(safe_call(player, 'GetNation'));
+    if nation == nil then return; end
+    local o = ensure_outpost_config();
+    local c = config.progress.conquest;
+    -- Gate guard: arg1 low byte 1 / 17 / 33, arg4 = supplies mask (low 5 bits set).
+    local a1 = bit.band(num[0], 0xFF);
+    if (a1 == 1 or a1 == 17 or a1 == 33) and bit.band(num[3], 0x1F) == 0x1F
+        and (c.points == nil or num[6] == c.points) and bit.band(num[4], 0x1F) == 0 then
+        o.mask = bit.band(num[4], 0x00FFFFE0);
+        o.nation = nation;
+        o.at = os.time();
+        o.source = 'gate guard';
+        state.settings_dirty = true;
+        return;
+    end
+    -- Outpost teleporter: arg6 low byte = your nation, arg7 = main level,
+    -- arg8 = not-allowed bits (base 0x3F40001F). An allowed region means you
+    -- have that outpost; a blocked one may only be the level, so it isn't used.
+    local lvl = tonumber(safe_call(player, 'GetMainJobLevel')) or -1;
+    if bit.band(num[5], 0xFF) == nation and num[6] == lvl and bit.band(num[7], 0x3F00001F) == 0x3F00001F then
+        local have = bit.band(bit.bnot(num[7]), 0x00FFFFE0);
+        if o.nation ~= nation then o.mask = 0; end
+        o.mask = bit.bor(o.mask or 0, have);
+        o.nation = nation;
+        o.at = os.time();
+        o.source = 'outpost teleporter';
+        state.settings_dirty = true;
+    end
+end
+
+-- true / false / nil (unknown) for region index i (1-based).
+function outpost_have(i, nation)
+    local o = ensure_outpost_config();
+    local m = o.manual['r' .. i];
+    if m ~= nil then return m, 'marked by you'; end
+    if o.mask == nil or (nation ~= nil and o.nation ~= nil and o.nation ~= nation) then return nil; end
+    return bit.band(o.mask, bit.lshift(1, (i - 1) + 5)) ~= 0, 'from your ' .. (o.source or 'NPC');
+end
+
 function progress_packet(e)
     local data = e.data_modified or e.data;
     if data == nil then return; end
     if e.id == 0x032 or e.id == 0x034 then
         fame_event(data, e.id == 0x034);
+        if e.id == 0x034 then pcall(outpost_event, data); end
         return;
     end
     if e.id == 0x00A then
@@ -444,6 +529,83 @@ REGION_NAMES = { 'Ronfaure', 'Zulkheim', 'Norvallen', 'Gustaberg', 'Derfland', '
     'Fauregandi', 'Valdeaunia', 'Qufim', "Li'Telor", 'Kuzotz', 'Vollbow', 'Elshimo Lowlands', 'Elshimo Uplands',
     "Tu'Lia", 'Movalpolos', 'Tavnazian Archipelago' };
 
+-- Region hover colors (1.7.0).
+HOVER_LABEL_COLOR = { 1.00, 0.82, 0.45, 1.0 };   -- gold: Covers / Outpost
+HOVER_ZONES_COLOR = { 0.66, 0.84, 1.00, 1.0 };   -- light blue: the zones
+HOVER_WARP_COLOR  = { 0.60, 0.90, 0.62, 1.0 };   -- green: the warp level
+HOVER_NOTE_COLOR  = { 1.00, 0.66, 0.36, 1.0 };   -- orange: notes
+
+local function draw_region_hover(i, name, r, nation)
+    local info = REGION_INFO[i];
+    if info == nil then return; end
+    local pid = '##ms_outpost' .. i;
+    if imgui.IsItemClicked(1) then imgui.OpenPopup(pid); end
+    if imgui.BeginPopup(pid) then
+        imgui.TextColored(UI_ACCENT_TEXT, name .. ' outpost');
+        local o = ensure_outpost_config();
+        if imgui.Selectable('Mark as unlocked') then o.manual['r' .. i] = true; state.settings_dirty = true; end
+        if imgui.Selectable('Mark as not unlocked') then o.manual['r' .. i] = false; state.settings_dirty = true; end
+        if o.manual['r' .. i] ~= nil and imgui.Selectable('Clear my mark (use the game\'s)') then o.manual['r' .. i] = nil; state.settings_dirty = true; end
+        imgui.EndPopup();
+        return;
+    end
+    if not imgui.IsItemHovered() then return; end
+    local scale = state.overall_scale[1];
+    -- 1.7.0: each kind of line has its own color (labels gold, zones light
+    -- blue, the outpost white, the warp green, notes orange) instead of
+    -- white and light grey that were hard to tell apart.
+    local LABEL = HOVER_LABEL_COLOR;
+    local ZONES = HOVER_ZONES_COLOR;
+    local WARP = HOVER_WARP_COLOR;
+    local NOTE = HOVER_NOTE_COLOR;
+    imgui.BeginTooltip();
+    imgui.TextColored(UI_ACCENT_TEXT, name);
+    imgui.SameLine();
+    imgui.TextColored(NATION_COLORS[r.owner] or state.muted_color, '(' .. (OWNER_NAMES[r.owner] or '?') .. ')');
+    imgui.PushTextWrapPos(math.floor(340 * scale));
+    imgui.TextColored(LABEL, 'Covers');
+    imgui.PushStyleColor(ImGuiCol_Text, ZONES);
+    imgui.TextWrapped(info.zones);
+    imgui.PopStyleColor(1);
+    imgui.Spacing();
+    imgui.TextColored(LABEL, 'Outpost');
+    if info.outpost ~= nil then
+        imgui.PushStyleColor(ImGuiCol_Text, UI_TEXT);
+        imgui.TextWrapped(('%s (%s)'):fmt(info.outpost, info.grid or '?'));
+        imgui.PopStyleColor(1);
+        if info.lvl ~= nil then
+            imgui.TextColored(WARP, ('Warp from level %d (your nation), Jeuno from 10 at rank 3.'):fmt(info.lvl));
+        end
+    else
+        imgui.TextColored(state.muted_color, 'None');
+    end
+    if info.note ~= nil then imgui.TextColored(NOTE, info.note); end
+    if info.outpost ~= nil and info.lvl ~= nil then
+        imgui.Spacing();
+        local have, src = outpost_have(i, nation);
+        local nname = (nation ~= nil and NATIONS[nation]) or 'your nation';
+        if have == true then
+            imgui.TextColored(state.good_color, ('Your outpost (%s): Unlocked'):fmt(nname));
+        elseif have == false then
+            imgui.TextColored(state.bad_color or { 0.95, 0.45, 0.40, 1.0 }, ('Your outpost (%s): Not yet'):fmt(nname));
+            imgui.TextColored(NOTE, 'Do your nation\'s Supply Run for this region to unlock it.');
+        else
+            imgui.TextColored(LABEL, ('Your outpost (%s): Unknown'):fmt(nname));
+            imgui.PushStyleColor(ImGuiCol_Text, ZONES);
+            imgui.TextWrapped('Talk to your nation\'s gate guard (or an outpost teleporter) once and MogSuite reads it.');
+            imgui.PopStyleColor(1);
+        end
+        if have ~= nil and src ~= nil then
+            local o = ensure_outpost_config();
+            local when = (src ~= 'marked by you' and o.at ~= nil) and (', ' .. format_ago(o.at)) or '';
+            imgui.TextColored(with_alpha(state.muted_color, 0.85), src .. when);
+        end
+        imgui.TextColored(with_alpha(state.muted_color, 0.85), 'Right-click to mark it yourself.');
+    end
+    imgui.PopTextWrapPos();
+    imgui.EndTooltip();
+end
+
 function draw_conquest_tab(player)
     local scale = state.overall_scale[1];
     local c = config.progress.conquest;
@@ -481,6 +643,7 @@ function draw_conquest_tab(player)
             if col > 0 then imgui.SameLine(colw * col); end
             local own = OWNER_NAMES[r.owner] or '?';
             imgui.TextColored(r.owner == mine and state.good_color or UI_TEXT, name);
+            draw_region_hover(i, name, r, nation);
             imgui.SameLine(colw * col + 150 * scale);
             imgui.TextColored(NATION_COLORS[r.owner] or state.muted_color, own);
         end

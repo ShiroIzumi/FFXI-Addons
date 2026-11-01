@@ -12,6 +12,7 @@ return T{
     row_spacing = 2,
     show_qty_one = false,
     show_tags = true,          -- E / Rare / Ex tags in list view
+    equip_badge = true,        -- 1.7.0: "E: Sub" pill / slot badge on the worn copy
 
     name_color = T{ 0.93, 0.93, 0.95, 1.0 },
     qty_color = T{ 0.96, 0.80, 0.45, 1.0 },

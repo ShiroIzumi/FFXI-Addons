@@ -192,6 +192,16 @@ function draw_skill_section(title, rows, width)
 
         local base_x = imgui.GetCursorPosX();
         imgui.TextColored(usable and UI_BRIGHT or with_alpha(state.muted_color, 0.70), name);
+        -- 1.8.0: crafts open the Crafting window on that craft.
+        if (row[6] or 0) >= CRAFT_SKILL_ID_BASE and MS.has_craft ~= nil and MS.has_craft(name) then
+            if imgui.IsItemHovered() then
+                local x1, y1 = imgui.GetItemRectMin();
+                local x2, y2 = imgui.GetItemRectMax();
+                pcall(function() imgui.GetWindowDrawList():AddLine({ x1, y2 }, { x2, y2 }, imgui.GetColorU32(UI_ACCENT_TEXT), 1); end);
+                tip('Open ' .. name .. ' in the Crafting window');
+            end
+            if imgui.IsItemClicked(0) then MS.open_craft(name); end
+        end
         local gain = skillup_gain_text(row[6]);
         if gain ~= nil then
             imgui.SameLine(0, 6 * scale);

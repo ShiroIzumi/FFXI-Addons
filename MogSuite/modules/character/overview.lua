@@ -457,8 +457,42 @@ EQUIP_SHORT = {
     [13] = 'Ring', [14] = 'Ring', [15] = 'Back',
 };
 
+-- 1.7.1: the equipment strip uses the game's item window look too (core/gametip.lua).
+local function draw_item_tooltip_game(entry)
+    local res = nil;
+    pcall(function() res = AshitaCore:GetResourceManager():GetItemById(entry.id); end);
+    if res == nil then return false; end
+    local flags, typ, skill, slots, races, level, jobs = 0, 0, 0, 0, 0, 0, 0;
+    pcall(function()
+        flags = tonumber(res.Flags) or 0; typ = tonumber(res.Type) or 0; skill = tonumber(res.Skill) or 0;
+        slots = tonumber(res.Slots) or 0; races = tonumber(res.Races) or 0;
+        level = tonumber(res.Level) or 0; jobs = tonumber(res.Jobs) or 0;
+    end);
+    local out, n = {}, 0;
+    for i, j in ipairs(JOB_SHORT_LIST or {}) do
+        if bit.band(jobs, bit.lshift(1, i)) ~= 0 then out[#out + 1] = j; n = n + 1; end
+    end
+    local jt = (n >= 18) and 'All Jobs' or table.concat(out, ' / ');
+    local GT = game_tip;
+    GT.begin({
+        name = entry.name, rare = bit.band(flags, 0x8000) ~= 0, ex = bit.band(flags, 0x6040) ~= 0,
+        icon = item_icon(entry.id), equip = true, skill = (typ == 4) and skill or 0, slots = slots, races = races,
+        desc = entry.description, level = level, jobs_text = jt,
+    });
+    GT.sep();
+    pcall(latents.draw_game, GT, entry.id);
+    GT.line(GT.GOLD, 'Equipped (' .. tostring(entry.label) .. ')');
+    GT.line(GT.MUTED, 'Double-click to change gear');
+    GT.finish();
+    return true;
+end
+
 function draw_item_tooltip(entry)
     local scale = state.overall_scale[1];
+    if entry.name ~= nil and entry.id ~= nil and game_tip ~= nil and game_tip.enabled() then
+        local ok, done = pcall(draw_item_tooltip_game, entry);
+        if ok and done then return; end
+    end
     imgui.BeginTooltip();
     imgui.PushTextWrapPos(420 * scale);
     if entry.name ~= nil then
@@ -468,6 +502,7 @@ function draw_item_tooltip(entry)
             imgui.Spacing();
             imgui.TextUnformatted(entry.description);
         end
+        pcall(latents.draw_theme, entry.id, nil, state.muted_color, UI_TEXT);
     else
         imgui.TextColored(state.muted_color, entry.label .. ' - empty');
     end

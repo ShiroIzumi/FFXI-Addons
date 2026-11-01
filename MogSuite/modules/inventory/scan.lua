@@ -226,7 +226,12 @@ function scan_bags()
     local ok_gil, gil = pcall(function() return inv:GetContainerItem(0, 0); end);
     if ok_gil and gil ~= nil and inv_loaded then
         state.gil = tonumber(gil.Count) or state.gil;
-        if state.session_gil == nil then state.session_gil = state.gil; end
+        -- The session starts from the first real gil reading: right after login the
+        -- gil slot can still read 0 while the items are already in, which made
+        -- the footer show "(+all your gil)".
+        if state.session_gil == nil and (state.gil > 0 or os.time() - (state.session_start or os.time()) > 30) then
+            state.session_gil = state.gil;
+        end
         local today = os.date('%Y-%m-%d');
         if config.gil_day ~= today or (tonumber(config.gil_day_start) or -1) < 0 then
             config.gil_day = today;
@@ -372,7 +377,7 @@ function get_view_rows()
     end
 
     local mode, desc = V.sort, V.sort_desc == true;
-    local pin = config.pin_favorites ~= false and V.view ~= 'categories';
+    local pin = config.pin_favorites ~= false and V.view ~= 'categories' and V.view ~= 'catgrid';
     local favs = config.favorites or {};
     table.sort(rows, function(a, b)
         if pin then

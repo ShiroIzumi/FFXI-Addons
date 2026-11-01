@@ -152,9 +152,13 @@ function draw_row(dl, row, i, sec_key, width, row_h)
     end
 
     if hovered and hz ~= 'shown' and config.show_details == false and not imgui.IsPopupOpen('##ab_ctx') then
-        imgui.BeginTooltip();
-        draw_details(row, true);
-        imgui.EndTooltip();
+        if game_tip ~= nil and game_tip.enabled() then
+            draw_details_game(row);
+        else
+            imgui.BeginTooltip();
+            draw_details(row, true);
+            imgui.EndTooltip();
+        end
     end
 end
 

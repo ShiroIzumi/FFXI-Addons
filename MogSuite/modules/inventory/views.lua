@@ -77,6 +77,21 @@ function dim_color(col, dim)
     return { col[1] * 0.6, col[2] * 0.6, col[3] * 0.6, (col[4] or 1.0) * 0.55 };
 end
 
+-- Short slot names for the equipped badge in the grids (1.7.0).
+SLOT_SHORT = {
+    [0] = 'Main', [1] = 'Sub', [2] = 'Rng', [3] = 'Ammo', [4] = 'Head', [5] = 'Body',
+    [6] = 'Hand', [7] = 'Legs', [8] = 'Feet', [9] = 'Neck', [10] = 'Wst', [11] = 'E1',
+    [12] = 'E2', [13] = 'R1', [14] = 'R2', [15] = 'Back',
+};
+
+-- Equipped copies are marked clearly (1.7.0): with two of the same item
+-- (two Daggers in the Wardrobe) the worn one shows its slot, "E: Sub", as
+-- a pill in the list and a badge in the grid. Settings > Inventory >
+-- Look > "Mark equipped items with their slot".
+function equipped_marked(row)
+    return row.equipped ~= nil and not row.mirror and config.equip_badge ~= false;
+end
+
 -- show_bag: draw the bag (and character) on the right of each row.
 function draw_list_view(rows, show_bag)
     local scale = tonumber(config.font_scale) or 1.0;
@@ -108,6 +123,10 @@ function draw_list_view(rows, show_bag)
         end
         if hovered then
             dl:AddRectFilled({ sx, sy }, { sx + width, sy + row_h }, imgui.GetColorU32(accent(0.16)), 3.0);
+        end
+        if equipped_marked(row) then
+            dl:AddRectFilled({ sx, sy }, { sx + width, sy + row_h }, imgui.GetColorU32(accent(0.10)), 3.0);
+            dl:AddRectFilled({ sx, sy }, { sx + 3, sy + row_h }, imgui.GetColorU32(UI_ACCENT), 0.0);
         end
 
         local x = sx + 4;
@@ -156,6 +175,17 @@ function draw_list_view(rows, show_bag)
                 right = right - w - 8;
             end
         end
+        -- A pill: text on a rounded accent box ("E: Sub").
+        local function right_pill(s)
+            local w = text_w(s) + 10;
+            if right - w > x + 12 then
+                dl:AddRectFilled({ right - w, ty - 1 }, { right, ty + line_h + 1 }, imgui.GetColorU32(accent(0.45)), 4.0);
+                dl:AddRect({ right - w, ty - 1 }, { right, ty + line_h + 1 }, imgui.GetColorU32(accent(0.95)), 4.0, 0, 1.0);
+                draw_fx_text(dl, right - w + 5, ty, UI_WHITE, s);
+                right = right - w - 8;
+            end
+        end
+        if equipped_marked(row) then right_pill('E: ' .. (SLOT_LABELS[row.equipped] or '?')); end
         if show_bag then
             local where = BAG_NAMES[row.bag] or '';
             if row.source == 'alt' then where = tostring(row.char) .. ' - ' .. where; end
@@ -164,7 +194,7 @@ function draw_list_view(rows, show_bag)
         if config.show_tags then
             if row.info.ex then right_text('Ex', { 0.55, 0.75, 1.0, 1.0 }); end
             if row.info.rare then right_text('Rare', { 0.95, 0.75, 0.35, 1.0 }); end
-            if row.equipped ~= nil then right_text('E', UI_ACCENT); end
+            if row.equipped ~= nil and not equipped_marked(row) then right_text('E', UI_ACCENT); end
         end
         if config.show_split ~= false and row.split ~= nil then right_text('Split', SPLIT_COLOR); end
 
@@ -203,7 +233,16 @@ function draw_grid_view(rows)
         if new then
             dl:AddRect({ sx, sy }, { sx + cell, sy + cell }, imgui.GetColorU32(accent(strength)), 4.0, 0, 2.0);
         end
-        if row.equipped ~= nil then
+        if equipped_marked(row) then
+            -- Accent frame and the slot in a badge at the top-left (clipped to the cell).
+            dl:AddRect({ sx, sy }, { sx + cell, sy + cell }, imgui.GetColorU32(accent(0.95)), 4.0, 0, 2.0);
+            local b = SLOT_SHORT[row.equipped] or 'E';
+            local lh = imgui.GetTextLineHeight();
+            dl:PushClipRect({ sx, sy }, { sx + cell, sy + cell }, true);
+            dl:AddRectFilled({ sx + 1, sy + 1 }, { sx + text_w(b) + 7, sy + lh + 1 }, imgui.GetColorU32(accent(0.85)), 3.0);
+            draw_fx_text(dl, sx + 4, sy + 1, UI_WHITE, b);
+            dl:PopClipRect();
+        elseif row.equipped ~= nil then
             dl:AddCircleFilled({ sx + 6, sy + 6 }, 3.0, imgui.GetColorU32(row.mirror and EQUIP_USE_BLUE or UI_ACCENT), 10);
         end
         if row.mirror then
@@ -269,7 +308,8 @@ function category_of(row)
     return 'materials';
 end
 
-function draw_categories_view(rows, show_bag)
+-- icons: draw every section as an icon grid (the "Categories (icons)" view, 1.7.0).
+function draw_categories_view(rows, show_bag, icons)
     local groups = {};
     for _, row in ipairs(rows) do
         local c = category_of(row);
@@ -320,7 +360,7 @@ function draw_categories_view(rows, show_bag)
 
             if not collapsed then
                 imgui.Dummy({ 1, 2 });
-                if config.cat_style == 'grid' then
+                if icons or config.cat_style == 'grid' then
                     draw_grid_view(list);
                 else
                     draw_list_view(list, show_bag);

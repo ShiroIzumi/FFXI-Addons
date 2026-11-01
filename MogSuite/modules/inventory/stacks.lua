@@ -7,7 +7,13 @@
 
     For each item it lists where the copies are, which spot to keep them in
     (the one with the most), and what to move there. Full stacks stay where
-    they are; only the partial ones move. Ex and Rare items can't go to
+    they are; only the partial ones move.
+
+    1.7.0: each item is a card, read top to bottom:
+        NOW     every place with its slots as boxes (how full each stack is)
+        STEPS   numbered: what to move where (or "take out and put back")
+        AFTER   the same places once you are done, and the slots it saves
+    An item whose stacks are all in one bag just says "Just tidy this bag". Ex and Rare items can't go to
     another character, so they are only combined within one character.
 
     Suggestions only: nothing is moved for you. Other characters' bags are
@@ -49,9 +55,10 @@ function stacks_collect()
         local key = tostring(char) .. ':' .. tostring(bag);
         local l = e.locs[key];
         if l == nil then
-            l = { char = char, bag = bag, count = 0, slots = 0 };
+            l = { char = char, bag = bag, count = 0, slots = 0, stacks = {} };
             e.locs[key] = l;
         end
+        l.stacks[#l.stacks + 1] = count;   -- one slot (1.7.0: the boxes)
         l.count = l.count + count;
         l.slots = l.slots + 1;
         e.total = e.total + count;
@@ -181,6 +188,190 @@ local function draw_item_header(e, width)
     end
 end
 
+-- ----------------------------------------------------------------------------
+-- 1.7.0: an item as a step-by-step card (Now -> Steps -> After)
+-- ----------------------------------------------------------------------------
+
+-- n of an item split into slots of the stack size: full ones, then the rest.
+local function split_stacks(n, st)
+    local out = {};
+    while n > 0 do
+        out[#out + 1] = math.min(n, st);
+        n = n - st;
+    end
+    return out;
+end
+
+-- One row of slot boxes: each box shows its count and how full it is.
+local MAX_BOXES = 10;
+local function draw_boxes(dl, x, y, counts, st, h, dim)
+    local bw = math.max(text_w(tostring(st)), text_w('99')) + 10;
+    local shown = math.min(#counts, MAX_BOXES);
+    for k = 1, shown do
+        local n = counts[k];
+        local full = n >= st;
+        local x2 = x + bw;
+        dl:AddRectFilled({ x, y }, { x2, y + h }, imgui.GetColorU32({ 1, 1, 1, dim and 0.03 or 0.06 }), 3.0);
+        local frac = math.max(0, math.min(1, n / st));
+        if frac > 0 then
+            local col = full and accent(dim and 0.25 or 0.55) or { 0.92, 0.70, 0.32, dim and 0.25 or 0.50 };
+            dl:AddRectFilled({ x + 1, y + h - 1 - (h - 2) * frac }, { x2 - 1, y + h - 1 }, imgui.GetColorU32(col), 2.0);
+        end
+        dl:AddRect({ x, y }, { x2, y + h }, imgui.GetColorU32(full and accent(dim and 0.4 or 0.9) or { 0.92, 0.70, 0.32, dim and 0.4 or 0.9 }), 3.0, 0, 1.0);
+        local t = tostring(n);
+        draw_fx_text(dl, x + (bw - text_w(t)) * 0.5, y + (h - imgui.GetTextLineHeight()) * 0.5, dim and UI_MUTED or UI_WHITE, t);
+        x = x2 + 4;
+    end
+    if #counts > shown then
+        local t = ('+%d more'):fmt(#counts - shown);
+        draw_fx_text(dl, x + 2, y + (h - imgui.GetTextLineHeight()) * 0.5, UI_MUTED, t);
+        x = x + text_w(t) + 6;
+    end
+    return x;
+end
+
+-- "NOW" / "AFTER": one line per place, with its slot boxes.
+local function draw_places(dl, title, rows, me, label_w, width, st, indent)
+    local lh = imgui.GetTextLineHeight();
+    local h = lh + 4;
+    imgui.SetCursorPosX(imgui.GetCursorPosX() + indent);
+    imgui.TextColored(UI_ACCENT_TEXT, title);
+    for _, r in ipairs(rows) do
+        local sx, sy = imgui.GetCursorScreenPos();
+        imgui.Dummy({ math.max(1, width - indent), h + 2 });
+        local hovered = imgui.IsItemHovered();
+        local x = sx + indent + 10;
+        local yours = (r.loc.char == me);
+        local col = r.keep and UI_ACCENT_TEXT or (yours and UI_TEXT or { 0.80, 0.80, 0.86, 1.0 });
+        draw_fx_text(dl, x, sy + 2, col, loc_label(r.loc, me));
+        local bx = x + label_w + 12;
+        if #r.counts == 0 then
+            draw_fx_text(dl, bx, sy + 2, UI_MUTED, 'empty (slot freed)');
+        else
+            local ex = draw_boxes(dl, bx, sy, r.counts, st, h, r.dim);
+            if r.tag ~= nil then draw_fx_text(dl, ex + 4, sy + 2, r.tag_col or UI_MUTED, r.tag); end
+        end
+        if hovered and (not yours or VIEW_ONLY_BAG[r.loc.bag]) then
+            imgui.SetTooltip(yours and 'Mog House storage: as you last saw it.' or (tostring(r.loc.char) .. "'s bags: as MogSuite last saw them."));
+        end
+    end
+end
+
+function draw_stack_card(e, me, width)
+    draw_item_header(e, width);
+    local dl = imgui.GetWindowDrawList();
+    local st = e.stack;
+    local indent = 10;
+
+    -- What changes: moved amounts per place, and what the keep spot gets.
+    local plus, minus = {}, {};
+    local moves, tidy = {}, {};
+    for _, p in ipairs(e.plans) do
+        if p.move then
+            minus[p.loc] = (minus[p.loc] or 0) + p.move;
+            plus[p.to] = (plus[p.to] or 0) + p.move;
+            moves[#moves + 1] = p;
+        elseif p.note then
+            tidy[#tidy + 1] = p;
+        end
+    end
+
+    local label_w = 0;
+    for _, p in ipairs(e.plans) do label_w = math.max(label_w, text_w(loc_label(p.loc, me))); end
+
+    -- NOW
+    local now = {};
+    for _, p in ipairs(e.plans) do
+        local counts = {};
+        for _, n in ipairs(p.loc.stacks or {}) do counts[#counts + 1] = n; end
+        table.sort(counts, function(a, b) return a > b; end);
+        local tag, tcol = nil, nil;
+        if p.keep then tag, tcol = 'keep here', UI_ACCENT_TEXT; elseif p.move then tag = ('move %d'):fmt(p.move); tcol = { 0.92, 0.70, 0.32, 1.0 }; end
+        now[#now + 1] = { loc = p.loc, keep = p.keep, counts = counts, tag = tag, tag_col = tcol };
+    end
+    draw_places(dl, 'NOW', now, me, label_w, width, st, indent);
+    imgui.Dummy({ 1, 2 });
+
+    -- STEPS
+    imgui.SetCursorPosX(imgui.GetCursorPosX() + indent);
+    if #moves == 0 and #tidy > 0 then
+        imgui.TextColored(UI_ACCENT_TEXT, 'STEPS');
+        imgui.SameLine(0, 8);
+        imgui.TextColored(state.good_color or { 0.43, 0.80, 0.50, 1.0 }, 'Just tidy this bag');
+    else
+        imgui.TextColored(UI_ACCENT_TEXT, 'STEPS');
+    end
+    local n = 0;
+    local wrap = imgui.GetCursorPosX() + width - 2 * indent;
+    imgui.PushTextWrapPos(wrap);
+    local function step(text, col)
+        n = n + 1;
+        imgui.SetCursorPosX(imgui.GetCursorPosX() + indent + 10);
+        imgui.TextColored(UI_ACCENT_TEXT, ('%d.'):fmt(n));
+        imgui.SameLine(0, 6);
+        imgui.TextColored(col or UI_TEXT, text);
+    end
+    for _, p in ipairs(moves) do
+        local from = loc_label(p.loc, me);
+        local to = loc_label(p.to, me);
+        if p.cross then
+            step(('Send %d from %s to %s (delivery box or trade), then put them in %s.'):fmt(p.move, from, tostring(p.to.char), BAG_NAMES[p.to.bag] or '?'));
+            if imgui.IsItemHovered() then
+                imgui.SetTooltip(('Another character: send it with the delivery box (or a trade) from %s to %s.'):fmt(tostring(p.loc.char), tostring(p.to.char)));
+            end
+        else
+            step(('Move %d from %s to %s.'):fmt(p.move, from, to));
+        end
+    end
+    -- Partial stacks left in the keep spot (its own, or after the moves): take out / put back.
+    for _, p in ipairs(e.plans) do
+        if p.keep then
+            local after = p.loc.count + (plus[p.loc] or 0);
+            local slots_now = #(p.loc.stacks or {}) + ((plus[p.loc] or 0) > 0 and 1 or 0);
+            if p.note ~= nil or slots_now > math.ceil(after / st) then
+                step(('In %s: take the partial stacks out and put them back; they join into %s.'):fmt(
+                    loc_label(p.loc, me), table.concat(split_stacks(after, st), ' + ')));
+            end
+        end
+    end
+    if n == 0 then
+        step('Nothing to move: every copy is already a full stack where it is.', UI_MUTED);
+    end
+    imgui.PopTextWrapPos();
+    imgui.Dummy({ 1, 2 });
+
+    -- AFTER
+    local after = {};
+    local slots_before, slots_after = 0, 0;
+    for _, p in ipairs(e.plans) do
+        local left = p.loc.count - (minus[p.loc] or 0) + (plus[p.loc] or 0);
+        local counts;
+        if left == p.loc.count and (plus[p.loc] or 0) == 0 and p.note == nil then
+            counts = {};
+            for _, c in ipairs(p.loc.stacks or {}) do counts[#counts + 1] = c; end
+            table.sort(counts, function(a, b) return a > b; end);
+        else
+            counts = split_stacks(left, st);
+        end
+        slots_before = slots_before + #(p.loc.stacks or {});
+        slots_after = slots_after + #counts;
+        after[#after + 1] = { loc = p.loc, keep = p.keep, counts = counts, dim = (left == p.loc.count and (plus[p.loc] or 0) == 0 and p.note == nil) };
+    end
+    draw_places(dl, 'AFTER', after, me, label_w, width, st, indent);
+    imgui.SetCursorPosX(imgui.GetCursorPosX() + indent + 10);
+    if slots_after < slots_before then
+        imgui.TextColored(UI_MUTED, ('%d slots'):fmt(slots_before));
+        imgui.SameLine(0, 6);
+        imgui.TextColored(UI_MUTED, '->');
+        imgui.SameLine(0, 6);
+        imgui.TextColored(UI_ACCENT_TEXT, ('%d slot%s'):fmt(slots_after, slots_after == 1 and '' or 's'));
+        imgui.SameLine(0, 8);
+        imgui.TextColored(state.good_color or { 0.43, 0.80, 0.50, 1.0 }, ('(%d free)'):fmt(slots_before - slots_after));
+    else
+        imgui.TextColored(UI_MUTED, ('%d slots, none saved (spread over several places)'):fmt(slots_before));
+    end
+end
+
 function draw_stacks_window()
     if not stacks.open[1] then
         stacks.placed = false;
@@ -241,49 +432,11 @@ function draw_stacks_window()
         if #list == 0 then
             imgui.TextDisabled('Nothing to stack. Everything is already together.');
         end
-        local indent = 28;
         for i, e in ipairs(list) do
             imgui.PushID('stk' .. tostring(e.id));
-            draw_item_header(e, width);
-            for _, p in ipairs(e.plans) do
-                local l = p.loc;
-                local yours = (l.char == me);
-                imgui.SetCursorPosX(imgui.GetCursorPosX() + indent);
-                if p.keep then
-                    imgui.TextColored(UI_ACCENT_TEXT, 'Keep');
-                else
-                    imgui.TextColored(p.move and UI_TEXT or UI_MUTED, p.move and 'Move' or '    ');
-                end
-                imgui.SameLine(indent + 52);
-                imgui.TextColored(yours and UI_TEXT or { 0.80, 0.80, 0.86, 1.0 }, loc_label(l, me));
-                imgui.SameLine(0, 6);
-                imgui.TextColored(config.qty_color, ('x%d'):fmt(l.count));
-                if l.slots > 1 then
-                    imgui.SameLine(0, 4);
-                    imgui.TextColored(UI_MUTED, ('(%d slots)'):fmt(l.slots));
-                end
-                if p.move then
-                    imgui.SameLine(0, 10);
-                    imgui.TextColored(UI_MUTED, ('->  %d to %s'):fmt(p.move, (p.to.char == me) and BAG_NAMES[p.to.bag] or loc_label(p.to, me)));
-                    if p.cross then
-                        imgui.SameLine(0, 6);
-                        imgui.TextColored({ 0.92, 0.70, 0.32, 1.0 }, '(trade / delivery box)');
-                        if imgui.IsItemHovered() then
-                            imgui.SetTooltip(('Another character: send it with the delivery box (or a trade) from %s to %s.'):fmt(tostring(l.char), tostring(p.to.char)));
-                        end
-                    end
-                elseif p.note then
-                    imgui.SameLine(0, 10);
-                    imgui.TextColored(UI_MUTED, p.note);
-                end
-                if not yours or VIEW_ONLY_BAG[l.bag] then
-                    if imgui.IsItemHovered() and not p.cross then
-                        imgui.SetTooltip(yours and 'Mog House storage: as you last saw it.' or (tostring(l.char) .. "'s bags: as MogSuite last saw them."));
-                    end
-                end
-            end
+            draw_stack_card(e, me, width);
             imgui.PopID();
-            if i < #list then imgui.Dummy({ 1, 6 }); end
+            if i < #list then imgui.Dummy({ 1, 10 }); end
         end
         imgui.EndChild();
 

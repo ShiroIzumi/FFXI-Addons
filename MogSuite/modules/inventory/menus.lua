@@ -8,7 +8,90 @@
 -- Tooltip and context menu
 -- ============================================================================
 
+-- The item tooltip (1.7.0): the game's item window look by default
+-- (core/gametip.lua), or the theme look (Global > Fonts & Tooltips > Item
+-- tooltips). Both show the same MogSuite lines.
 function draw_tooltip(row)
+    if game_tip ~= nil and game_tip.enabled() then return draw_tooltip_game(row); end
+    return draw_tooltip_theme(row);
+end
+
+-- Where the item is ("Wardrobe 2", "Alt - Safe", "Safe (snapshot ...)").
+local function tip_where(row)
+    local where = BAG_NAMES[row.bag] or ('Bag ' .. tostring(row.bag));
+    if row.source == 'alt' then
+        where = tostring(row.char) .. ' - ' .. where;
+    elseif row.source == 'snapshot' then
+        local b = state.bags[row.bag];
+        where = where .. ((b and b.snapshot) and (' (snapshot ' .. os.date('%Y-%m-%d %H:%M', b.snapshot) .. ')') or ' (snapshot)');
+    end
+    return where;
+end
+
+function draw_tooltip_game(row)
+    local info = row.info;
+    local GT = game_tip;
+    local equip = info.type == TYPE_WEAPON or info.type == TYPE_ARMOR;
+    GT.begin({
+        name = info.name, rare = info.rare, ex = info.ex, icon = get_icon(info), equip = equip,
+        skill = info.skill, slots = info.slots, races = info.races, desc = info.desc,
+        level = info.level, jobs_text = jobs_text(info.jobs),
+    });
+    -- MogSuite's lines in the game's colors: the theme colors are swapped
+    -- for this tooltip only (value_line and the extras use them too).
+    local saved = { UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER };
+    UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER = GT.MUTED, GT.GOLD, GT.GOLD, GT.BAD;
+    local ok, err = pcall(function()
+        if not equip and (info.level or 0) > 0 then
+            GT.line(GT.NAME, ('Lv.%d %s'):fmt(info.level, jobs_text(info.jobs)));
+        end
+        GT.sep();
+        pcall(latents.draw_game, GT, row.id);
+        if row.equipped ~= nil then
+            GT.line(GT.GOLD, ('Equipped (%s)'):fmt(SLOT_LABELS[row.equipped] or '?'));
+            if row.mirror then
+                GT.wrapped(EQUIP_USE_BLUE, ('In %s; shown here because it can be used (right-click > Use).'):fmt(BAG_NAMES[row.bag] or 'another bag'));
+            end
+            if row.info.enchanted then GT.line(GT.MUTED, use_label(row)); end
+        end
+        local wear_ok, why = can_wear(info);
+        if not wear_ok then
+            GT.line(GT.BAD, why == 'level' and ("Your level is too low to equip this.") or "Your job can't equip this.");
+        end
+        if (info.stack or 1) > 1 then
+            GT.line(GT.MUTED, ('Stack %d / %d'):fmt(row.count, info.stack));
+        end
+        if row.split ~= nil then
+            GT.wrapped(GT.GOLD, ('%d partial stacks in this bag (%d total) - could be merged'):fmt(row.split, row.split_total or 0));
+        end
+        if config.show_value ~= false then
+            local text, col = value_line(row);
+            GT.line(col, text);
+            local each = price_of(row.id);
+            local stack = tonumber(info.stack) or 1;
+            if each ~= nil and stack > 1 then
+                GT.line(config.qty_color, ('Full stack (%d) sells for %s gil'):fmt(stack, fmt_gil(each * stack)));
+            end
+        end
+        if config.show_ah ~= false then
+            local ah = ah_of(row.id);
+            if ah == 'none' then
+                GT.line(GT.MUTED, 'Not sold on the Auction House');
+            elseif ah ~= nil then
+                GT.line(GT.MUTED, 'AH: ' .. ah);
+            end
+        end
+        if is_favorite(row) then GT.line(GT.GOLD, 'Favorite'); end
+        pcall(draw_tooltip_extras, row);
+        GT.line(GT.MUTED, tip_where(row));
+    end);
+    UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER = saved[1], saved[2], saved[3], saved[4];
+    GT.finish();
+    if not ok then error(err); end
+end
+
+-- The theme look (before 1.7.0).
+function draw_tooltip_theme(row)
     local info = row.info;
     imgui.BeginTooltip();
     imgui.PushTextWrapPos(math.floor(340 * (tonumber(config.font_scale) or 1.0)));
@@ -17,6 +100,7 @@ function draw_tooltip(row)
         imgui.SameLine();
         imgui.TextColored(UI_MUTED, (info.rare and '[Rare]' or '') .. (info.ex and '[Ex]' or ''));
     end
+    pcall(latents.draw_theme, row.id, nil, UI_MUTED, UI_TEXT);
     if row.equipped ~= nil then
         imgui.TextColored(UI_ACCENT, ('Equipped (%s)'):fmt(SLOT_LABELS[row.equipped] or '?'));
         if row.mirror then
@@ -68,14 +152,7 @@ function draw_tooltip(row)
     end
     if is_favorite(row) then imgui.TextColored(UI_ACCENT_TEXT, 'Favorite'); end
     pcall(draw_tooltip_extras, row);
-    local where = BAG_NAMES[row.bag] or ('Bag ' .. tostring(row.bag));
-    if row.source == 'alt' then
-        where = tostring(row.char) .. ' - ' .. where;
-    elseif row.source == 'snapshot' then
-        local b = state.bags[row.bag];
-        where = where .. ((b and b.snapshot) and (' (snapshot ' .. os.date('%Y-%m-%d %H:%M', b.snapshot) .. ')') or ' (snapshot)');
-    end
-    imgui.TextColored(UI_MUTED, where);
+    imgui.TextColored(UI_MUTED, tip_where(row));
     imgui.PopTextWrapPos();
     imgui.EndTooltip();
 end

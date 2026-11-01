@@ -103,38 +103,74 @@ function column_section(title, note, width)
     imgui.Dummy({ width, 3 * state.overall_scale[1] });
 end
 
--- HP / MP / TP: three cells, label + value on top, thin bar underneath.
+-- HP / MP / TP (1.8.0): three tall rounded bars with a soft gradient, the
+-- label and value inside with a shadow. HP turns yellow under 75% and red
+-- under 40%; TP has marks at 1000 and 2000 and glows once it reaches 1000.
+local function mix(a, b, t)
+    return { a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t, a[3] + (b[3] - a[3]) * t, 1 };
+end
+local VIT_HP_HIGH = { 0.30, 0.82, 0.42, 1 };
+local VIT_HP_MID  = { 0.95, 0.78, 0.25, 1 };
+local VIT_HP_LOW  = { 0.95, 0.30, 0.25, 1 };
+local VIT_MP      = { 0.33, 0.58, 1.00, 1 };
+local VIT_TP      = { 1.00, 0.78, 0.25, 1 };
+
+local function hp_color(frac)
+    if frac >= 0.75 then return VIT_HP_HIGH; end
+    if frac >= 0.40 then return mix(VIT_HP_MID, VIT_HP_HIGH, (frac - 0.40) / 0.35); end
+    return mix(VIT_HP_LOW, VIT_HP_MID, math.max(0, frac) / 0.40);
+end
+
+local function vital_bar(dl, x, y, w, h, frac, col, label, value, marks, glow)
+    local U = function(c) return imgui.GetColorU32(c); end
+    local r = h * 0.35;
+    frac = math.max(0, math.min(1, tonumber(frac) or 0));
+    -- Track
+    dl:AddRectFilled({ x, y }, { x + w, y + h }, U({ 0.05, 0.05, 0.07, 0.85 }), r);
+    -- Fill with a lighter top half.
+    if frac > 0 then
+        local fw = math.max(r * 2, w * frac);
+        dl:AddRectFilled({ x, y }, { x + fw, y + h }, U({ col[1] * 0.75, col[2] * 0.75, col[3] * 0.75, 0.95 }), r);
+        dl:AddRectFilled({ x + 1, y + 1 }, { x + fw - 1, y + h * 0.48 }, U({ math.min(1, col[1] + 0.20), math.min(1, col[2] + 0.20), math.min(1, col[3] + 0.20), 0.55 }), r);
+    end
+    for _, m in ipairs(marks or {}) do
+        local mx = x + w * m;
+        dl:AddLine({ mx, y + 2 }, { mx, y + h - 2 }, U({ 1, 1, 1, 0.35 }), 1);
+    end
+    -- Frame (brighter when glowing, e.g. TP 1000+)
+    dl:AddRect({ x, y }, { x + w, y + h }, U(glow and { col[1], col[2], col[3], 0.95 } or { 1, 1, 1, 0.14 }), r, 0, glow and 1.6 or 1.0);
+    -- Text: label left, value right, both with a shadow.
+    local fs = imgui.GetFontSize();
+    local ty = y + (h - fs) * 0.5;
+    local pad = h * 0.45;
+    local vw = text_width(value);
+    dl:AddText({ x + pad + 1, ty + 1 }, U({ 0, 0, 0, 0.85 }), label);
+    dl:AddText({ x + pad, ty }, U({ 1, 1, 1, 0.80 }), label);
+    dl:AddText({ x + w - pad - vw + 1, ty + 1 }, U({ 0, 0, 0, 0.85 }), value);
+    dl:AddText({ x + w - pad - vw, ty }, U({ 1, 1, 1, 1 }), value);
+end
+
 function draw_vitals(hp, hpmax, mp, mpmax, tp)
     local scale = state.overall_scale[1];
-    local gap = 12 * scale;
+    local gap = 10 * scale;
     local avail = avail_width();
     local cell = (avail - gap * 2) / 3;
-    local base_x = imgui.GetCursorPosX();
-
+    local h = math.floor(line_height() * 1.30 + 0.5);
+    local hpf = (hpmax > 0) and (hp / hpmax) or 0;
     local items = {
-        { 'HP', ('%d / %d'):fmt(hp, hpmax), (hpmax > 0) and (hp / hpmax) or 0, HP_COLOR },
-        { 'MP', ('%d / %d'):fmt(mp, mpmax), (mpmax > 0) and (mp / mpmax) or 0, MP_COLOR },
-        { 'TP', tostring(tp), tp / 3000, TP_COLOR },
+        { 'HP', ('%d / %d'):fmt(hp, hpmax), hpf, hp_color(hpf), nil, false },
+        { 'MP', ('%d / %d'):fmt(mp, mpmax), (mpmax > 0) and (mp / mpmax) or 0, VIT_MP, nil, false },
+        { 'TP', tostring(tp), tp / 3000, VIT_TP, { 1 / 3, 2 / 3 }, tp >= 1000 },
     };
-
-    local need = text_width('MP') + text_width('9999 / 9999') + gap;
+    local need = text_width('MP') + text_width('9999 / 9999') + h * 1.2;
     require_width(need * 3 + gap * 2);
-
+    local x, y = imgui.GetCursorScreenPos();
+    x, y = tonumber(x) or 0, tonumber(y) or 0;
+    local dl = imgui.GetWindowDrawList();
     for i, it in ipairs(items) do
-        local x0 = base_x + (i - 1) * (cell + gap);
-        if i > 1 then imgui.SameLine(); end
-        imgui.SetCursorPosX(x0);
-        imgui.TextColored(state.muted_color, it[1]);
-        imgui.SameLine();
-        text_right(it[2], UI_BRIGHT, x0 + cell);
+        pcall(vital_bar, dl, x + (i - 1) * (cell + gap), y, cell, h, it[3], it[4], it[1], it[2], it[5], it[6]);
     end
-
-    for i, it in ipairs(items) do
-        local x0 = base_x + (i - 1) * (cell + gap);
-        if i > 1 then imgui.SameLine(); end
-        imgui.SetCursorPosX(x0);
-        draw_bar(cell, 5 * scale, it[3], it[4]);
-    end
+    imgui.Dummy({ avail, h });
 end
 
 -- Label / value grid. items: { label, value, value_color, extra, extra_color }.

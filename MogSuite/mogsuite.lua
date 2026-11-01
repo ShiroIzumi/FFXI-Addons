@@ -31,8 +31,8 @@
 ]]
 
 addon.name    = 'mogsuite';
-addon.author  = 'Izumi (ShiroIzumi) / Kyrias (.kyri)';
-addon.version = '1.6.9';
+addon.author  = 'Izumi (ShiroIzumi)';
+addon.version = '1.8.0';
 addon.desc    = 'MogSuite: your character, inventory, actions, calendar and crafting in one suite.';
 addon.link    = '';
 
@@ -50,6 +50,8 @@ local configwindow = require('core.configwindow');
 local cursor       = require('core.cursor');
 local cfgui        = require('core.cfgui');
 local fonts        = require('core.fonts');
+local gametip      = require('core.gametip');
+local latents      = require('core.latents');
 
 -- Wrap imgui.Begin / popups before any window is drawn so the visible mouse
 -- pointer knows when the mouse is over a MogSuite window.
@@ -92,6 +94,7 @@ local defaults = T{
         text_color_on = false,      -- use the colors below instead of the theme's
         text_color = T{ 0.93, 0.93, 0.95, 1.00 },
         muted_color = T{ 0.62, 0.62, 0.66, 1.00 },
+        item_tip_style = 'game',    -- item tooltips: 'game' (the game's item window look) | 'theme' (1.7.0)
         tooltip_custom = true,      -- apply the tooltip settings below
         tooltip_font = 'same',      -- 'same' = the window font, or a font key
         tooltip_size = 0,           -- px; 0 = the size of the window it belongs to
@@ -202,6 +205,8 @@ local function inject(name)
         text_w = theme.text_w, align_label = theme.align_label, begin_child = theme.begin_child,
         color_edit = theme.color_edit, draw_fx_text = theme.draw_fx_text,
         ui = cfgui,   -- settings-page widgets (search-aware), see core/cfgui.lua
+        game_tip = gametip,   -- item tooltips in the game's look (1.7.0), see core/gametip.lua
+        latents = latents,    -- latent effect conditions + live state (1.8.0), see core/latents.lua
     };
     for _, n in ipairs({ 'UI_TITLE', 'UI_TITLE_ACTIVE', 'UI_POPUP', 'UI_BORDER', 'UI_CONTROL', 'UI_CONTROL_HOVER',
         'UI_CONTROL_ACTIVE', 'UI_TEXT', 'UI_MUTED', 'UI_ACCENT', 'UI_ACCENT_TEXT', 'UI_TRANSPARENT', 'UI_WHITE', 'UI_DANGER' }) do

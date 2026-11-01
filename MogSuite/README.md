@@ -11,8 +11,8 @@
 | **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
 | **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.6.9
-**Authors:** Izumi (ShiroIzumi) / Kyrias (.kyri)
+**Version:** 1.8.0
+**Author:** Izumi (ShiroIzumi)
 
 <table>
   <tr>
@@ -83,7 +83,10 @@ MogSuite never uses anything on its own. Items, abilities, weapon skills and spe
 ## Inventory
 
 - **Bag tabs:** All, Inventory, Safe, Satchel, Safe 2, Wardrobes 1-8, Storage, Locker, Sack, Case, then **Characters** and **Key Items**. Bags you don't have are not shown. Tabs of the same kind share a color.
-- **Views:** List (icon, name, quantity and E / Rare / Ex tags), Grid (icons with the quantity in the corner) and Categories (Favorites, New, Equipped, Weapons, Armor, Ammo, Usable, Crystals, Rare / Ex, Materials, in your order).
+- **Views:** List (icon, name, quantity and E / Rare / Ex tags), Grid (icons with the quantity in the corner), Categories (Favorites, New, Equipped, Weapons, Armor, Ammo, Usable, Crystals, Rare / Ex, Materials, in your order) and Categories (icons) (the same sections, each as an icon grid).
+- **Item tooltips** look like the game's item window: navy with a pale frame, the icon, Rare / Ex, (skill) [slot] races, the description and Lv / jobs, then MogSuite's lines (where it is, stack, value, AH, drops ...). Global > Fonts & Tooltips > Item tooltips switches back to the theme look.
+- **Which copy is equipped:** the one you're wearing gets an **E: Sub** pill in the list and a slot badge with a frame in the grid, so two of the same Dagger are easy to tell apart.
+- **Stacks (Stacks button):** each item is a card: **Now** (every place, its slots as boxes showing how full they are), numbered **Steps**, and **After** (the same places once done, and the slots saved). Items whose partial stacks are all in one bag just say *Just tidy this bag*.
 - **Pop-out windows:** **Shift+Click** any tab to open it in its own window, with its own size, view, sort and search. Shift+Click it again to close it.
 - **Search, sort and filter:** sort by slot, name, type, quantity or newest; filter by Weapons, Armor, Usable, Crystals, Materials, Rare / Ex or Favorites.
 - **Item values:** what an NPC vendor pays, per item and for a full stack, plus the item's Auction House category. A price list for every item is built in. When a shop appraises an item, MogSuite saves the exact price HorizonXI gave you and uses it from then on.
@@ -202,7 +205,7 @@ Settings are saved per character. Your characters' bags, learned vendor prices a
 ```
 MogSuite/
   mogsuite.lua          entry point: settings, commands, keys, events
-  core/                 theme, keys, module loader, the settings window, the mouse pointer
+  core/                 theme, keys, fonts, item tooltips (gametip.lua), module loader, the settings window, the mouse pointer
   modules/character/    the Character window
   modules/inventory/    the Inventory window
   modules/actions/      the Actions window
@@ -228,6 +231,31 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.8.0
+
+- **Latent effects:** item tooltips (inventory, equipment strip, gear panel) list when an item's latent effect switches on, e.g. "Latent: Support job is NIN", in green when the condition is met right now and grey when it isn't (plain when MogSuite can't tell). Conditions come from LandSandBoat's item_latents table (`data/latents.lua`, 874 items); HorizonXI can differ.
+- **Skills tab:** click a craft name to open the Crafting window on that craft.
+- **Currencies tab:** a Refresh button asks the server for your currencies the same way the game's Currencies menu does (only on the click, at most every 3 s).
+- **Actions:** the hover tooltip uses the game's item window look too (colored badge, kind / element chips, target, description, then the details). The HP / MP / TP bars were removed from the Actions window.
+- **Character window:** bigger, prettier HP / MP / TP bars (HP turns yellow / red as it drops, TP marks at 1000 and 2000 and glows from 1000), with a little room before the tabs.
+- **Fixes:** the WELCOME BACK box's OK / Open Calendar buttons shared one id (ImGui warning, buttons dead); session gil showed "(+all your gil)" right after login.
+
+### 1.7.1
+- The Character window's equipment slots use the in-game item tooltip too.
+- Gear panel: a copy worn in another slot says **worn in Sub** (and is tinted), so with two Archer's Knives you can tell which one is in your off hand while picking a Main weapon.
+
+### 1.7.0
+- **In-game item tooltips** in the Inventory and the Character gear panel, like the FFXI Safe page: the game's navy window and pale frame, icon, name, Rare / Ex tags, (skill) [slot] races, description, Lv / jobs, then every MogSuite line as before (equipped, can't wear, stack, value, AH, favorite, other bags, drops, recipes, where). The tooltip font and size settings still apply. Global > Fonts & Tooltips > Item tooltips: In-game / Theme.
+- **Fixed item descriptions missing** for items with element symbols (Water / Light ...): those codes are Lua pattern characters and broke the clean-up ("malformed pattern"); they are replaced as plain text now.
+- **Categories (icons):** a new view next to Categories: the same sections, each an icon grid with the quantity badge and the item tooltip.
+- **Stacks window, step by step:** each item is a card: Now (places with slot boxes), numbered Steps (what to move where, delivery box for other characters, "take out and put back"), After (the result and the slots saved). Same-bag merges say "Just tidy this bag".
+- **Equipped copy marked:** "E: Sub" pill (list) and a slot badge with an accent frame (grid) on the copy you wear. Settings > Inventory > Layout > Mark equipped items with their slot.
+- **Conquest region hover:** each kind of line has its own color (labels gold, zones light blue, warp green, notes orange) instead of white and light grey.
+- Authors: Izumi (ShiroIzumi) only.
+
+### 1.6.10
+- **Character > Conquest: hover a region name** for the zones it covers, where its outpost is (zone and map grid), the warp level, and whether you have that outpost for your nation. The game only sends your outposts when you talk to your nation's gate guard (or an outpost teleporter), so it says *Unknown* until you do once; MogSuite only reads it. Right-click a region to mark it yourself.
 
 ### 1.6.9
 - **Actions: job traits explain themselves.** Hover a trait (or select it) to see what it does and this tier's value, e.g. Subtle Blow III: "the enemy gains less TP when you hit it... Subtle Blow +15". Covers every trait in the lists: the bonuses, resistances, killers, Martial Arts, Dual Wield, Store TP, Clear Mind and more. Values are LandSandBoat's (HorizonXI can differ).

@@ -197,9 +197,42 @@ end
 
 fonts.tip_stack = {};
 
+-- The game's item window look (core/gametip.lua sets fonts.next_game just
+-- before its BeginTooltip): the tooltip font and size, the game's colors.
+local function push_game_tip(rec)
+    local st = tip_style();
+    local font = st and st.font or fonts.window_font();
+    local size = st and st.size or (tonumber(imgui.GetFontSize()) or 13);
+    if font ~= nil or size ~= nil then
+        pcall(function() imgui.PushFont(font, size); rec.font = true; end);
+    end
+    local fs = tonumber(size) or 13;
+    imgui.PushStyleColor(ImGuiCol_Text, { 0.95, 0.95, 0.97, 1.00 });
+    imgui.PushStyleColor(ImGuiCol_PopupBg, { 0.086, 0.102, 0.220, 0.96 });
+    imgui.PushStyleColor(ImGuiCol_Border, { 0.84, 0.86, 0.94, 0.85 });
+    rec.colors = 3;
+    imgui.PushStyleVar(ImGuiStyleVar_WindowPadding, { math.floor(fs * 0.75 + 0.5), math.floor(fs * 0.6 + 0.5) });
+    imgui.PushStyleVar(ImGuiStyleVar_PopupBorderSize, 1.0);
+    rec.vars = 2;
+    if ImGuiStyleVar_PopupRounding ~= nil then
+        imgui.PushStyleVar(ImGuiStyleVar_PopupRounding, 6.0);
+        rec.vars = rec.vars + 1;
+    end
+    if ImGuiStyleVar_WindowRounding ~= nil then
+        imgui.PushStyleVar(ImGuiStyleVar_WindowRounding, 6.0);
+        rec.vars = rec.vars + 1;
+    end
+end
+
 local function push_tip()
     local st = tip_style();
     local rec = { font = false, colors = 0, vars = 0 };
+    if fonts.next_game then
+        fonts.next_game = false;
+        push_game_tip(rec);
+        fonts.tip_stack[#fonts.tip_stack + 1] = rec;
+        return;
+    end
     if st ~= nil then
         if st.font ~= nil or st.size ~= nil then
             pcall(function() imgui.PushFont(st.font, st.size); rec.font = true; end);

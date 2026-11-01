@@ -111,25 +111,33 @@ function target_text(row)
     return 'Self';
 end
 
-function draw_details(row, as_tooltip)
-    local me = state.me;
-    imgui.TextColored(UI_ACCENT_TEXT, row.name);
-    imgui.SameLine(0, 10);
-    local kind = ({ ja = 'Job ability', sp = 'Special ability (two-hour)', merit = 'Merit ability', pet = 'Pet command',
-        roll = 'Phantom Roll', shot = 'Quick Draw', man = 'Maneuver', ws = 'Weapon skill', ma = 'Magic',
-        rage = 'Blood Pact: Rage', ward = 'Blood Pact: Ward', af = 'Blood Pact (Astral Flow)', trait = 'Job trait (passive)' })[row.kind] or '';
+local KIND_LABELS = { ja = 'Job ability', sp = 'Special ability (two-hour)', merit = 'Merit ability', pet = 'Pet command',
+    roll = 'Phantom Roll', shot = 'Quick Draw', man = 'Maneuver', ws = 'Weapon skill', ma = 'Magic',
+    rage = 'Blood Pact: Rage', ward = 'Blood Pact: Ward', af = 'Blood Pact (Astral Flow)', trait = 'Job trait (passive)' };
+
+local function kind_label(row)
+    local kind = KIND_LABELS[row.kind] or '';
     if row.k == 'ma' then
         local school = SCHOOL_OF[row.type];
         kind = school and school.label or 'Magic';
     end
-    local el = ELEMENTS[tonumber(row.element) or -1];
-    imgui.TextColored(UI_MUTED, kind .. ((row.k == 'ma' and el) and ('  -  ' .. el[1]) or '') .. '  -  ' .. target_text(row));
+    return kind;
+end
 
-    local desc = clean_desc(res_string(res_field(row.res, 'Description')));
-    if desc ~= '' then
-        imgui.PushTextWrapPos(as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0);
-        imgui.TextWrapped(desc);
-        imgui.PopTextWrapPos();
+function draw_details(row, as_tooltip, skip_head)
+    local me = state.me;
+    local el = ELEMENTS[tonumber(row.element) or -1];
+    if not skip_head then
+        imgui.TextColored(UI_ACCENT_TEXT, row.name);
+        imgui.SameLine(0, 10);
+        imgui.TextColored(UI_MUTED, kind_label(row) .. ((row.k == 'ma' and el) and ('  -  ' .. el[1]) or '') .. '  -  ' .. target_text(row));
+
+        local desc = clean_desc(res_string(res_field(row.res, 'Description')));
+        if desc ~= '' then
+            imgui.PushTextWrapPos(as_tooltip and math.floor(360 * (tonumber(config.font_scale) or 1.0)) or 0);
+            imgui.TextWrapped(desc);
+            imgui.PopTextWrapPos();
+        end
     end
     -- 1.6.9: what a job trait does (the game has no description for traits).
     if row.k == 'trait' then
@@ -247,3 +255,38 @@ end
 -- ============================================================================
 -- Rows and sections
 -- ============================================================================
+
+
+-- ============================================================================
+-- 1.8.0: the hover tooltip in the game's item window look (core/gametip.lua),
+-- like the item tooltips: badge, name, kind chips, target line, description,
+-- then the rest of the details under a thin line.
+-- ============================================================================
+
+local MARK_TEXT = { ja = 'JA', sp = 'SP', merit = 'JA', pet = 'PET', roll = 'COR', shot = 'QD', man = 'PUP', ws = 'WS',
+    ma = 'MA', rage = 'BP', ward = 'BP', af = 'BP', trait = 'TR' };
+local MARK_COLOR = {
+    ja = COLORS.fire, sp = COLORS.fire, merit = COLORS.fire, pet = COLORS.wind, roll = COLORS.fire, shot = COLORS.fire,
+    man = COLORS.ice, ws = COLORS.earth, ma = COLORS.thunder, rage = COLORS.light, ward = COLORS.light, af = COLORS.light,
+    trait = COLORS.dark,
+};
+
+function draw_details_game(row)
+    local GT = game_tip;
+    local el = ELEMENTS[tonumber(row.element) or -1];
+    local tags = { kind_label(row) };
+    if row.k == 'ma' and el ~= nil then tags[#tags + 1] = el[1]; end
+    local mark = (row.k == 'ma' and el ~= nil) and el[2] or (MARK_COLOR[row.kind] or COLORS.light or { 0.8, 0.8, 0.9, 1 });
+    local desc = clean_desc(res_string(res_field(row.res, 'Description')));
+    GT.begin({
+        name = row.name, mark = mark, mark_text = MARK_TEXT[row.kind] or (row.k or ''):upper(), tags = tags,
+        sub = 'Target: ' .. target_text(row), desc = desc,
+    });
+    GT.sep();
+    local saved = { UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER, UI_TEXT };
+    UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER, UI_TEXT = GT.MUTED, GT.GOLD, GT.GOLD, GT.BAD, GT.TEXT;
+    local ok, err = pcall(draw_details, row, true, true);
+    UI_MUTED, UI_ACCENT_TEXT, UI_ACCENT, UI_DANGER, UI_TEXT = saved[1], saved[2], saved[3], saved[4], saved[5];
+    GT.finish();
+    if not ok then error(err); end
+end
