@@ -69,6 +69,12 @@ ashita.events.register('d3d_present', 'bluspells_present_cb', function()
     -- window closed.
     update_known_snapshot();
     update_set_cooldown();
+    -- 1.20.0: no window on the title screen / character select.
+    local in_game = false;
+    pcall(function()
+        in_game = (tonumber(AshitaCore:GetMemoryManager():GetParty():GetMemberServerId(0)) or 0) ~= 0;
+    end);
+    if not in_game then return; end
     draw_window();
     draw_set_cooldown_window();
     draw_farm_window();

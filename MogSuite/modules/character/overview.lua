@@ -500,7 +500,11 @@ function draw_item_tooltip(entry)
         imgui.TextColored(state.muted_color, entry.label);
         if entry.description ~= nil and entry.description ~= '' then
             imgui.Spacing();
-            imgui.TextUnformatted(entry.description);
+            if game_tip ~= nil and game_tip.desc ~= nil then
+                game_tip.desc(nil, entry.description, 420 * scale);
+            else
+                imgui.TextUnformatted(entry.description);
+            end
         end
         pcall(latents.draw_theme, entry.id, nil, state.muted_color, UI_TEXT);
     else

@@ -9,7 +9,9 @@ return T{
 
     -- Conquest results (HorizonXI: Sunday 11:00 Eastern, per John). Your
     -- computer's local time: change it here if yours differs.
-    conquest = T{ enabled = true, weekday = 0, hour = 11, minute = 0 },   -- weekday 0 = Sunday
+    -- 1.8.1: dst = move it when your clock changes (the server's doesn't); utc_offset = your
+    -- clock's offset when the time was set (nil = set in summer, like the default 11:00 EDT).
+    conquest = T{ enabled = true, weekday = 0, hour = 11, minute = 0, dst = true },   -- weekday 0 = Sunday
 
     -- The summary a few seconds after you log in.
     login = T{

@@ -117,7 +117,11 @@ function draw_tooltip_theme(row)
         if #slots > 0 then imgui.TextColored(UI_MUTED, '[' .. table.concat(slots, ' / ') .. ']'); end
     end
     if info.desc ~= nil and info.desc ~= '' then
-        imgui.TextWrapped(info.desc);
+        if game_tip ~= nil and game_tip.desc ~= nil then
+            game_tip.desc(nil, info.desc, math.floor(340 * (tonumber(config.font_scale) or 1.0)));
+        else
+            imgui.TextWrapped(info.desc);
+        end
     end
     if (info.level or 0) > 0 then
         imgui.TextColored(UI_MUTED, ('Lv %d  %s'):fmt(info.level, jobs_text(info.jobs)));

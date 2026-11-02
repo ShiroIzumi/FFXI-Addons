@@ -15,12 +15,52 @@ function res_string(arr)
     return tostring(v);
 end
 
+-- The game's special text codes (1.8.2): \xEF + a byte is an element icon
+-- (Fire ... Dark), drawn by the game as a picture. Written out as the element's
+-- name, with a "+" before a number right after it ("Fire+3", as the game means it).
+-- Replaced as plain text: several of the bytes are Lua pattern characters.
+local ELEMENT_CODES = {
+    [0x1F] = 'Fire', [0x20] = 'Ice', [0x21] = 'Wind', [0x22] = 'Earth',
+    [0x23] = 'Lightning', [0x24] = 'Water', [0x25] = 'Light', [0x26] = 'Dark',
+    [0x27] = '', [0x28] = '',
+};
+
 function clean_desc(text)
     text = tostring(text or '');
-    text = text:gsub('\x81\x60', '~')
-        :gsub('\xEF\x1F', 'Fire'):gsub('\xEF\x20', 'Ice'):gsub('\xEF\x21', 'Wind')
-        :gsub('\xEF\x22', 'Earth'):gsub('\xEF\x23', 'Lightning'):gsub('\xEF\x24', 'Water')
-        :gsub('\xEF\x25', 'Light'):gsub('\xEF\x26', 'Dark');
+    if text:find('\x81\x60', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\x81\x60', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            out[#out + 1] = '~';
+            pos = a + 2;
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
+    end
+    if text:find('\xEF', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\xEF', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            local code = text:byte(a + 1);
+            local name = code and ELEMENT_CODES[code] or nil;
+            if name ~= nil then
+                local after = text:sub(a + 2, a + 2);
+                if name ~= '' and after:match('%d') then name = name .. '+'; end
+                out[#out + 1] = name;
+                pos = a + 2;
+            else
+                out[#out + 1] = '\xEF';
+                pos = a + 1;
+            end
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
+    end
+    text = text:gsub('\r\n', '\n'):gsub('\r', '\n');
     return text;
 end
 

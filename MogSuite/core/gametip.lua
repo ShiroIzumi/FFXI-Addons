@@ -120,6 +120,66 @@ function gametip.wrapped(col, text)
     imgui.PopStyleColor(1);
 end
 
+-- 1.8.4: element resistances in a description ("Fire+3", "Ice-10") in the
+-- element's color, the rest in col. Wraps word by word at wrap_x (the
+-- window's own x, like PushTextWrapPos); nil = the tooltip's description width.
+gametip.ELEMENT_COLORS = {
+    Fire      = { 1.00, 0.40, 0.30, 1.00 },
+    Ice       = { 0.55, 0.86, 1.00, 1.00 },
+    Wind      = { 0.45, 0.95, 0.55, 1.00 },
+    Earth     = { 0.90, 0.70, 0.36, 1.00 },
+    Lightning = { 0.80, 0.60, 1.00, 1.00 },
+    Water     = { 0.38, 0.66, 1.00, 1.00 },
+    Light     = { 1.00, 0.95, 0.60, 1.00 },
+    Dark      = { 0.72, 0.52, 0.90, 1.00 },
+};
+
+local function element_color(word)
+    local name = word:match('^(%a+)[%+%-]%d');
+    if name == nil then return nil; end
+    return gametip.ELEMENT_COLORS[name];
+end
+
+function gametip.desc(col, text, wrap_x)
+    text = tostring(text or '');
+    if not text:find('[%+%-]%d') then
+        if col ~= nil then gametip.wrapped(col, text); else imgui.TextWrapped(text); end
+        return;
+    end
+    local any = false;
+    for word in text:gmatch('%S+') do
+        if element_color(word) ~= nil then any = true; break; end
+    end
+    if not any then
+        if col ~= nil then gametip.wrapped(col, text); else imgui.TextWrapped(text); end
+        return;
+    end
+    local x0 = imgui.GetCursorPosX();
+    local width = (wrap_x or gametip.wrap_x or (x0 + 300)) - x0;
+    if width < 40 then width = 40; end
+    local space = tonumber((imgui.CalcTextSize(' '))) or 4;
+    imgui.PushStyleVar(ImGuiStyleVar_ItemSpacing, { 0, 0 });
+    for line in (text .. '\n'):gmatch('(.-)\n') do
+        local used = 0;
+        local drew = false;
+        for word in line:gmatch('%S+') do
+            local w = tonumber((imgui.CalcTextSize(word))) or 0;
+            if drew and used + space + w <= width then
+                imgui.SameLine(0, space);
+                used = used + space + w;
+            else
+                used = w;
+            end
+            local c = element_color(word) or col;
+            if c ~= nil then imgui.TextColored(c, word); else imgui.TextUnformatted(word); end
+            drew = true;
+        end
+        if not drew then imgui.TextUnformatted(''); end
+    end
+    imgui.PopStyleVar(1);
+    imgui.Dummy({ 1, 0 });
+end
+
 -- A thin pale line between the item and MogSuite's own lines.
 function gametip.sep()
     imgui.Spacing();
@@ -215,6 +275,7 @@ function gametip.begin(o)
     gametip.wrap_w = fs * 21;
     local wrap_x = imgui.GetCursorPosX() + gametip.wrap_w;
     imgui.PushTextWrapPos(wrap_x);
+    gametip.wrap_x = wrap_x;
     if o.equip then
         local skill = gametip.SKILLS[tonumber(o.skill) or 0];
         local slot = gametip.slot_text(o.slots);
@@ -226,7 +287,7 @@ function gametip.begin(o)
     end
     if o.sub ~= nil and o.sub ~= '' then gametip.line(gametip.LINE, o.sub); end
     if o.desc ~= nil and o.desc ~= '' then
-        gametip.wrapped(gametip.TEXT, o.desc);
+        gametip.desc(gametip.TEXT, o.desc, wrap_x);
     end
     if o.equip and ((tonumber(o.level) or 0) > 0 or (o.jobs_text or '') ~= '') then
         imgui.Dummy({ 1, math.floor(fs * 0.15) });

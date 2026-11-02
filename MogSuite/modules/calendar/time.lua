@@ -103,15 +103,41 @@ end
 -- Conquest
 -- ============================================================================
 
+-- Seconds east of UTC of the computer's clock at time t (e.g. -14400 for EDT, -18000 for EST).
+function tz_offset(t)
+    t = t or os.time();
+    local l = os.date('*t', t);
+    local u = os.date('!*t', t);
+    u.isdst = l.isdst;
+    return os.difftime(os.time(l), os.time(u));
+end
+
+-- The offset in summer (daylight saving time), for settings made before 1.8.1.
+local function summer_offset()
+    return tz_offset(os.time({ year = tonumber(os.date('%Y')), month = 7, day = 1, hour = 12 }));
+end
+
+-- 1.8.1: the server's conquest time does not move with daylight saving time. The setting is
+-- the local time when it was set (config.conquest.utc_offset = the clock's offset then; settings
+-- from before 1.8.1 were made in summer). With "Adjust for daylight saving time" on (default),
+-- the time is moved by the difference when the clocks change (11:00 AM EDT = 10:00 AM EST).
+function conquest_shift(t)
+    local C = config.conquest;
+    if C.dst == false then return 0; end
+    local ref = tonumber(C.utc_offset) or summer_offset();
+    return tz_offset(t) - ref;
+end
+
 -- The next conquest results (weekday / hour / minute in local time).
 function next_conquest(from)
     local C = config.conquest;
     from = from or os.time();
     local now = os.date('*t', from);
-    for ahead = 0, 8 do
-        local t = os.time({ year = now.year, month = now.month, day = now.day + ahead,
+    for ahead = -1, 8 do
+        local naive = os.time({ year = now.year, month = now.month, day = now.day + ahead,
             hour = tonumber(C.hour) or 11, min = tonumber(C.minute) or 0, sec = 0 });
-        if t > from and tonumber(os.date('%w', t)) == (tonumber(C.weekday) or 0) then return t; end
+        local t = naive + conquest_shift(naive);
+        if t > from and tonumber(os.date('%w', naive)) == (tonumber(C.weekday) or 0) then return t; end
     end
     return from + 7 * 86400;
 end

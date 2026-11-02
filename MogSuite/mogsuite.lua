@@ -32,7 +32,7 @@
 
 addon.name    = 'mogsuite';
 addon.author  = 'Izumi (ShiroIzumi)';
-addon.version = '1.8.0';
+addon.version = '1.8.4';
 addon.desc    = 'MogSuite: your character, inventory, actions, calendar and crafting in one suite.';
 addon.link    = '';
 

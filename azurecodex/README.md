@@ -4,7 +4,7 @@
 
 All spell, trait, mob and zone data is tailored to **HorizonXI's level-75 era**. It is not a retail FFXI database.
 
-**Version:** 1.19.3  
+**Version:** 1.20.0  
 **Authors:** Izumi (ShiroIzumi) · Kyrias  
 **Testing:** Demiora
 
@@ -255,6 +255,10 @@ Azure Codex continues the original BLUSpells project under its new collaborative
 ---
 
 ## Changelog
+
+### 1.20.0
+- The Config window now uses MogSuite's layout: colored sections in the sidebar with their pages (Window: Window, Display, Tabs; Look: Font & Colors; Behavior; Global: About), each page starts with "Section / Page" and a line about it, a search box finds any setting on any page and shows each page's title and how many results there are, and the theme swatches sit at the top right. Every option is still there, only grouped.
+- No Azure Codex window shows on the title screen / character select.
 
 ### 1.19.3
 - Trait points updated to HorizonXI's current values: Stinking Gas and Cold Wave 1; Frightful Roar, Self-Destruct and Winds of Promyvion 2; Light of Penance and Voracious Trunk 3; Geist Wall, Blood Saber, Actinic Burst and Plasma Charge 4. The Trait Calculator and Trait Planner use the new values.

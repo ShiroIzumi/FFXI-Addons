@@ -11,7 +11,7 @@
 | **Calendar** | `L` | Vana'diel days and moon on a calendar, conquest, your timers and events, ships and guilds |
 | **Crafting** | `J` | Crafting skills, recipes, what you can make from your bags, and your own HQ / break rates |
 
-**Version:** 1.8.0
+**Version:** 1.8.4
 **Author:** Izumi (ShiroIzumi)
 
 <table>
@@ -231,6 +231,18 @@ Each module folder has an `init.lua` (how the suite talks to it), a `config.lua`
 - Made for the HorizonXI community.
 
 ## Changelog
+
+### 1.8.4
+- Item tooltips: element resistances (Fire+3, Ice-10, ...) are drawn in the element's color, in every part (Character, Inventory, both tooltip looks).
+
+### 1.8.3
+- Character window tooltips (equipment strip and gear panel): element icons now really show as names ("Fire+3"). 1.8.2's fix only reached the Inventory and Actions tooltips.
+
+### 1.8.2
+- Item descriptions: element icons now read as names ("Fire+3 Ice+3 ...") in every tooltip (Character window equipment and overview, Inventory, Actions) instead of broken characters.
+
+### 1.8.1
+- Calendar: conquest results follow daylight saving time. The server's clock doesn't change, so when yours does (fall / spring) the results move an hour on your clock (Sunday 11:00 AM EDT = 10:00 AM EST). Settings > Calendar > Conquest > **Adjust for daylight saving time** (on by default; off = always the exact time set).
 
 ### 1.8.0
 

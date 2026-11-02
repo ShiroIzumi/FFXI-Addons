@@ -239,6 +239,45 @@ function draw_spellsets_page()
     end
 end
 
+-- 1.20.0: the Config window in MogSuite's layout (cfgkit.lua).
+local kit = require('cfgkit');
+local CONFIG_GROUPS = nil;
+local function config_groups()
+    if CONFIG_GROUPS ~= nil then return CONFIG_GROUPS; end
+    CONFIG_GROUPS = {
+        { label = 'Window', color = { 0.45, 0.65, 1.00, 1 }, pages = {
+            { key = 'window', label = 'Window', draw = draw_window_tab, desc = 'Locks, title bar, border, background and the mouse pointer.', keywords = 'lock title border background opacity pointer cursor reset' },
+            { key = 'display', label = 'Display', draw = draw_display_tab, desc = 'Row spacing, rows per page and the visible columns.', keywords = 'rows spacing columns compact' },
+            { key = 'tabs', label = 'Tabs', draw = draw_tabs_config_tab, desc = 'Which navigation tabs appear in the main window.', keywords = 'tabs navigation bluprints' },
+        } },
+        { label = 'Look', color = { 0.45, 0.90, 0.50, 1 }, pages = {
+            { key = 'fonts', label = 'Font & Colors', draw = draw_font_colors_tab, desc = 'Theme, font scale and the spell colors.', keywords = 'theme font scale color colors known learnable' },
+        } },
+        { label = 'Behavior', color = { 1.00, 0.60, 0.30, 1 }, pages = {
+            { key = 'behavior', label = 'Behavior', draw = draw_behavior_tab, desc = 'Search / filter, learning, learning locations, BLU limits, the Target Tag and Reset All.', keywords = 'filter search learning location merits assimilation target tag reset' },
+        } },
+        { label = 'Global', color = { 0.70, 0.80, 0.95, 1 }, pages = {
+            { key = 'about', label = 'About', draw = draw_about_tab, desc = 'What Azure Codex is, version and credits.', keywords = 'version author credits' },
+        } },
+    };
+    return CONFIG_GROUPS;
+end
+
+-- What cfgkit needs from the theme: the theme list (swatches) and colors.
+local KIT_THEME = { THEMES = {}, ORDER = {} };
+local function kit_theme()
+    local th = KIT_THEME;
+    th.ORDER = AC_THEME_ORDER;
+    for _, key in ipairs(AC_THEME_ORDER) do
+        local t = AC_THEMES[key];
+        th.THEMES[key] = { label = t.label, accent = t.header };
+    end
+    th.UI_ACCENT_TEXT = state.header_color;
+    th.UI_ACCENT = state.header_color;
+    th.UI_MUTED = MUTED;
+    return th;
+end
+
 function draw_config_window()
     if not state.config_open[1] then
         state.apply_saved_config_geometry = true;
@@ -246,55 +285,25 @@ function draw_config_window()
     end
 
     if state.apply_saved_config_geometry then
-        imgui.SetNextWindowPos({ state.config_last_x, state.config_last_y }, { 0, 0 });
-        imgui.SetNextWindowSize({ state.config_last_w, state.config_last_h });
+        kit.replace('ac');
         state.apply_saved_config_geometry = false;
     end
 
-    push_theme();
-
-    if imgui.Begin('Azure Codex - Config##bluspells_config', state.config_open, ImGuiWindowFlags_NoNav) then
-        local config_tabs = {
-            { label = 'Window', id = 'cfg_tab_window', draw = draw_window_tab },
-            { label = 'Font & Colors', id = 'cfg_tab_font_colors', draw = draw_font_colors_tab },
-            { label = 'Display', id = 'cfg_tab_display', draw = draw_display_tab },
-            { label = 'Tabs', id = 'cfg_tab_tabs', draw = draw_tabs_config_tab },
-            { label = 'Behavior', id = 'cfg_tab_behavior', draw = draw_behavior_tab },
-            { label = 'About', id = 'cfg_tab_about', draw = draw_about_tab },
-        };
-
-        local selected_tab = tonumber(state.config_tab) or 1;
-        if selected_tab < 1 or selected_tab > #config_tabs then
-            selected_tab = 1;
-        end
-
-        -- Flat styled tab row with an accent underline on the active tab.
-        imgui.PushStyleVar(ImGuiStyleVar_FramePadding, { 12, 6 });
-        for index, tab in ipairs(config_tabs) do
-            if index > 1 then
-                imgui.SameLine(0, 4);
-            end
-            if draw_styled_tab(tab.label, tab.id, index == selected_tab) then
-                selected_tab = index;
-            end
-        end
-        imgui.PopStyleVar(1);
-        state.config_tab = selected_tab;
-
-        imgui.Spacing();
-        imgui.Separator();
-        imgui.Spacing();
-
-        -- Only the tab content scrolls; the tab row stays in place.
-        imgui.BeginChild('##bluspells_config_content', { 0, 0 });
-        config_tabs[selected_tab].draw();
-        imgui.EndChild();
-
-        capture_config_geometry();
-    end
-
-    imgui.End();
-    pop_theme();
+    local pos = { x = state.config_last_x, y = state.config_last_y, w = state.config_last_w, h = state.config_last_h };
+    kit.draw({
+        id = 'ac', title = 'Azure Codex - Config', open = state.config_open, pos = pos, scale = 1.0,
+        dirty = function() state.config_geometry_dirty = true; end,
+        groups = config_groups(), page = state.config_page or 'window',
+        set_page = function(k) state.config_page = k; end,
+        theme = kit_theme(), theme_key = state.theme,
+        set_theme = function(k) select_theme(k); end,
+        push = push_theme, pop = pop_theme,
+        flags = ImGuiWindowFlags_NoNav,
+        status = 'v' .. tostring(addon.version or ''),
+        default_pos = { 200, 140 }, default_size = { 760, 560 },
+    });
+    state.config_last_x, state.config_last_y = pos.x, pos.y;
+    state.config_last_w, state.config_last_h = pos.w, pos.h;
 end
 
 function draw_filter_button(label, mode, enabled)

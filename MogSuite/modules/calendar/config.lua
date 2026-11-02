@@ -27,11 +27,24 @@ end
 
 local function config_conquest()
     ui.section('CONQUEST RESULTS');
-    ui.info('When the weekly conquest results come in, in your computer\'s local time. HorizonXI: Sunday 11:00 AM Eastern.');
+    ui.info('When the weekly conquest results come in, in your computer\'s local time. HorizonXI: Sunday 11:00 AM Eastern daylight time (10:00 AM in winter).');
     ui.check('Show conquest results', config.conquest, 'enabled', nil, ON);
-    ui.choice('Day', config.conquest, 'weekday', WEEKDAYS, 'The day of the week (your local time).');
-    ui.slider_i('Hour', config.conquest, 'hour', 0, 23, '%d:00', 'The hour, 24-hour clock (11 = 11 AM).');
-    ui.slider_i('Minute', config.conquest, 'minute', 0, 59, ':%02d');
+    local C = config.conquest;
+    local before = ('%s/%s/%s'):fmt(tostring(C.weekday), tostring(C.hour), tostring(C.minute));
+    ui.choice('Day', C, 'weekday', WEEKDAYS, 'The day of the week (your local time).');
+    ui.slider_i('Hour', C, 'hour', 0, 23, '%d:00', 'The hour, 24-hour clock (11 = 11 AM), as your clock shows it today.');
+    ui.slider_i('Minute', C, 'minute', 0, 59, ':%02d');
+    -- Changing the time records the clock's offset now, so the daylight saving adjustment starts from it.
+    if ('%s/%s/%s'):fmt(tostring(C.weekday), tostring(C.hour), tostring(C.minute)) ~= before then C.utc_offset = tz_offset(); end
+    ui.check('Adjust for daylight saving time', C, 'dst',
+        'The server does not change its clock: when yours changes (spring / fall), the results come an hour later / earlier on your clock. On: moved for you. Off: always the exact time set above.', ON);
+    if C.dst ~= false and ui.want('daylight saving') then
+        local shift = conquest_shift(os.time());
+        if shift ~= 0 then
+            ui.label('Right now');
+            imgui.TextColored(UI_MUTED, ('moved %s%d h for daylight saving time'):fmt(shift > 0 and '+' or '-', math.floor(math.abs(shift) / 3600 + 0.5)));
+        end
+    end
     if ui.want('next conquest') then
         ui.label('Next results');
         imgui.TextColored(UI_ACCENT_TEXT, when_at(next_conquest()));

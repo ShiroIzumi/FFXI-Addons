@@ -2,8 +2,21 @@
     Azure Codex - ac/config.lua
 
     Saving settings, window geometry, theme push / pop, resets, and the
-    Config window tabs (Window, Font & Colors, Display, Tabs, Behavior).
+    Config window pages (Window, Font & Colors, Display, Tabs, Behavior).
+    1.20.0: the pages use cfgkit's search: widgets go through kit.filter
+    (a widget whose name doesn't match the search is skipped), and the
+    toggle buttons below check the search themselves.
 ]]
+
+local kit = require('cfgkit');
+local imgui = kit.filter(imgui);
+local SEC = '';
+local real_toggle = draw_toggle_button;
+local function draw_toggle_button(label, id, selected, disabled)
+    if kit.searching() and not kit.want(tostring(label) .. ' ' .. SEC) then imgui.kit_skip(); return false; end
+    imgui.kit_flush();
+    return real_toggle(label, id, selected, disabled);
+end
 
 function save_config()
     ensure_tables();
@@ -343,6 +356,7 @@ function reset_all()
 end
 
 function section_title(value)
+    SEC = tostring(value or '');
     imgui.TextColored(state.header_color, value);
     imgui.PushStyleColor(ImGuiCol_Separator, accent(0.35));
     imgui.Separator();

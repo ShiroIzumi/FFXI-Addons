@@ -68,6 +68,52 @@ end
 push_sheet_theme = nil;
 pop_sheet_theme = nil;
 
+local ELEMENT_CODES = {
+    [0x1F] = 'Fire', [0x20] = 'Ice', [0x21] = 'Wind', [0x22] = 'Earth',
+    [0x23] = 'Lightning', [0x24] = 'Water', [0x25] = 'Light', [0x26] = 'Dark',
+    [0x27] = '', [0x28] = '',
+};
+
+-- Each module has its own environment, so this one has its own copy (1.8.3).
+local function element_text(text)
+    text = tostring(text or '');
+    if text:find('\x81\x60', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\x81\x60', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            out[#out + 1] = '~';
+            pos = a + 2;
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
+    end
+    if text:find('\xEF', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\xEF', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            local code = text:byte(a + 1);
+            local name = code and ELEMENT_CODES[code] or nil;
+            if name ~= nil then
+                local after = text:sub(a + 2, a + 2);
+                if name ~= '' and after:match('%d') then name = name .. '+'; end
+                out[#out + 1] = name;
+                pos = a + 2;
+            else
+                out[#out + 1] = '\xEF';
+                pos = a + 1;
+            end
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
+    end
+    text = text:gsub('\r\n', '\n'):gsub('\r', '\n');
+    return text;
+end
+
 function item_description(item)
     if item == nil then return ''; end
 
@@ -96,6 +142,10 @@ function item_description(item)
     local result = read_description(1);
     if result == '' then result = read_description(2); end
     if result == '' then result = read_description(0); end
+
+    -- 1.8.3: element icons (\xEF + a byte) as names ("Fire+3"), before the control bytes
+    -- below are removed (the icon's second byte is one, which left a broken character).
+    result = element_text(result);
 
     -- Resource strings can contain control bytes / line breaks. Convert them
     -- into spaces so stat patterns can match reliably across wrapped lines.

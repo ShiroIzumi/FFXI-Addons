@@ -56,36 +56,52 @@ FILTERS = {
 item_cache = {};   -- [id] = info table
 icon_cache = {};   -- [id] = { tex = texture, id = imgui id } or false
 
--- The game's special text codes, replaced as plain text (1.7.0): several of
--- them are Lua pattern characters ('\xEF\x24' = '$', '\xEF\x25' = '%',
--- '\xEF\x28' = '('), so a gsub broke on them ("malformed pattern") and the
--- item lost its description.
-local TEXT_CODES = {
-    { '\x81\x60', '~' },
-    { '\xEF\x1F', 'Fire' }, { '\xEF\x20', 'Ice' }, { '\xEF\x21', 'Wind' }, { '\xEF\x22', 'Earth' },
-    { '\xEF\x23', 'Lightning' }, { '\xEF\x24', 'Water' }, { '\xEF\x25', 'Light' }, { '\xEF\x26', 'Dark' },
-    { '\xEF\x27', '' }, { '\xEF\x28', '' },
-    { '\r\n', '\n' }, { '\r', '\n' },
+-- The game's special text codes (1.8.2): \xEF + a byte is an element icon
+-- (Fire ... Dark), drawn by the game as a picture. Written out as the element's
+-- name, with a "+" before a number right after it ("Fire+3", as the game means it).
+-- Replaced as plain text: several of the bytes are Lua pattern characters.
+local ELEMENT_CODES = {
+    [0x1F] = 'Fire', [0x20] = 'Ice', [0x21] = 'Wind', [0x22] = 'Earth',
+    [0x23] = 'Lightning', [0x24] = 'Water', [0x25] = 'Light', [0x26] = 'Dark',
+    [0x27] = '', [0x28] = '',
 };
-
-local function replace_plain(text, find, with)
-    local out, pos = {}, 1;
-    while true do
-        local a, b = text:find(find, pos, true);
-        if a == nil then break; end
-        out[#out + 1] = text:sub(pos, a - 1);
-        out[#out + 1] = with;
-        pos = b + 1;
-    end
-    out[#out + 1] = text:sub(pos);
-    return table.concat(out);
-end
 
 function clean_desc(text)
     text = tostring(text or '');
-    for _, c in ipairs(TEXT_CODES) do
-        if text:find(c[1], 1, true) then text = replace_plain(text, c[1], c[2]); end
+    if text:find('\x81\x60', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\x81\x60', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            out[#out + 1] = '~';
+            pos = a + 2;
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
     end
+    if text:find('\xEF', 1, true) then
+        local out, pos = {}, 1;
+        while true do
+            local a = text:find('\xEF', pos, true);
+            if a == nil then break; end
+            out[#out + 1] = text:sub(pos, a - 1);
+            local code = text:byte(a + 1);
+            local name = code and ELEMENT_CODES[code] or nil;
+            if name ~= nil then
+                local after = text:sub(a + 2, a + 2);
+                if name ~= '' and after:match('%d') then name = name .. '+'; end
+                out[#out + 1] = name;
+                pos = a + 2;
+            else
+                out[#out + 1] = '\xEF';
+                pos = a + 1;
+            end
+        end
+        out[#out + 1] = text:sub(pos);
+        text = table.concat(out);
+    end
+    text = text:gsub('\r\n', '\n'):gsub('\r', '\n');
     return text;
 end
 
